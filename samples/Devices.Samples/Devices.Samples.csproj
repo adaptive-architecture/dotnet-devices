@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Devices\Devices.csproj" />
+    <ProjectReference Include="..\..\src\Devices.DependencyInjection\Devices.DependencyInjection.csproj" />
   </ItemGroup>
 
 </Project>

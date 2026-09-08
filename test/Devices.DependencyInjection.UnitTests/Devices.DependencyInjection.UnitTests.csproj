@@ -1,15 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(CONFIGURATION)' == 'Debug' Or '$(BuildDocFx)' == 'true'">
-    <ProjectReference Include="..\..\src\Devices\Devices.csproj" />
+    <ProjectReference Include="..\..\src\Devices.DependencyInjection\Devices.DependencyInjection.csproj" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(CONFIGURATION)' == 'Release' And '$(BuildDocFx)' != 'true'">
     <PackageReference Include="AdaptArch.Devices" />
+    <PackageReference Include="AdaptArch.Devices.DependencyInjection" />
   </ItemGroup>
 
 </Project>

@@ -5,6 +5,7 @@
 ## Packages
 
 - [AdaptArch.Devices](https://www.nuget.org/packages/AdaptArch.Devices): Cross-platform device abstractions for printers, scanners, and peripherals
+- [AdaptArch.Devices.DependencyInjection](https://www.nuget.org/packages/AdaptArch.Devices.DependencyInjection): Dependency injection registrations for AdaptArch.Devices
 
 ## Documentation
 

@@ -13,6 +13,8 @@ Read [docs/](docs/README.md) for progressive discovery of the architecture, pack
 - **Code style** (`.editorconfig`): C# 4-space indent + UTF-8 BOM, expression-bodied members preferred, no `this.`, `System.*` usings first, primary constructors disabled (IDE0290), switch expressions disabled (IDE0066).
 - **License is Apache 2.0**.
 - **Naming**: `AdaptArch.$(MSBuildProjectName)` for package/namespace/assembly; packages live under `src/`, tests under `test/`, samples under `samples/`; solution is the modern `.slnx` format.
+- **Minimal dependencies**: core `src/` packages take no runtime NuGet dependencies; framework integrations (DI/hosting/logging) ship as separate `AdaptArch.*` packages.
+- **Intra-repo references are configuration-conditional** (sibling `common-utilities` convention): `Debug` (or `BuildDocFx`) uses `ProjectReference` for live source; `Release` uses `PackageReference` against the centrally pinned `AdaptArch.*` version. New packages must be added to `pipeline/publish-packages.sh` so the release flow publishes them in dependency order.
 
 ## Repo-local tooling
 

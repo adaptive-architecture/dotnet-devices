@@ -7,6 +7,7 @@ This directory provides progressive discovery of the `dotnet-devices` repository
 - [Architecture](architecture.md) — repository layout, platform strategy, naming conventions
 - [Packages](packages.md) — NuGet packages, how they are built and published
 - [Capabilities](capabilities.md) — what the library does today and planned device support
+- [Printers](printers.md) — printer abstractions: payloads, transports, discovery, queues
 - [Development](development.md) — build, test, docs, and contribution workflow
 
 ## Quick Commands

@@ -24,6 +24,7 @@ fi
 
 projects=( \
   "Devices" \
+  "Devices.DependencyInjection" \
 )
 
 rm -rf ./.nuget/*.nupkg

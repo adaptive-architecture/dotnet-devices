@@ -4,8 +4,10 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Devices/Devices.csproj" />
+    <Project Path="src/Devices.DependencyInjection/Devices.DependencyInjection.csproj" />
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/Devices.UnitTests/Devices.UnitTests.csproj" />
+    <Project Path="test/Devices.DependencyInjection.UnitTests/Devices.DependencyInjection.UnitTests.csproj" />
   </Folder>
 </Solution>

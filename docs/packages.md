@@ -6,7 +6,32 @@
 
 | Package | Description |
 | :--- | :--- |
-| `AdaptArch.Devices` | Core cross-platform device abstractions (printers, scanners, peripherals) |
+| `AdaptArch.Devices` | Core cross-platform device abstractions (printers, scanners, peripherals). Zero runtime dependencies. |
+| `AdaptArch.Devices.DependencyInjection` | `Microsoft.Extensions.DependencyInjection` registrations for `AdaptArch.Devices` (`AddDevices`, `AddPrinters`). |
+
+Core packages take no runtime NuGet dependencies; framework integrations (DI/hosting/logging)
+ship as separate packages so consumers only take what they use.
+
+## Intra-Repository References
+
+Projects reference each other conditionally by configuration (same convention as the
+sibling `common-utilities` repository):
+
+```xml
+<ItemGroup Condition="'$(CONFIGURATION)' == 'Debug' Or '$(BuildDocFx)' == 'true'">
+  <ProjectReference Include="..\Devices\Devices.csproj" />
+</ItemGroup>
+
+<ItemGroup Condition="'$(CONFIGURATION)' == 'Release' And '$(BuildDocFx)' != 'true'">
+  <PackageReference Include="AdaptArch.Devices" />
+</ItemGroup>
+```
+
+- `Debug` builds use live project sources; `Release` builds validate against the real
+  published packages (versions pinned in `Directory.Packages.props`).
+- The `BuildDocFx` carve-out keeps API documentation building from sources.
+- Every new package must be added to the `projects` array in `pipeline/publish-packages.sh`
+  (in dependency order) so releases publish it and bump its pinned version.
 
 Future specialized packages (e.g. `AdaptArch.Devices.Printers`, `AdaptArch.Devices.Scanners`) may be added as behavior is implemented. Follow the sibling `common-utilities` convention: one package per independent concern, with minimal dependencies.
 
