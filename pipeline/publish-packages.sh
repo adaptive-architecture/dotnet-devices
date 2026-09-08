@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# Runs .NET commands through the dotnetup-managed toolchain when available
+# (local development) and falls back to the PATH-provided dotnet otherwise (CI).
+dotnet_cmd() {
+  if command -v dotnetup >/dev/null 2>&1; then
+    dotnetup dotnet "$@"
+  else
+    dotnet "$@"
+  fi
+}
+
 # Default values
 configuration=""
 version=""
@@ -34,13 +44,13 @@ rm -rf ./.nuget/*.snupkg
 for project in "${projects[@]}"; do
   echo "Publishing $project"
 
-  dotnetup dotnet build ./src/$project/$project.csproj --configuration $configuration \
+  dotnet_cmd build ./src/$project/$project.csproj --configuration $configuration \
     -p:ContinuousIntegrationBuild=true -p:CI_BUILD=true -p:Version=$version
 
-  dotnetup dotnet pack ./src/$project/$project.csproj --configuration $configuration -p:Version=$version \
+  dotnet_cmd pack ./src/$project/$project.csproj --configuration $configuration -p:Version=$version \
     -p:CI_BUILD=true
 
-  dotnetup dotnet nuget push ./src/$project/bin/$configuration/*.nupkg \
+  dotnet_cmd nuget push ./src/$project/bin/$configuration/*.nupkg \
     --api-key $nuget_api_key \
     --source https://api.nuget.org/v3/index.json \
     --skip-duplicate
