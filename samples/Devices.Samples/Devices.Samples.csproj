@@ -9,4 +9,8 @@
     <ProjectReference Include="..\..\src\Devices.DependencyInjection\Devices.DependencyInjection.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="PrintFiles\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

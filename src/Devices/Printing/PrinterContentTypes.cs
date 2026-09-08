@@ -31,6 +31,16 @@ public static class PrinterContentTypes
     public const string Text = "text/plain";
 
     /// <summary>
+    /// PNG image.
+    /// </summary>
+    public const string Png = "image/png";
+
+    /// <summary>
+    /// PDF document.
+    /// </summary>
+    public const string Pdf = "application/pdf";
+
+    /// <summary>
     /// Opaque binary data for printers that accept vendor-specific streams.
     /// </summary>
     public const string OctetStream = "application/octet-stream";
