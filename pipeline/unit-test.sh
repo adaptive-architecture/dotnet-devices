@@ -23,11 +23,17 @@ fi
 rm -rf ./coverage/*
 rm -rf ./test/TestResults
 
+# MTP mode (opted in via global.json `test.runner`):
+# - `dotnet test` discovers only MTP test projects, so samples/src are skipped
+#   without a `--filter`.
+# - `--nologo` and VSTest `-p:CollectCoverage` / `--filter` are not supported
+#   in MTP mode; coverage comes from the coverlet.MTP extension (`--coverlet`).
+# - Each test project writes timestamped reports into --results-directory;
+#   Sonar consumes them via a wildcard (see .github/workflows/test.yml).
 dotnet_cmd test \
-  --nologo \
   --no-build \
-  --filter "FullyQualifiedName!~AdaptArch.Devices.Samples" \
-  -p:CollectCoverage=\"true\" \
-  -p:CoverletOutputFormat=\"json,lcov,opencover\"  \
-  -p:CoverletOutput=\"../../coverage/\" \
-  -p:MergeWith=\"../../coverage/coverage.json\"
+  --coverlet \
+  --coverlet-output-format json \
+  --coverlet-output-format lcov \
+  --coverlet-output-format opencover \
+  --results-directory ./coverage

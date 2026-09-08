@@ -23,16 +23,25 @@ dotnetup dotnet build --no-incremental   # CI-style build without incremental
 
 ## Test
 
+Tests run on Microsoft.Testing.Platform (MTP), opted in via `global.json`
+(`test.runner: Microsoft.Testing.Platform`) as required on .NET 10 SDK.
+Test projects use `xunit.v3` (MTP v2 runner via
+`<UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>`)
+with coverage from the `coverlet.MTP` extension.
+
 ```bash
 sh ./pipeline/unit-test.sh    # Preferred: unit tests with coverage
 dotnetup dotnet test          # Run all tests
+dotnetup dotnet test --filter-class MyClass   # xUnit MTP filter example
 ```
 
 The `pipeline/unit-test.sh` script:
 
 - Builds before testing (avoids file-locking during parallel runs)
-- Excludes sample projects from coverage
+- `dotnet test` discovers only MTP test projects, so samples/src are skipped
+  without a filter
 - Emits coverage in JSON, LCOV, and OpenCover formats under `coverage/`
+  (one timestamped report per test project via `--results-directory ./coverage`)
 
 Integration tests (when added later) require Docker. Set `TESTCONTAINERS_RYUK_DISABLED=true` in CI environments.
 
