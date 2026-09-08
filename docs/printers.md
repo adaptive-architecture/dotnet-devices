@@ -58,6 +58,24 @@ IPrinterTransport transport = new TcpPrinterTransport();
 await transport.WriteAsync(new NetworkPrinterEndpoint("192.168.1.50"), payload, cancellationToken).ConfigureAwait(false);
 ```
 
+## Printer Status over IPP
+
+`IppPrinterStatusClient` reads identity and status from network printers via
+IPP Get-Printer-Attributes. It tries IPPS (TLS) first and falls back to plain HTTP
+across `/ipp/print` and `/ipp/port1`. All operations are read-only.
+
+- Returns `IppPrinterDetails` (`PrinterInfo` + `PrinterStatus`): make and model,
+  state, state reasons, and supply markers (ink/toner levels via `PrinterStatus.Markers`).
+- The default client accepts any server certificate, because network printers
+  overwhelmingly use self-signed certificates. Supply your own `HttpClient`
+  for custom validation.
+- The IPP port (default 631) is independent of any raw print channel port.
+
+```csharp
+IppPrinterStatusClient client = new();
+IppPrinterDetails details = await client.GetDetailsAsync("192.168.1.50", cancellationToken).ConfigureAwait(false);
+```
+
 ## Discovery and Job Queues
 
 - `IPrinterDiscovery.GetPrintersAsync` — enumerates OS spooler printers (Win32/CUPS).

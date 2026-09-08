@@ -1,6 +1,7 @@
 ﻿using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Text;
 using AdaptArch.Devices.DependencyInjection;
 using AdaptArch.Devices.Printing;
 using Microsoft.Extensions.DependencyInjection;
@@ -62,9 +63,14 @@ try
     }
     else
     {
+        IppPrinterStatusClient statusClient = provider.GetRequiredService<IppPrinterStatusClient>();
         foreach (DiscoveredPrinter printer in printers)
         {
             Console.WriteLine($"- {printer.Id.Value} ({printer.Endpoint})");
+            if (printer.Endpoint is NetworkPrinterEndpoint network)
+            {
+                await PrintDetailsAsync(statusClient, network).ConfigureAwait(false);
+            }
         }
     }
 }
@@ -158,6 +164,31 @@ static string GetContentType(string fileName)
     }
 
     throw new NotSupportedException($"Files with extension '{extension}' are not supported.");
+}
+
+static async Task PrintDetailsAsync(IppPrinterStatusClient client, NetworkPrinterEndpoint endpoint)
+{
+    using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(10));
+    try
+    {
+        IppPrinterDetails details = await client.GetDetailsAsync(endpoint.Host, timeoutSource.Token).ConfigureAwait(false);
+        StringBuilder line = new($"{details.Info.Name} — {details.Status.State}");
+        if (details.Status.Detail is not null)
+        {
+            line.Append($"; {details.Status.Detail}");
+        }
+
+        foreach (PrinterMarker marker in details.Status.Markers)
+        {
+            line.Append($"; {marker.Name} {(marker.LevelPercent is null ? "level unknown" : marker.LevelPercent + "%")}");
+        }
+
+        Console.WriteLine($"    {line}");
+    }
+    catch (Exception exception)
+    {
+        Console.WriteLine($"    Status unavailable: {exception.Message}");
+    }
 }
 
 static IReadOnlyList<string> GetLocalSubnetHosts()

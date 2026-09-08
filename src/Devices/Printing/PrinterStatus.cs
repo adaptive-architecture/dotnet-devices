@@ -38,6 +38,11 @@ public sealed class PrinterStatus
     public string? Detail { get; set; }
 
     /// <summary>
+    /// Gets or sets the supply markers (ink, toner) reported by the printer. Defaults to empty.
+    /// </summary>
+    public IReadOnlyList<PrinterMarker> Markers { get; set; } = [];
+
+    /// <summary>
     /// Gets or sets the time at which the status was observed.
     /// </summary>
     public DateTimeOffset Timestamp { get; set; }

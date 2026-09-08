@@ -17,6 +17,7 @@ public class ServiceCollectionExtensionsTests
         using ServiceProvider provider = services.BuildServiceProvider();
         Assert.IsType<TcpPrinterTransport>(provider.GetRequiredService<IPrinterTransport>());
         Assert.IsType<TcpNetworkPrinterDiscovery>(provider.GetRequiredService<INetworkPrinterDiscovery>());
+        Assert.IsType<IppPrinterStatusClient>(provider.GetRequiredService<IppPrinterStatusClient>());
         Assert.Same(
             provider.GetRequiredService<IPrinterTransport>(),
             provider.GetRequiredService<IPrinterTransport>());
@@ -32,5 +33,6 @@ public class ServiceCollectionExtensionsTests
         using ServiceProvider provider = services.BuildServiceProvider();
         Assert.IsType<TcpPrinterTransport>(provider.GetRequiredService<IPrinterTransport>());
         Assert.IsType<TcpNetworkPrinterDiscovery>(provider.GetRequiredService<INetworkPrinterDiscovery>());
+        Assert.IsType<IppPrinterStatusClient>(provider.GetRequiredService<IppPrinterStatusClient>());
     }
 }

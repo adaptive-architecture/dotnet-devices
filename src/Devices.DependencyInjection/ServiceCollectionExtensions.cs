@@ -30,6 +30,7 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton<IPrinterTransport, TcpPrinterTransport>();
         services.AddSingleton<INetworkPrinterDiscovery, TcpNetworkPrinterDiscovery>();
+        services.AddSingleton<IppPrinterStatusClient>();
         return services;
     }
 }
