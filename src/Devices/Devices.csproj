@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Cross-platform .NET abstractions for interacting with devices such as printers, scanners, and similar peripherals.</Description>
+  </PropertyGroup>
+
+</Project>

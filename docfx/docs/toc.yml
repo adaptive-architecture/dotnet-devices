@@ -1,0 +1,10 @@
+- name: Getting Started
+  items:
+  - name: Overview
+    href: getting-started.md
+- name: Devices
+  items:
+  - name: Printers
+    href: printers.md
+  - name: Scanners
+    href: scanners.md

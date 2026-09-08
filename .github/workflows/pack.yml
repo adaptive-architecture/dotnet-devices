@@ -1,0 +1,51 @@
+name: Publish NuGet packages.
+on:
+  release:
+    types: [created]
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # enable GitHub OIDC token issuance for this job
+      packages: write
+      contents: read
+    env:
+      config: 'Release'
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup dotnet
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.x
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          # Look to see if there is a cache hit for the corresponding requirements file
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget
+
+      - id: branch_name
+        name: Get branch name
+        run: |
+          echo "SOURCE_NAME=${GITHUB_REF#refs/*/}" >> $GITHUB_OUTPUT
+          echo "SOURCE_BRANCH=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+          echo "SOURCE_TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          echo "SOURCE_TAG_TRIMMED=$(echo ${GITHUB_REF#refs/tags/} | sed 's/v//')" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies
+        run: dotnet restore
+
+      # Get a short-lived NuGet API key
+      - name: NuGet login (OIDC → temp API key)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Publish packages
+        run: bash ./pipeline/publish-packages.sh -c $config -v ${{steps.branch_name.outputs.SOURCE_TAG_TRIMMED}} -n ${{steps.login.outputs.NUGET_API_KEY}} -g ${{secrets.GITHUB_TOKEN}}

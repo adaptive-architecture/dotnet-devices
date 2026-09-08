@@ -1,0 +1,25 @@
+{
+  "cSpell.words": [
+    "configfile",
+    "coverallsapp",
+    "docfx",
+    "finalizer",
+    "Finalizers",
+    "lcov",
+    "nologo",
+    "Npgsql",
+    "nupkg",
+    "opencover",
+    "Qube",
+    "Roslynator",
+    "sonarscanner",
+    "temurin",
+    "Testcontainers"
+  ],
+  "editor.formatOnSave": true,
+  "editor.formatOnSaveMode": "file",
+  "sonarlint.connectedMode.project": {
+    "connectionId": "adaptive-architecture",
+    "projectKey": "adaptive-architecture_dotnet-devices"
+  }
+}

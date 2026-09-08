@@ -1,0 +1,13 @@
+# .NET Devices
+
+> A cross-platform .NET library for interacting with hardware devices — printers, scanners, and similar peripherals. Targets Windows, Linux, and macOS.
+
+## Packages
+
+- [AdaptArch.Devices](https://www.nuget.org/packages/AdaptArch.Devices): Cross-platform device abstractions for printers, scanners, and peripherals
+
+## Documentation
+
+- [Overview](https://adaptive-architecture.github.io/dotnet-devices/docs/getting-started.html): Getting started and repository overview
+- [Printers](https://adaptive-architecture.github.io/dotnet-devices/docs/printers.html): Printer device abstractions
+- [Scanners](https://adaptive-architecture.github.io/dotnet-devices/docs/scanners.html): Scanner device abstractions
