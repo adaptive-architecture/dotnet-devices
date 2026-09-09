@@ -2,8 +2,8 @@
 
 /// <summary>
 /// Identity and status details of a network printer read over SNMP. It carries the same
-/// pair as <see cref="IppPrinterDetails"/>, and two fields that the shared models have no
-/// place for.
+/// pair as <see cref="IppPrinterDetails"/>: the serial number and the lifetime page count
+/// live on <see cref="PrinterStatus"/> itself.
 /// </summary>
 public sealed class SnmpPrinterDetails
 {
@@ -26,18 +26,8 @@ public sealed class SnmpPrinterDetails
     public PrinterInfo Info { get; }
 
     /// <summary>
-    /// Gets the operational status of the printer, including supply markers when reported.
+    /// Gets the operational status of the printer, including the serial number, the
+    /// lifetime page count, and supply markers when reported.
     /// </summary>
     public PrinterStatus Status { get; }
-
-    /// <summary>
-    /// Gets or sets the serial number of the printer, or <c>null</c> when it is not reported.
-    /// </summary>
-    public string? SerialNumber { get; set; }
-
-    /// <summary>
-    /// Gets or sets the number of pages that the printer has marked over its life, or
-    /// <c>null</c> when it is not reported.
-    /// </summary>
-    public long? LifetimePageCount { get; set; }
 }

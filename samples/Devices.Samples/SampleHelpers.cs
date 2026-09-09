@@ -22,6 +22,45 @@ internal static class SampleHelpers
         return answer is not null && answer.Trim().Equals("y", StringComparison.OrdinalIgnoreCase);
     }
 
+    // "discover" prints the exact token this reads back, for example "Spooler:LOBBY". The
+    // split is on the first colon only, because an IPv6 literal such as "::1" has more.
+    // A value with no recognised prefix is a bare host, kept working as a network printer.
+    internal static PrinterId ParsePrinterId(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+
+        var separator = value.IndexOf(':');
+        if (separator > 0)
+        {
+            var prefix = value[..separator];
+            var rest = value[(separator + 1)..];
+            if (prefix.Equals("Network", StringComparison.OrdinalIgnoreCase))
+            {
+                return PrinterId.FromNetwork(rest);
+            }
+
+            if (prefix.Equals("Spooler", StringComparison.OrdinalIgnoreCase))
+            {
+                return PrinterId.FromSpooler(rest);
+            }
+
+            if (prefix.Equals("Usb", StringComparison.OrdinalIgnoreCase))
+            {
+                return PrinterId.FromUsb(rest);
+            }
+        }
+
+        return PrinterId.FromNetwork(value);
+    }
+
+    internal static void AppendMarkers(StringBuilder line, IReadOnlyList<PrinterMarker> markers)
+    {
+        foreach (var marker in markers)
+        {
+            line.Append($"; {marker.Name} {(marker.LevelPercent is null ? "level unknown" : marker.LevelPercent + "%")}");
+        }
+    }
+
     internal static IReadOnlyList<string> GetPrintFiles(string directory)
     {
         if (!Directory.Exists(directory))

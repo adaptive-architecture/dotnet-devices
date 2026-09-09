@@ -119,6 +119,25 @@ public sealed class PrinterManager : IPrinterManager
         }
     }
 
+    /// <inheritdoc />
+    public async Task<PrinterStatus> GetStatusAsync(PrinterId id, CancellationToken cancellationToken)
+    {
+        var entry = await ResolveAsync(id, cancellationToken).ConfigureAwait(false);
+
+        var printer = _factory.Open(entry);
+        try
+        {
+            return await printer.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (printer is IDisposable disposable)
+            {
+                disposable.Dispose();
+            }
+        }
+    }
+
     // IPP, IPPS and CUPS can filter or rasterise a document; a raw channel and the Windows
     // spooler cannot. The platform is a parameter so a test on Linux can prove both branches.
     internal static bool GivesPassthrough(PrinterEndpoint endpoint, bool isWindows)

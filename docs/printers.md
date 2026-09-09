@@ -1,4 +1,4 @@
-# Printers
+﻿# Printers
 
 Cross-platform printer abstractions in `AdaptArch.Devices` (`AdaptArch.Devices.Printing` namespace).
 The design separates *where* a printer is (endpoints) from *how* bytes get there (transports),
@@ -45,6 +45,9 @@ touching hardware.
 - `PrinterStatus` — `PrinterStatusState` (`Idle`, `Processing`, `Paused`, `Error`,
   `Offline`, `Unknown`) plus `IsAcceptingJobs` and a human-readable `Detail`.
   Printers without a status channel report `Unknown`.
+- `PrinterStatus` also carries `SerialNumber` and `LifetimePageCount`. A value is
+  `null` when the printer did not report it. Only SNMP fills these two fields today.
+  IPP and the operating system spooler do not report them yet.
 - `PrinterConfiguration` — supported DPIs, duplex/color support, media sizes. An empty
   configuration means the capabilities are **not known**, not that nothing is supported.
   A `RawPrinter`, for example, always reports an empty configuration, because the raw
@@ -261,11 +264,12 @@ read-only.
 ```csharp
 SnmpPrinterStatusClient client = new();
 SnmpPrinterDetails details = await client.GetDetailsAsync("192.168.1.50", cancellationToken).ConfigureAwait(false);
-Console.WriteLine($"{details.Info.Name}: {details.SerialNumber}, {details.LifetimePageCount} pages");
+Console.WriteLine($"{details.Info.Name}: {details.Status.SerialNumber}, {details.Status.LifetimePageCount} pages");
 ```
 
-- Returns `SnmpPrinterDetails` (`PrinterInfo` + `PrinterStatus`) plus `SerialNumber` and
-  `LifetimePageCount`.
+- Returns `SnmpPrinterDetails` (`PrinterInfo` + `PrinterStatus`). The serial number and
+  the lifetime page count are on `PrinterStatus.SerialNumber` and
+  `PrinterStatus.LifetimePageCount`.
 - `SnmpPrinterStatusOptions` sets `Community` (defaults to `public`), `RequestTimeout`
   (two seconds), and `Retries` (two, which gives three attempts, because UDP can lose a
   datagram). The client throws `InvalidOperationException` when no attempt is answered.
@@ -273,9 +277,12 @@ Console.WriteLine($"{details.Info.Name}: {details.SerialNumber}, {details.Lifeti
   `hrPrinterDetectedErrorState` can raise it to `Error` or `Offline`, and every set bit is
   named in `PrinterStatus.Detail`. A bit that is only a warning, such as `lowToner`, does
   not change the state, because a printer low on toner still prints.
-- Supply levels come from `prtMarkerSuppliesTable`. The Printer MIB uses `-1`, `-2` and
-  `-3` to report a level that is not a quantity, and `PrinterMarker.LevelPercent` is then
-  `null`.
+- Supply levels come from `prtMarkerSuppliesTable`. `PrinterMarker.LevelRaw` and
+  `PrinterMarker.MaxCapacity` hold the raw reported numbers. `PrinterMarker.LevelPercent`
+  holds the computed percent. The Printer MIB uses a negative level for a value that is
+  not a quantity. `-1` means "other". `-2` means "unknown amount remains". `-3` means
+  "some amount remains". For a negative level, `LevelPercent` is `null`. `LevelRaw` still
+  holds the reported negative number.
 - **This client does not search a network.** Find printers with `IMdnsPrinterDiscovery` or
   `INetworkPrinterDiscovery` first.
 - Only SNMP version 2c is supported. SNMPv3, which adds authentication and privacy, is not.
@@ -350,6 +357,20 @@ await manager.PrintAsync(
     cancellationToken).ConfigureAwait(false);
 ```
 
+**`GetStatusAsync` reads the current status of one printer.** It resolves the
+identifier the same way `PrintAsync` does. It uses the cache first. On an unknown
+identifier, it runs one fresh discovery. It throws `InvalidOperationException` when
+the identifier is still unknown after that.
+
+`GetStatusAsync` opens the printer through the same factory `PrintAsync` uses. It
+reads the status, then closes the printer. It throws `NotSupportedException` when
+the factory does not support the endpoint.
+
+```csharp
+var status = await manager.GetStatusAsync(label.Id, cancellationToken).ConfigureAwait(false);
+Console.WriteLine($"{status.State}: {status.Detail}");
+```
+
 **`WatchJobAsync` finds the printer, then checks it for a job queue.** It resolves
 the identifier the same way `PrintAsync` does. It reads the resolved endpoint before
 it watches anything.
@@ -401,13 +422,25 @@ services.AddPrinters();
 
 `samples/Devices.Samples` has three scenarios. Each one shows a different layer.
 
-- `print-manager` — uses `IPrinterManager` for discovery, sending, watching, and ZPL.
-  This is the layer most callers want.
+- `print-manager` — uses `IPrinterManager` for discovery, status, sending, watching,
+  and ZPL. This is the layer most callers want. `discover` also prints the status of
+  each printer, read through `GetStatusAsync`.
 - `manual-management` — uses `IMdnsPrinterDiscovery`, `INetworkPrinterDiscovery`, and
   `IPrinterTransport` directly. This shows the seams the manager sits on.
 - `win-printer-test` — reads a Windows print queue through `SpoolerPrinter` and
   `SpoolerPrintJobQueue`, and prints the evidence for
   [Windows manual tests](windows-manual-tests.md). It needs Windows.
+
+`print-manager send`, `print-manager watch`, `print-manager zpl`, and
+`manual-management status` take a printer identifier, not a bare host. A printer
+identifier has the form `Kind:Value`, for example `Network:192.168.0.152` or
+`Spooler:EPSON_L6270_Series`. `discover` prints the exact identifier to use for
+each printer it finds. The sample reads a value with no `Kind:` prefix as a network
+printer, so a plain IP address or host name still works.
+
+`manual-management send` writes raw bytes over a network channel, so it cannot
+reach a spooler queue. Given a spooler identifier, it prints a message and sends
+nothing. Use `print-manager send` for a spooler queue.
 
 Run `dotnet run --` with no arguments for the full command list.
 

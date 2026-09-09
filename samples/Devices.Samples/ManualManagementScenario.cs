@@ -62,7 +62,7 @@ internal static class ManualManagementScenario
         var snmpClient = provider.GetRequiredService<SnmpPrinterStatusClient>();
         foreach (var printer in printers)
         {
-            Console.WriteLine($"- {printer.Info.Name} — {printer.Id.Value} ({printer.Endpoint}) [{printer.Source}]");
+            Console.WriteLine($"- {printer.Info.Name} — {printer.Id} ({printer.Endpoint}) [{printer.Source}]");
             if (printer.Endpoint is NetworkPrinterEndpoint network)
             {
                 await PrintIppDetailsAsync(ippClient, network).ConfigureAwait(false);
@@ -71,17 +71,31 @@ internal static class ManualManagementScenario
         }
     }
 
-    internal static async Task StatusAsync(ServiceProvider provider, string host)
+    internal static async Task StatusAsync(ServiceProvider provider, string identifierText)
     {
-        var endpoint = new NetworkPrinterEndpoint(host);
+        var id = SampleHelpers.ParsePrinterId(identifierText);
+        if (id.Kind != PrinterIdKind.Network)
+        {
+            Console.WriteLine("IPP and SNMP status need a network endpoint; a spooler or USB printer cannot answer this way.");
+            return;
+        }
+
+        var endpoint = new NetworkPrinterEndpoint(id.Value);
         var ippClient = provider.GetRequiredService<IppPrinterStatusClient>();
         var snmpClient = provider.GetRequiredService<SnmpPrinterStatusClient>();
         await PrintIppDetailsAsync(ippClient, endpoint).ConfigureAwait(false);
         await PrintSnmpDetailsAsync(snmpClient, endpoint).ConfigureAwait(false);
     }
 
-    internal static async Task SendAsync(ServiceProvider provider, string directory, string host, string fileName)
+    internal static async Task SendAsync(ServiceProvider provider, string directory, string identifierText, string fileName)
     {
+        var id = SampleHelpers.ParsePrinterId(identifierText);
+        if (id.Kind != PrinterIdKind.Network)
+        {
+            Console.WriteLine("This scenario sends over raw TCP and cannot reach a spooler queue. Use print-manager send instead.");
+            return;
+        }
+
         var safeFileName = Path.GetFileName(fileName);
         var path = Path.Combine(directory, safeFileName);
         if (!File.Exists(path))
@@ -113,8 +127,8 @@ internal static class ManualManagementScenario
 
             var payload = PrinterPayload.FromBytes(data, contentType);
             var transport = provider.GetRequiredService<IPrinterTransport>();
-            await transport.WriteAsync(new NetworkPrinterEndpoint(host), payload, timeoutSource.Token).ConfigureAwait(false);
-            Console.WriteLine($"Sent {data.Length} bytes ({contentType}) to {host}.");
+            await transport.WriteAsync(new NetworkPrinterEndpoint(id.Value), payload, timeoutSource.Token).ConfigureAwait(false);
+            Console.WriteLine($"Sent {data.Length} bytes ({contentType}) to {id.Value}.");
         }
         catch (Exception exception)
         {
@@ -134,7 +148,7 @@ internal static class ManualManagementScenario
                 line.Append($"; {details.Status.Detail}");
             }
 
-            AppendMarkers(line, details.Status.Markers);
+            SampleHelpers.AppendMarkers(line, details.Status.Markers);
             Console.WriteLine($"    {line}");
         }
         catch (Exception exception)
@@ -152,14 +166,14 @@ internal static class ManualManagementScenario
         {
             var details = await client.GetDetailsAsync(endpoint.Host, timeoutSource.Token).ConfigureAwait(false);
             StringBuilder line = new($"SNMP: {details.Info.Name} — {details.Status.State}");
-            if (details.SerialNumber is not null)
+            if (details.Status.SerialNumber is not null)
             {
-                line.Append($"; serial {details.SerialNumber}");
+                line.Append($"; serial {details.Status.SerialNumber}");
             }
 
-            if (details.LifetimePageCount is not null)
+            if (details.Status.LifetimePageCount is not null)
             {
-                line.Append($"; {details.LifetimePageCount} pages");
+                line.Append($"; {details.Status.LifetimePageCount} pages");
             }
 
             if (details.Status.Detail is not null)
@@ -167,20 +181,12 @@ internal static class ManualManagementScenario
                 line.Append($"; {details.Status.Detail}");
             }
 
-            AppendMarkers(line, details.Status.Markers);
+            SampleHelpers.AppendMarkers(line, details.Status.Markers);
             Console.WriteLine($"    {line}");
         }
         catch (Exception exception)
         {
             Console.WriteLine($"    SNMP status unavailable: {exception.Message}");
-        }
-    }
-
-    private static void AppendMarkers(StringBuilder line, IReadOnlyList<PrinterMarker> markers)
-    {
-        foreach (var marker in markers)
-        {
-            line.Append($"; {marker.Name} {(marker.LevelPercent is null ? "level unknown" : marker.LevelPercent + "%")}");
         }
     }
 }

@@ -51,7 +51,7 @@ async Task RunPrinterManagerAsync(string[] commandArgs)
 
     if (commandArgs.Length == 4 && commandArgs[1] == "send")
     {
-        if (!SampleHelpers.Confirm($"Send '{commandArgs[3]}' to printer {commandArgs[2]} on TCP port 9100?"))
+        if (!SampleHelpers.Confirm($"Send '{commandArgs[3]}' to printer {commandArgs[2]}?"))
         {
             Console.WriteLine("Cancelled; nothing was sent.");
             return;
@@ -134,15 +134,18 @@ static void PrintHelp()
     Console.WriteLine();
     Console.WriteLine("Usage:");
     Console.WriteLine("  dotnet run -- print-manager discover");
-    Console.WriteLine("  dotnet run -- print-manager send  <host> <file>");
-    Console.WriteLine("  dotnet run -- print-manager watch <host> <file>");
-    Console.WriteLine("  dotnet run -- print-manager zpl   <host>");
+    Console.WriteLine("  dotnet run -- print-manager send  <printer-id> <file>");
+    Console.WriteLine("  dotnet run -- print-manager watch <printer-id> <file>");
+    Console.WriteLine("  dotnet run -- print-manager zpl   <printer-id>");
     Console.WriteLine();
     Console.WriteLine("  dotnet run -- manual-management discover");
-    Console.WriteLine("  dotnet run -- manual-management status <host>");
-    Console.WriteLine("  dotnet run -- manual-management send   <host> <file>");
+    Console.WriteLine("  dotnet run -- manual-management status <printer-id>");
+    Console.WriteLine("  dotnet run -- manual-management send   <printer-id> <file>");
     Console.WriteLine();
     Console.WriteLine("  dotnet run -- win-printer-test <queue-name> [--print]");
     Console.WriteLine();
-    Console.WriteLine("<file> is a name from PrintFiles, above. <host> is a printer IP address or host name.");
+    Console.WriteLine("<file> is a name from PrintFiles, above.");
+    Console.WriteLine("<printer-id> is a printer identifier, such as Network:192.168.0.152 or Spooler:EPSON_L6270_Series.");
+    Console.WriteLine("A bare value with no 'Kind:' prefix, such as 192.168.0.152, is treated as a network printer.");
+    Console.WriteLine("'discover' prints the exact identifier to use for each printer it finds.");
 }

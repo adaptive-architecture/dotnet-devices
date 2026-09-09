@@ -26,6 +26,16 @@ public interface IPrinterManager
     Task<PrintJobInfo> PrintAsync(PrinterId id, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Queries the current operational status of the printer identified by <paramref name="id"/>.
+    /// </summary>
+    /// <param name="id">The printer identifier.</param>
+    /// <param name="cancellationToken">Token to cancel the operation.</param>
+    /// <returns>The current status.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when <paramref name="id"/> is unknown, even after a fresh discovery.</exception>
+    /// <exception cref="NotSupportedException">Thrown when the endpoint is not supported yet.</exception>
+    Task<PrinterStatus> GetStatusAsync(PrinterId id, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Watches a job on the printer identified by <paramref name="id"/>, yielding a
     /// reading each time its state or progress changes.
     /// </summary>

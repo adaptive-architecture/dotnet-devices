@@ -26,8 +26,8 @@ public class SnmpPrinterStatusClientTests
 
         Assert.Equal("Lobby LaserJet", details.Info.Name);
         Assert.Equal("Reception", details.Info.Location);
-        Assert.Equal("CN12345", details.SerialNumber);
-        Assert.Equal(48210, details.LifetimePageCount);
+        Assert.Equal("CN12345", details.Status.SerialNumber);
+        Assert.Equal(48210, details.Status.LifetimePageCount);
         Assert.Equal(PrinterStatusState.Idle, details.Status.State);
         Assert.True(details.Status.IsAcceptingJobs);
         Assert.Equal(PrinterIdKind.Network, details.Info.Id.Kind);
@@ -100,8 +100,8 @@ public class SnmpPrinterStatusClientTests
         var details = await NewClient(factory)
             .GetDetailsAsync(Host, TestContext.Current.CancellationToken);
 
-        Assert.Null(details.SerialNumber);
-        Assert.Null(details.LifetimePageCount);
+        Assert.Null(details.Status.SerialNumber);
+        Assert.Null(details.Status.LifetimePageCount);
         Assert.Equal("Basic", details.Info.Name);
     }
 
@@ -227,7 +227,32 @@ public class SnmpPrinterStatusClientTests
         var marker = Assert.Single(details.Status.Markers);
         Assert.Equal("Black Toner", marker.Name);
         Assert.Equal(25, marker.LevelPercent);
+        Assert.Equal(250, marker.LevelRaw);
+        Assert.Equal(1000, marker.MaxCapacity);
         Assert.Equal("black", marker.Color);
+    }
+
+    // -2 means "some amount remains, unknown". LevelPercent cannot express that, but
+    // LevelRaw still carries the reported value, so a caller can tell it apart from a
+    // marker that reported nothing at all.
+    [Fact]
+    public async Task GetDetailsAsync_UnknownAmountRemainingLevel_ReportsRawValueWithNullPercent()
+    {
+        FakeSnmpChannelFactory factory = new(
+            [Scalars()],
+            [Walk(
+                SnmpResponses.Text($"{PrinterMibOids.SuppliesDescription}.1.1", "Black Ink Bottle"),
+                SnmpResponses.Integer($"{PrinterMibOids.SuppliesMaxCapacity}.1.1", 500),
+                SnmpResponses.Integer($"{PrinterMibOids.SuppliesLevel}.1.1", -2))],
+            [EmptyWalk()]);
+
+        var details = await NewClient(factory)
+            .GetDetailsAsync(Host, TestContext.Current.CancellationToken);
+
+        var marker = Assert.Single(details.Status.Markers);
+        Assert.Null(marker.LevelPercent);
+        Assert.Equal(-2, marker.LevelRaw);
+        Assert.Equal(500, marker.MaxCapacity);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
-﻿using AdaptArch.Devices.Printing;
+﻿using System.Text;
+using AdaptArch.Devices.Printing;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AdaptArch.Devices.Samples;
@@ -22,9 +23,11 @@ internal static class PrinterManagerScenario
             return;
         }
 
+        var manager = provider.GetRequiredService<IPrinterManager>();
         foreach (var printer in printers)
         {
-            Console.WriteLine($"- {printer.Info.Name} — {printer.Id.Value} ({printer.Endpoint}) [{printer.Source}]");
+            Console.WriteLine($"- {printer.Info.Name} — {printer.Id} ({printer.Endpoint}) [{printer.Source}]");
+            await PrintManagerStatusAsync(manager, printer.Id).ConfigureAwait(false);
         }
     }
 
@@ -78,7 +81,7 @@ internal static class PrinterManagerScenario
         }
     }
 
-    internal static async Task SendAsync(ServiceProvider provider, string directory, string host, string fileName)
+    internal static async Task SendAsync(ServiceProvider provider, string directory, string identifierText, string fileName)
     {
         var safeFileName = Path.GetFileName(fileName);
         var path = Path.Combine(directory, safeFileName);
@@ -91,10 +94,10 @@ internal static class PrinterManagerScenario
         // The manager opens the printer, prints, and disposes it, so this call owns
         // nothing and needs no disposal here.
         var manager = provider.GetRequiredService<IPrinterManager>();
-        var printerId = PrinterId.FromNetwork(host);
+        var printerId = SampleHelpers.ParsePrinterId(identifierText);
         var bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(false);
 
-        await SeedFromHostAsync(manager, host).ConfigureAwait(false);
+        await SeedCacheAsync(manager, printerId).ConfigureAwait(false);
 
         PrintJobInfo submitted;
         try
@@ -107,14 +110,14 @@ internal static class PrinterManagerScenario
         }
         catch (InvalidOperationException)
         {
-            Console.WriteLine($"{host} did not answer on the raw port; nothing was sent.");
+            Console.WriteLine($"{printerId} was not found; nothing was sent.");
             return;
         }
 
         Console.WriteLine($"Job {submitted.JobId} submitted ({submitted.State}).");
     }
 
-    internal static async Task WatchAsync(ServiceProvider provider, string directory, string host, string fileName)
+    internal static async Task WatchAsync(ServiceProvider provider, string directory, string identifierText, string fileName)
     {
         var safeFileName = Path.GetFileName(fileName);
         var path = Path.Combine(directory, safeFileName);
@@ -128,10 +131,10 @@ internal static class PrinterManagerScenario
         // nothing and needs no disposal here.
         var manager = provider.GetRequiredService<IPrinterManager>();
         var monitor = provider.GetRequiredService<IPrintJobMonitor>();
-        var printerId = PrinterId.FromNetwork(host);
+        var printerId = SampleHelpers.ParsePrinterId(identifierText);
         var bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(false);
 
-        await SeedFromHostAsync(manager, host).ConfigureAwait(false);
+        await SeedCacheAsync(manager, printerId).ConfigureAwait(false);
 
         PrintJobInfo submitted;
         try
@@ -144,7 +147,7 @@ internal static class PrinterManagerScenario
         }
         catch (InvalidOperationException)
         {
-            Console.WriteLine($"{host} did not answer on the raw port; nothing was sent.");
+            Console.WriteLine($"{printerId} was not found; nothing was sent.");
             return;
         }
 
@@ -168,18 +171,19 @@ internal static class PrinterManagerScenario
 
     // RequirePassthrough tells the manager the bytes must reach the device unchanged. A
     // printer with only a filtering channel cannot promise that, so the manager throws.
-    internal static async Task SendZplAsync(ServiceProvider provider, string host)
+    internal static async Task SendZplAsync(ServiceProvider provider, string identifierText)
     {
         var manager = provider.GetRequiredService<IPrinterManager>();
+        var printerId = SampleHelpers.ParsePrinterId(identifierText);
         var payload = PrinterPayload.FromString("^XA^FO50,50^ADN,36,20^FDHello^FS^XZ", PrinterContentTypes.Zpl);
 
-        await SeedFromHostAsync(manager, host).ConfigureAwait(false);
+        await SeedCacheAsync(manager, printerId).ConfigureAwait(false);
 
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(15));
         try
         {
             var submitted = await manager.PrintAsync(
-                PrinterId.FromNetwork(host),
+                printerId,
                 payload,
                 new PrintOptions { RequirePassthrough = true },
                 timeoutSource.Token).ConfigureAwait(false);
@@ -196,15 +200,57 @@ internal static class PrinterManagerScenario
         }
         catch (InvalidOperationException)
         {
-            Console.WriteLine($"{host} did not answer on the raw port; nothing was sent.");
+            Console.WriteLine($"{printerId} was not found; nothing was sent.");
         }
     }
 
-    // PrintAsync resolves only from the cache or a fresh mDNS-plus-spooler discovery, and a
-    // label printer given by address often advertises on neither. A targeted probe of that one
-    // host is how PrinterManagerOptions.Probe closes the gap.
-    private static async Task SeedFromHostAsync(IPrinterManager manager, string host)
+    // The status comes from IPrinterManager itself, the same entry point used to print, not
+    // from a network-only client. A printer that fails to report status must not break the
+    // rest of the listing, so the failure is caught and the entry stands without one.
+    private static async Task PrintManagerStatusAsync(IPrinterManager manager, PrinterId id)
     {
+        using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(10));
+        try
+        {
+            var status = await manager.GetStatusAsync(id, timeoutSource.Token).ConfigureAwait(false);
+            StringBuilder line = new($"Manager: {status.State}");
+            if (status.SerialNumber is not null)
+            {
+                line.Append($"; serial {status.SerialNumber}");
+            }
+
+            if (status.LifetimePageCount is not null)
+            {
+                line.Append($"; {status.LifetimePageCount} pages");
+            }
+
+            if (status.Detail is not null)
+            {
+                line.Append($"; {status.Detail}");
+            }
+
+            SampleHelpers.AppendMarkers(line, status.Markers);
+            Console.WriteLine($"    {line}");
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"    Manager status unavailable: {exception.Message}");
+        }
+    }
+
+    // PrintAsync resolves only from the cache or a fresh mDNS-plus-spooler discovery. A
+    // network identifier given by address often advertises on neither, so a targeted probe
+    // of that one host, through PrinterManagerOptions.Probe, closes the gap. A spooler (or
+    // USB) identifier needs no probe: the spooler discovery source already finds the queue,
+    // so a plain discovery is enough to populate the cache.
+    private static async Task SeedCacheAsync(IPrinterManager manager, PrinterId id)
+    {
+        if (id.Kind != PrinterIdKind.Network)
+        {
+            _ = await manager.DiscoverAsync(null, CancellationToken.None).ConfigureAwait(false);
+            return;
+        }
+
         PrinterManagerOptions targeted = new()
         {
             // The caller named the host, so neither the browse nor the spooler can help.
@@ -212,7 +258,7 @@ internal static class PrinterManagerScenario
             IncludeMdns = false,
             Probe = new NetworkPrinterDiscoveryOptions
             {
-                Hosts = [host],
+                Hosts = [id.Value],
                 ConnectTimeout = TimeSpan.FromSeconds(2),
             },
         };

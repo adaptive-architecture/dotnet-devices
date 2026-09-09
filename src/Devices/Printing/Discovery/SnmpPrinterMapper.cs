@@ -74,11 +74,7 @@ internal static class SnmpPrinterMapper
         };
 
         var status = CreateStatus(id, values, supplies);
-        return new SnmpPrinterDetails(info, status)
-        {
-            SerialNumber = GetText(values, PrinterMibOids.SerialNumber),
-            LifetimePageCount = GetNumber(values, PrinterMibOids.MarkerLifeCount),
-        };
+        return new SnmpPrinterDetails(info, status);
     }
 
     private static PrinterStatus CreateStatus(
@@ -99,6 +95,8 @@ internal static class SnmpPrinterMapper
             IsAcceptingJobs = state != PrinterStatusState.Error && state != PrinterStatusState.Offline,
             Detail = reasons.Count == 0 ? null : String.Join("; ", reasons),
             Markers = MapMarkers(supplies),
+            SerialNumber = GetText(values, PrinterMibOids.SerialNumber),
+            LifetimePageCount = GetNumber(values, PrinterMibOids.MarkerLifeCount),
         };
     }
 
@@ -255,7 +253,19 @@ internal static class SnmpPrinterMapper
         var name = descriptions.TryGetValue(row, out var description) ? description : $"Supply {row}";
         PrinterMarker marker = new(name);
 
-        if (levels.TryGetValue(row, out var level) && capacities.TryGetValue(row, out var capacity))
+        var hasLevel = levels.TryGetValue(row, out var level);
+        var hasCapacity = capacities.TryGetValue(row, out var capacity);
+        if (hasLevel)
+        {
+            marker.LevelRaw = level;
+        }
+
+        if (hasCapacity)
+        {
+            marker.MaxCapacity = capacity;
+        }
+
+        if (hasLevel && hasCapacity)
         {
             marker.LevelPercent = GetLevelPercent(level, capacity);
         }

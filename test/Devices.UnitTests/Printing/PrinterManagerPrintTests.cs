@@ -72,6 +72,46 @@ public class PrinterManagerPrintTests
         Assert.Equal(1, mdns.Calls);
     }
 
+    [Fact]
+    public async Task GetStatusAsync_UsesTheCacheAndDoesNotDiscoverAgain()
+    {
+        var printer = FakePrinters.Network("192.168.1.50", 9100, DiscoverySource.Mdns);
+        FakeMdnsDiscovery mdns = new([printer]);
+        PrinterManager manager = new(mdns, new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), new FakePrinterFactory(), NoMonitor());
+
+        _ = await manager.DiscoverAsync(null, TestContext.Current.CancellationToken);
+        var status = await manager.GetStatusAsync(printer.Id, TestContext.Current.CancellationToken);
+
+        Assert.Equal(printer.Id, status.PrinterId);
+        Assert.Equal(1, mdns.Calls);
+    }
+
+    [Fact]
+    public async Task GetStatusAsync_ThrowsWhenTheIdentifierIsStillUnknownAfterARefresh()
+    {
+        FakeMdnsDiscovery mdns = new([]);
+        PrinterManager manager = new(mdns, new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), new FakePrinterFactory(), NoMonitor());
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => manager.GetStatusAsync(
+            PrinterId.FromNetwork("10.0.0.9"), TestContext.Current.CancellationToken));
+
+        Assert.Contains("10.0.0.9", error.Message, StringComparison.Ordinal);
+        Assert.Equal(1, mdns.Calls);
+    }
+
+    [Fact]
+    public async Task GetStatusAsync_OpensThePrinterItWasAskedAbout()
+    {
+        var printer = FakePrinters.Network("192.168.1.50", 9100, DiscoverySource.Mdns);
+        FakePrinterFactory factory = new();
+        PrinterManager manager = new(
+            new FakeMdnsDiscovery([printer]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor());
+
+        _ = await manager.GetStatusAsync(printer.Id, TestContext.Current.CancellationToken);
+
+        Assert.Equal(printer.Id, Assert.Single(factory.Opened).Id);
+    }
+
     [Theory]
     // A raw network channel always sends the bytes through unchanged.
     [InlineData(9100, false, true)]
