@@ -1,4 +1,5 @@
-﻿using AdaptArch.Devices.Printing;
+﻿using System.Diagnostics.CodeAnalysis;
+using AdaptArch.Devices.Printing;
 using AdaptArch.Devices.Printing.Spooler;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -54,10 +55,13 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    // Matches the certificate policy IppPrinter and PrinterFactory already apply for
-    // network printers: without this, a printer reachable over IPPS for printing (a
-    // self-signed certificate accepted) would answer only plain IPP for a job read
-    // through CompositePrintJobQueue (a default-validating client rejects it).
+    // Matches the certificate policy IppPrinter and PrinterFactory already apply:
+    // without this, a printer reachable over IPPS for printing would answer only
+    // plain IPP for a job read through CompositePrintJobQueue.
+    [SuppressMessage(
+        "Critical Vulnerability",
+        "S4830:Server certificates should be verified during SSL/TLS connections",
+        Justification = "Network printers overwhelmingly use self-signed certificates, so a validating client would reject nearly all of them over IPPS. A caller that needs validation re-registers IPrinterFactory and IPrintJobQueue, built from its own HttpClient, after calling AddPrinters(); see docs/printers.md.")]
     private static HttpClient CreatePermissiveHttpClient()
     {
         SocketsHttpHandler handler = new();

@@ -1,4 +1,6 @@
 ﻿
+using System.Diagnostics.CodeAnalysis;
+
 namespace AdaptArch.Devices.Printing.Ipp;
 
 /// <summary>
@@ -63,6 +65,10 @@ public sealed class IppPrinter : IPrinter, IDisposable
     // same self-signed printer certificates the factory itself already accepts for
     // status reads, instead of a second, default-validating client that can reach the
     // printer over plain IPP only.
+    [SuppressMessage(
+        "Critical Vulnerability",
+        "S4830:Server certificates should be verified during SSL/TLS connections",
+        Justification = "Network printers overwhelmingly use self-signed certificates, so a validating client reaches almost none of them over IPPS. A caller that needs validation supplies its own HttpClient; see docs/printers.md.")]
     internal static HttpClient CreateDefaultClient()
     {
         SocketsHttpHandler handler = new();

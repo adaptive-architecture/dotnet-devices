@@ -1,4 +1,5 @@
-﻿using System.Net;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 
@@ -12,11 +13,19 @@ internal sealed class MdnsChannelFactory : IMdnsChannelFactory
     /// <summary>
     /// The IPv4 multicast group for multicast DNS.
     /// </summary>
+    [SuppressMessage(
+        "Major Security Hotspot",
+        "S1313:IP addresses should not be hardcoded",
+        Justification = "RFC 6762 assigns this address as the multicast DNS group; a caller cannot change it and still be speaking mDNS.")]
     private static readonly IPAddress GroupV4 = IPAddress.Parse("224.0.0.251");
 
     /// <summary>
     /// The IPv6 multicast group for multicast DNS.
     /// </summary>
+    [SuppressMessage(
+        "Major Security Hotspot",
+        "S1313:IP addresses should not be hardcoded",
+        Justification = "RFC 6762 assigns this address as the multicast DNS group; a caller cannot change it and still be speaking mDNS.")]
     private static readonly IPAddress GroupV6 = IPAddress.Parse("ff02::fb");
 
     /// <summary>
