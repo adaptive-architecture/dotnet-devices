@@ -286,18 +286,130 @@ Console.WriteLine($"{details.Info.Name}: {details.SerialNumber}, {details.Lifeti
 
 The SNMP port (default 161) is independent of the raw print channel and of the IPP port.
 
+## Printer manager
+
+`IPrinterManager` gives one entry point for printing. `DiscoverAsync` finds printers.
+`PrintAsync` prints to one printer by its identifier.
+
+`DiscoverAsync` runs three discovery sources: the mDNS browse, the spooler enumeration,
+and the TCP probe. Each source has its own switch on `PrinterManagerOptions`.
+`IncludeMdns` turns the mDNS browse on or off. It defaults to `true`. `IncludeSpooler`
+turns the spooler enumeration on or off. It defaults to `true`. **The TCP probe never
+runs on its own.** It needs a host list, so it runs only when `Probe` carries one.
+To change how long the browse waits for answers, set `Mdns.BrowseTimeout`. Do not
+look for a timeout on `PrinterManagerOptions` itself; the timeout lives on `Mdns`.
+
+**All three sources can run, or none of them.** When every source is off,
+`DiscoverAsync` returns an empty list. It does not throw. No source ran, so no
+source failed.
+
+A source that fails does not fail the call. The manager reports what the other sources
+found.
+
+Every result carries a `DiscoverySource`. Two entries can describe one physical device:
+one from the browse, and one from the spooler. The manager keeps these two entries
+separate on purpose. For a printer language such as ZPL, the raw channel sends the
+bytes unchanged. The spooler queue may not send the bytes unchanged.
+
+**The mDNS browse and the network probe do not always keep separate identifiers.**
+`MdnsRecordAssembler` builds `PrinterId.FromNetwork(host)`. `TcpNetworkPrinterDiscovery`
+builds `new PrinterId(PrinterIdKind.Network, host)`. For the same host, these two
+identifiers are equal. When a host is in `Probe.Hosts` and the same host also answers
+the mDNS browse, the two entries share one identifier. The cache then keeps only the
+last entry written, which is the probe's entry.
+
+`PrintAsync` keeps what discovery found. On an unknown identifier, it runs one fresh
+discovery. It throws only when the identifier is still unknown after that.
+
+**A stale entry does not repair itself.** When a printer keeps its identifier but
+changes address, the print fails with the transport error. The manager does not
+re-discover after a failed print. Most print failures are not addressing problems.
+Examples are no paper, no permission, and a rejected option. Call `DiscoverAsync` to
+refresh.
+
+**`DiscoverAsync` does not remove cache entries.** It adds new entries and updates
+existing entries. A printer removed from the network stays in the cache. Every print
+to that printer then keeps failing.
+
+**`PrintOptions.RequirePassthrough` refuses rather than guesses.** Set it for ZPL, EPL,
+CPCL and ESC/POS. A raw TCP channel and the Windows spooler send the bytes unchanged.
+IPP, IPPS and CUPS can filter or rasterise the bytes, so they cannot give that promise.
+When the printer has no channel that sends the bytes unchanged, the manager throws
+`NotSupportedException`, instead of sending the bytes somewhere that would change them.
+
+```csharp
+IPrinterManager manager = provider.GetRequiredService<IPrinterManager>();
+var printers = await manager.DiscoverAsync(null, cancellationToken).ConfigureAwait(false);
+var label = printers.First(p => p.Info.Name.Contains("Zebra", StringComparison.Ordinal));
+
+PrinterPayload payload = PrinterPayload.FromString("^XA^FO50,50^ADN,36,20^FDHello^FS^XZ", PrinterContentTypes.Zpl);
+await manager.PrintAsync(
+    label.Id,
+    payload,
+    new PrintOptions { RequirePassthrough = true },
+    cancellationToken).ConfigureAwait(false);
+```
+
+**`WatchJobAsync` finds the printer, then checks it for a job queue.** It resolves
+the identifier the same way `PrintAsync` does. It reads the resolved endpoint before
+it watches anything.
+
+- A network endpoint on the IPP port (631) has a job queue. A spooler endpoint has a
+  job queue on every platform. `WatchJobAsync` watches both.
+- A network endpoint on any other port has no job queue. The raw port 9100 is an
+  example. Printers for ZPL and EPL labels often use this port. `WatchJobAsync`
+  throws `NotSupportedException` for this endpoint. The message names the printer.
+
+This refusal is correct. It is not a limitation. A raw channel gives back no real
+job identifier. It gives back a generated one instead. The raw port has no queue to
+read a status from. Watching such a job through IPP would ask the wrong protocol,
+on a port that may not be open, about a job it never saw. A past defect showed the
+cost of this: the wrong queue gave back no answer for the job. The manager read
+that empty answer as "the job is done". The manager told the caller the label was
+done before the printer did any work.
+
+```csharp
+await foreach (var reading in manager.WatchJobAsync(
+    label.Id, job.JobId, new PrintJobMonitorOptions(), cancellationToken).ConfigureAwait(false))
+{
+    Console.WriteLine($"{reading.State}: {reading.ImpressionsCompleted} pages");
+}
+```
+
 ## Dependency Injection
 
-`AdaptArch.Devices.DependencyInjection` provides `AddDevices()` and `AddPrinters()`,
-registering `TcpPrinterTransport`, `TcpNetworkPrinterDiscovery`, `MdnsPrinterDiscovery`,
-`IppPrinterStatusClient`, `SnmpPrinterStatusClient`, `PrinterFactory`,
-`SpoolerPrinterDiscovery`, `CompositePrintJobQueue`, and `PollingPrintJobMonitor` as
-singletons. All of these services hold no per-call or per-caller state, so one shared
-instance is safe for the life of the application:
+`AdaptArch.Devices.DependencyInjection` provides `AddDevices()` and `AddPrinters()`.
+`AddPrinters()` registers these types as singletons: `TcpPrinterTransport`,
+`TcpNetworkPrinterDiscovery`, `MdnsPrinterDiscovery`, `IppPrinterStatusClient`,
+`SnmpPrinterStatusClient`, `PrinterFactory`, `SpoolerPrinterDiscovery`,
+`SpoolerPrintJobQueue`, `CompositePrintJobQueue`, and `PollingPrintJobMonitor`. Most of
+these types hold no state between calls. Two types hold state, and the state is safe
+to share. `CompositePrintJobQueue` keeps one queue per network host, in a thread-safe
+dictionary. `SnmpPrinterStatusClient` keeps a request counter, and it updates the
+counter with an atomic operation. One shared instance of each type is safe for the
+life of the application.
+
+`AddPrinters()` also registers `PrinterManager` as a singleton, for a different reason.
+`PrinterManager` keeps a shared discovery cache and a semaphore on purpose. This shared
+state is why `PrinterManager` must stay a singleton too:
 
 ```csharp
 services.AddPrinters();
 ```
+
+## Sample
+
+`samples/Devices.Samples` has three scenarios. Each one shows a different layer.
+
+- `print-manager` — uses `IPrinterManager` for discovery, sending, watching, and ZPL.
+  This is the layer most callers want.
+- `manual-management` — uses `IMdnsPrinterDiscovery`, `INetworkPrinterDiscovery`, and
+  `IPrinterTransport` directly. This shows the seams the manager sits on.
+- `win-printer-test` — reads a Windows print queue through `SpoolerPrinter` and
+  `SpoolerPrintJobQueue`, and prints the evidence for
+  [Windows manual tests](windows-manual-tests.md). It needs Windows.
+
+Run `dotnet run --` with no arguments for the full command list.
 
 ## Not Yet Implemented
 

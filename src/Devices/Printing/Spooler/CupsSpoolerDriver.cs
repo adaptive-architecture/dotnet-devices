@@ -74,7 +74,7 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         {
             Location = attributes.PrinterLocation,
         };
-        return new DiscoveredPrinter(id, endpoint, info);
+        return new DiscoveredPrinter(id, endpoint, info) { Source = DiscoverySource.Spooler };
     }
 
     // The document format follows the payload content type, as IppPrinter does. CUPS

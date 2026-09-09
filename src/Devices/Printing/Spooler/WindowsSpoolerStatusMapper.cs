@@ -51,6 +51,29 @@ internal static class WindowsSpoolerStatusMapper
         return PrinterStatusState.Idle;
     }
 
+    // Named for the same PRINTER_STATUS_* bits MapPrinterStatus reads, so
+    // PrinterStatus.Detail carries the bits behind the mapped state instead of nothing,
+    // the same way DescribeJobStatus below fills PrintJobInfo.Detail. Unlike
+    // DescribeJobStatus, this spells out the full Win32 macro name, so a person can
+    // compare the output directly against Windows documentation.
+    internal static string? DescribePrinterStatus(uint status)
+    {
+        List<string> named = [];
+        AddIfSet(named, status, PrinterStatusPaused, "PRINTER_STATUS_PAUSED");
+        AddIfSet(named, status, PrinterStatusError, "PRINTER_STATUS_ERROR");
+        AddIfSet(named, status, PrinterStatusPendingDeletion, "PRINTER_STATUS_PENDING_DELETION");
+        AddIfSet(named, status, PrinterStatusPaperJam, "PRINTER_STATUS_PAPER_JAM");
+        AddIfSet(named, status, PrinterStatusPaperOut, "PRINTER_STATUS_PAPER_OUT");
+        AddIfSet(named, status, PrinterStatusPaperProblem, "PRINTER_STATUS_PAPER_PROBLEM");
+        AddIfSet(named, status, PrinterStatusOffline, "PRINTER_STATUS_OFFLINE");
+        AddIfSet(named, status, PrinterStatusPrinting, "PRINTER_STATUS_PRINTING");
+        AddIfSet(named, status, PrinterStatusNotAvailable, "PRINTER_STATUS_NOT_AVAILABLE");
+        AddIfSet(named, status, PrinterStatusProcessing, "PRINTER_STATUS_PROCESSING");
+        AddIfSet(named, status, PrinterStatusDoorOpen, "PRINTER_STATUS_DOOR_OPEN");
+
+        return named.Count == 0 ? null : String.Join("; ", named);
+    }
+
     // Mirrors the bit groups MapPrinterStatus treats as Error, Offline or Paused: a
     // queue reporting any of them does not take a new job right now, the same way the
     // IPP path reports PrinterIsAcceptingJobs as false for those states.

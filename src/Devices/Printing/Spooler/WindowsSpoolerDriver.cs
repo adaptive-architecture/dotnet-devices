@@ -69,7 +69,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     private static DiscoveredPrinter MapDiscovered(string name)
     {
         var id = PrinterId.FromSpooler(name);
-        return new DiscoveredPrinter(id, new SpoolerPrinterEndpoint(name), new PrinterInfo(id, name));
+        return new DiscoveredPrinter(id, new SpoolerPrinterEndpoint(name), new PrinterInfo(id, name)) { Source = DiscoverySource.Spooler };
     }
 
     // Submission uses data type RAW: this library sends printer languages such as ZPL
@@ -212,6 +212,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             return Task.FromResult(new PrinterStatus(PrinterId.FromSpooler(queueName), state)
             {
                 IsAcceptingJobs = WindowsSpoolerStatusMapper.IsAcceptingJobs(info.Status),
+                Detail = WindowsSpoolerStatusMapper.DescribePrinterStatus(info.Status),
             });
         }
         finally

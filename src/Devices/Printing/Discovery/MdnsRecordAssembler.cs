@@ -136,7 +136,7 @@ internal static class MdnsRecordAssembler
             Location = GetAttribute(attributes, NoteKey),
             DriverName = GetAttribute(attributes, PageDescriptionLanguageKey),
         };
-        return new DiscoveredPrinter(id, endpoint, info);
+        return new DiscoveredPrinter(id, endpoint, info) { Source = DiscoverySource.Mdns };
     }
 
     // A TXT record holds a list of strings, each one a "key=value" pair. A string with no

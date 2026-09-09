@@ -96,4 +96,32 @@ public class WindowsSpoolerStatusMapperTests
 
         Assert.Equal("Paused; Printing", detail);
     }
+
+    [Theory]
+    [InlineData(0x00000001u, "PRINTER_STATUS_PAUSED")]
+    [InlineData(0x00000002u, "PRINTER_STATUS_ERROR")]
+    [InlineData(0x00000004u, "PRINTER_STATUS_PENDING_DELETION")]
+    [InlineData(0x00000008u, "PRINTER_STATUS_PAPER_JAM")]
+    [InlineData(0x00000010u, "PRINTER_STATUS_PAPER_OUT")]
+    [InlineData(0x00000040u, "PRINTER_STATUS_PAPER_PROBLEM")]
+    [InlineData(0x00000080u, "PRINTER_STATUS_OFFLINE")]
+    [InlineData(0x00000400u, "PRINTER_STATUS_PRINTING")]
+    [InlineData(0x00001000u, "PRINTER_STATUS_NOT_AVAILABLE")]
+    [InlineData(0x00004000u, "PRINTER_STATUS_PROCESSING")]
+    [InlineData(0x00400000u, "PRINTER_STATUS_DOOR_OPEN")]
+    public void DescribePrinterStatus_NamesEachDocumentedBit(uint status, string expected) =>
+        Assert.Equal(expected, WindowsSpoolerStatusMapper.DescribePrinterStatus(status));
+
+    [Fact]
+    public void DescribePrinterStatus_NamesBothSetBits()
+    {
+        // PAUSED (0x1) and PAPER_JAM (0x8) both set.
+        var detail = WindowsSpoolerStatusMapper.DescribePrinterStatus(0x00000009u);
+
+        Assert.Equal("PRINTER_STATUS_PAUSED; PRINTER_STATUS_PAPER_JAM", detail);
+    }
+
+    [Fact]
+    public void DescribePrinterStatus_ReturnsNullWhenNoBitIsSet() =>
+        Assert.Null(WindowsSpoolerStatusMapper.DescribePrinterStatus(0x00000000u));
 }

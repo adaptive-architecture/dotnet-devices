@@ -21,6 +21,7 @@ public class CupsSpoolerDriverTests
         var printer = Assert.Single(printers);
         Assert.Equal(PrinterIdKind.Spooler, printer.Id.Kind);
         Assert.Equal("lobby", printer.Id.Value);
+        Assert.Equal(DiscoverySource.Spooler, printer.Source);
         var endpoint = Assert.IsType<SpoolerPrinterEndpoint>(printer.Endpoint);
         Assert.Equal("lobby", endpoint.Name);
     }

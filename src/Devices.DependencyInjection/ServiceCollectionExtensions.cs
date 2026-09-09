@@ -50,6 +50,7 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<SpoolerPrintJobQueue>(),
             printerClient));
         services.AddSingleton<IPrintJobMonitor, PollingPrintJobMonitor>();
+        services.AddSingleton<IPrinterManager, PrinterManager>();
         return services;
     }
 

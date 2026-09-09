@@ -73,4 +73,15 @@ public class ServiceCollectionExtensionsTests
         Assert.Same(provider.GetRequiredService<IPrintJobQueue>(), provider.GetRequiredService<IPrintJobQueue>());
         Assert.Same(provider.GetRequiredService<IPrintJobMonitor>(), provider.GetRequiredService<IPrintJobMonitor>());
     }
+
+    [Fact]
+    public void AddPrinters_ResolvesThePrinterManager()
+    {
+        ServiceCollection services = new();
+
+        _ = services.AddPrinters();
+
+        using var provider = services.BuildServiceProvider();
+        _ = Assert.IsType<PrinterManager>(provider.GetRequiredService<IPrinterManager>());
+    }
 }

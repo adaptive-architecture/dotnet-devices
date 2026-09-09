@@ -12,6 +12,8 @@
   [Windows Manual Tests](windows-manual-tests.md) for the checks still needed.
 - **Printer discovery** — mDNS/DNS-SD browse (`MdnsPrinterDiscovery`), which needs no host
   list, and TCP probing of explicit hosts (`TcpNetworkPrinterDiscovery`).
+- **Printer manager** — `IPrinterManager` combines every discovery source and prints to a
+  found printer by its identifier, from one entry point.
 - **Printer status** — over IPP (`IppPrinterStatusClient`) and over SNMP version 2c
   (`SnmpPrinterStatusClient`), which adds the serial number and the page count.
 - **Scanners, other peripherals** — not yet implemented.

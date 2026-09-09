@@ -98,4 +98,12 @@ public class PrintingModelTests
         Assert.Null(job.Detail);
         Assert.Empty(job.DroppedOptions);
     }
+
+    [Fact]
+    public void PrintOptions_DoesNotRequirePassthroughByDefault()
+    {
+        PrintOptions options = new();
+
+        Assert.False(options.RequirePassthrough);
+    }
 }

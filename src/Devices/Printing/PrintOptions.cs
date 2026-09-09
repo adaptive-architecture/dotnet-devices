@@ -63,4 +63,18 @@ public sealed class PrintOptions
     /// <see cref="UnsupportedOptionBehavior.Send"/>.
     /// </summary>
     public UnsupportedOptionBehavior OnUnsupported { get; set; } = UnsupportedOptionBehavior.Send;
+
+    /// <summary>
+    /// Gets or sets a value that says the device must receive the payload bytes unchanged.
+    /// </summary>
+    /// <remarks>
+    /// Set this for a printer language such as ZPL, EPL, CPCL or ESC/POS. A raw TCP channel
+    /// and the Windows spooler with the <c>RAW</c> data type send the bytes through unchanged.
+    /// IPP, IPPS and CUPS can filter or rasterise a document, so they do not give this promise.
+    /// The printer manager reads this property and chooses a channel that keeps the promise, or
+    /// throws <see cref="NotSupportedException"/> when the printer has no such channel. The
+    /// printer types do not read it: a caller that opens a printer directly has already chosen
+    /// the channel.
+    /// </remarks>
+    public bool RequirePassthrough { get; set; }
 }

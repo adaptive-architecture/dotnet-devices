@@ -36,7 +36,7 @@ public sealed class TcpNetworkPrinterDiscovery : INetworkPrinterDiscovery
             {
                 PrinterId id = new(PrinterIdKind.Network, host);
                 NetworkPrinterEndpoint endpoint = new(host, options.Port);
-                found.Add(new DiscoveredPrinter(id, endpoint, new PrinterInfo(id, host)));
+                found.Add(new DiscoveredPrinter(id, endpoint, new PrinterInfo(id, host)) { Source = DiscoverySource.NetworkProbe });
             }
         }).ConfigureAwait(false);
 

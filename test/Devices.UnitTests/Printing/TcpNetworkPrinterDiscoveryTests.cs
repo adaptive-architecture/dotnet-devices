@@ -28,6 +28,7 @@ public class TcpNetworkPrinterDiscoveryTests
         var printer = Assert.Single(found);
         Assert.Equal(PrinterIdKind.Network, printer.Id.Kind);
         Assert.Equal("127.0.0.1", printer.Id.Value);
+        Assert.Equal(DiscoverySource.NetworkProbe, printer.Source);
         var endpoint = Assert.IsType<NetworkPrinterEndpoint>(printer.Endpoint);
         Assert.Equal(port, endpoint.Port);
     }

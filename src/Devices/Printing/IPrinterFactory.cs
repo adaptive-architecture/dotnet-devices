@@ -12,6 +12,10 @@ public interface IPrinterFactory
     /// <param name="printer">The discovered printer.</param>
     /// <returns>A printer for the discovered endpoint.</returns>
     /// <exception cref="NotSupportedException">Thrown when the endpoint is not supported yet.</exception>
+    /// <remarks>
+    /// The caller owns the returned printer. The caller must dispose the printer when the
+    /// printer implements <see cref="IDisposable"/>.
+    /// </remarks>
     IPrinter Open(DiscoveredPrinter printer);
 
     /// <summary>

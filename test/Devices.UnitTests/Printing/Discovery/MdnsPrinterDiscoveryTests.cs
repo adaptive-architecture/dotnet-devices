@@ -28,6 +28,7 @@ public class MdnsPrinterDiscoveryTests
         Assert.Equal("HP LaserJet 400", printer.Info.Name);
         Assert.Equal("Second floor", printer.Info.Location);
         Assert.Equal("application/postscript", printer.Info.DriverName);
+        Assert.Equal(DiscoverySource.Mdns, printer.Source);
         var endpoint = Assert.IsType<NetworkPrinterEndpoint>(printer.Endpoint);
         Assert.Equal(631, endpoint.Port);
         Assert.Equal("192.168.1.50", endpoint.Host);
