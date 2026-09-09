@@ -387,12 +387,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
 
         var jobs = await GetJobsAsync(queueName, cancellationToken).ConfigureAwait(false);
-        foreach (var job in jobs.Where(job => String.Equals(job.JobId, jobId, StringComparison.Ordinal)))
-        {
-            return job;
-        }
-
-        return null;
+        return jobs.FirstOrDefault(job => String.Equals(job.JobId, jobId, StringComparison.Ordinal));
     }
 
     public Task<bool> CancelJobAsync(string queueName, string jobId, CancellationToken cancellationToken)

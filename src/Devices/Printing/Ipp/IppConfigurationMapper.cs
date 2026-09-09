@@ -40,12 +40,7 @@ internal static class IppConfigurationMapper
             return false;
         }
 
-        foreach (var side in sides.Where(side => side.Value?.StartsWith("two-sided", StringComparison.Ordinal) == true))
-        {
-            return true;
-        }
-
-        return false;
+        return sides.Any(side => side.Value?.StartsWith("two-sided", StringComparison.Ordinal) == true);
     }
 
     private static List<string> ReadMedia(Media[]? media)
