@@ -1,7 +1,4 @@
-﻿using System.Globalization;
-using SharpIpp.Models.Requests;
-using SharpIpp.Protocol.Models;
-
+﻿
 namespace AdaptArch.Devices.Printing.Ipp;
 
 /// <summary>
@@ -100,34 +97,7 @@ public sealed class IppPrinter : IPrinter, IDisposable
             effectiveOptions = PrintOptionValidator.Apply(options, configuration, out dropped);
         }
 
-        using MemoryStream document = new(payload.Data.ToArray());
-        PrintJobRequest request = new()
-        {
-            Document = document,
-            OperationAttributes = new()
-            {
-                PrinterUri = uri,
-                DocumentFormat = new DocumentFormat(payload.ContentType, true),
-                JobName = effectiveOptions?.JobName,
-            },
-            JobTemplateAttributes = IppJobTemplateMapper.Map(effectiveOptions),
-        };
-
-        IppOperations operations = new(_httpClient);
-        var response = await operations.SendAsync(
-            static (client, message, token) => client.PrintJobAsync(message, token),
-            request,
-            uri,
-            cancellationToken).ConfigureAwait(false);
-
-        var job = response.JobAttributes
-            ?? throw new InvalidDataException($"The IPP response from '{uri}' did not include job attributes.");
-        PrintJobInfo info = new(job.JobId.ToString(CultureInfo.InvariantCulture), Id, IppJobStateMapper.Map(job.JobState))
-        {
-            JobName = effectiveOptions?.JobName,
-            DroppedOptions = dropped,
-        };
-        return info;
+        return await IppRequests.SubmitAsync(_httpClient, uri, Id, payload, effectiveOptions, dropped, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -136,18 +106,7 @@ public sealed class IppPrinter : IPrinter, IDisposable
     public async Task<PrinterStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
         var uri = await _resolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
-        IppOperations operations = new(_httpClient);
-        GetPrinterAttributesRequest request = new()
-        {
-            OperationAttributes = new() { PrinterUri = uri, RequestedAttributes = IppStatusMapper.RequestedAttributes },
-        };
-        var response = await operations.SendAsync(
-            static (client, message, token) => client.GetPrinterAttributesAsync(message, token),
-            request,
-            uri,
-            cancellationToken).ConfigureAwait(false);
-
-        return IppStatusMapper.Map(Id, response.PrinterAttributes, operations.LastRawResponse).Status;
+        return await IppRequests.GetStatusAsync(_httpClient, uri, Id, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -162,18 +121,7 @@ public sealed class IppPrinter : IPrinter, IDisposable
         }
 
         var uri = await _resolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
-        IppOperations operations = new(_httpClient);
-        GetPrinterAttributesRequest request = new()
-        {
-            OperationAttributes = new() { PrinterUri = uri, RequestedAttributes = IppConfigurationMapper.RequestedAttributes },
-        };
-        var response = await operations.SendAsync(
-            static (client, message, token) => client.GetPrinterAttributesAsync(message, token),
-            request,
-            uri,
-            cancellationToken).ConfigureAwait(false);
-
-        var configuration = IppConfigurationMapper.Map(Id, response.PrinterAttributes);
+        var configuration = await IppRequests.GetConfigurationAsync(_httpClient, uri, Id, cancellationToken).ConfigureAwait(false);
         _configuration = configuration;
         return configuration;
     }

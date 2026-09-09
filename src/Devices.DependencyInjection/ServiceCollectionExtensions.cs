@@ -36,12 +36,19 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IppPrinterStatusClient>();
         services.AddSingleton<SnmpPrinterStatusClient>();
         services.TryAddSingleton(TimeProvider.System);
-        services.AddSingleton<IPrinterFactory, PrinterFactory>();
+
+        // One client for every network printer the container serves, so the printers the
+        // factory opens and the job reads that go through the composite queue share one
+        // connection pool and one certificate policy. Neither type disposes the client:
+        // it lives as long as the process, which is the usual pattern for HttpClient and
+        // avoids closing a client at shutdown that the other type still uses.
+        var printerClient = CreatePermissiveHttpClient();
+        services.AddSingleton<IPrinterFactory>(_ => new PrinterFactory(printerClient));
         services.AddSingleton<IPrinterDiscovery, SpoolerPrinterDiscovery>();
         services.AddSingleton<SpoolerPrintJobQueue>();
         services.AddSingleton<IPrintJobQueue>(provider => new CompositePrintJobQueue(
             provider.GetRequiredService<SpoolerPrintJobQueue>(),
-            CreatePermissiveHttpClient()));
+            printerClient));
         services.AddSingleton<IPrintJobMonitor, PollingPrintJobMonitor>();
         return services;
     }
