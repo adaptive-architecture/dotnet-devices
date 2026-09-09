@@ -1,4 +1,5 @@
-﻿using SharpIpp;
+﻿using System.Linq;
+using SharpIpp;
 using SharpIpp.Exceptions;
 using SharpIpp.Models.Requests;
 using SharpIpp.Protocol;
@@ -110,12 +111,9 @@ internal sealed class IppEndpointResolver
         var trimmed = resourcePath.Trim();
         var normalized = trimmed.StartsWith('/') ? trimmed : $"/{trimmed}";
         List<string> paths = [normalized];
-        foreach (var path in WellKnownPaths)
+        foreach (var path in WellKnownPaths.Where(path => !String.Equals(path, normalized, StringComparison.Ordinal)))
         {
-            if (!String.Equals(path, normalized, StringComparison.Ordinal))
-            {
-                paths.Add(path);
-            }
+            paths.Add(path);
         }
 
         return paths;

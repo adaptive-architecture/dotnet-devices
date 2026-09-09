@@ -57,7 +57,7 @@ internal static class MdnsRecordAssembler
             printers.Add(CreatePrinter(candidate, texts));
         }
 
-        printers.Sort(static (left, right) => String.Compare(left.Id.Value, right.Id.Value, StringComparison.Ordinal));
+        printers.Sort(static (left, right) => String.CompareOrdinal(left.Id.Value, right.Id.Value));
         return printers;
     }
 
@@ -141,7 +141,7 @@ internal static class MdnsRecordAssembler
 
     // A TXT record holds a list of strings, each one a "key=value" pair. A string with no
     // "=" is a key that has no value.
-    private static IReadOnlyDictionary<string, string> ReadAttributes(TXTRecord? text)
+    private static Dictionary<string, string> ReadAttributes(TXTRecord? text)
     {
         Dictionary<string, string> attributes = new(StringComparer.OrdinalIgnoreCase);
         if (text is null)
@@ -171,12 +171,7 @@ internal static class MdnsRecordAssembler
     private static string GetName(ServiceCandidate candidate, IReadOnlyDictionary<string, string> attributes)
     {
         var model = GetAttribute(attributes, ModelKey);
-        if (model is not null)
-        {
-            return model;
-        }
-
-        return candidate.ServiceName.Length > 0 ? candidate.ServiceName : candidate.Host;
+        return model ?? (candidate.ServiceName.Length > 0 ? candidate.ServiceName : candidate.Host);
     }
 
     private static string? GetAttribute(IReadOnlyDictionary<string, string> attributes, string key) =>
@@ -248,7 +243,7 @@ internal static class MdnsRecordAssembler
                 return Rank < other.Rank;
             }
 
-            var byHost = String.Compare(Host, other.Host, StringComparison.Ordinal);
+            var byHost = String.CompareOrdinal(Host, other.Host);
             return byHost != 0 ? byHost < 0 : Port < other.Port;
         }
     }

@@ -35,15 +35,27 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
     }
 
     /// <inheritdoc />
-    public async IAsyncEnumerable<PrintJobInfo> WatchJobAsync(
+    public IAsyncEnumerable<PrintJobInfo> WatchJobAsync(
+        PrinterId printerId,
+        string jobId,
+        PrintJobMonitorOptions options,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
+        ArgumentNullException.ThrowIfNull(options);
+
+        return WatchJobAsyncCore(printerId, jobId, options, cancellationToken);
+    }
+
+    // Guards must throw as soon as WatchJobAsync is called, not on first enumeration. An
+    // iterator body only starts running when the caller enumerates it, so the guards live in
+    // the public method above and this private iterator holds the rest of the work.
+    private async IAsyncEnumerable<PrintJobInfo> WatchJobAsyncCore(
         PrinterId printerId,
         string jobId,
         PrintJobMonitorOptions options,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
-        ArgumentNullException.ThrowIfNull(options);
-
         // A timeout ends the watch quietly. Only the caller's token throws. The delay
         // still has to watch both tokens, or the deadline would not be noticed until the
         // running delay ends on its own, so the wait uses a linked token; the "which one

@@ -60,7 +60,7 @@ public class PrinterManagerPrintTests
         PrinterManager manager = new(mdns, new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), new FakePrinterFactory(), NoMonitor());
 
         List<Task<PrintJobInfo>> prints = [];
-        for (var i = 0; i < 10; i += 1)
+        for (var i = 0; i < 10; i++)
         {
             prints.Add(manager.PrintAsync(printer.Id, Zpl(), null, TestContext.Current.CancellationToken));
         }

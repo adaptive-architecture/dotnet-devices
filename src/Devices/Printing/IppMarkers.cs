@@ -42,11 +42,12 @@ internal static class IppMarkers
             }
         }
 
-        if (names.Count == 0)
-        {
-            return [];
-        }
+        return names.Count == 0 ? [] : BuildMarkers(names, colors, levels);
+    }
 
+    // Split out of Read to keep its cognitive complexity within the repository limit.
+    private static List<PrinterMarker> BuildMarkers(List<string> names, List<string> colors, List<int?> levels)
+    {
         List<PrinterMarker> markers = new(names.Count);
         for (var i = 0; i < names.Count; i++)
         {

@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
@@ -25,11 +26,13 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // longer in the queue.
     private const int ErrorInvalidParameter = 87;
 
+    private const string WindowsOnlyMessage = "The Windows spooler driver needs Windows.";
+
     public Task<IReadOnlyList<DiscoveredPrinter>> EnumeratePrintersAsync(CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsWindows())
         {
-            throw new PlatformNotSupportedException("The Windows spooler driver needs Windows.");
+            throw new PlatformNotSupportedException(WindowsOnlyMessage);
         }
 
         var buffer = IntPtr.Zero;
@@ -91,7 +94,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     {
         if (!OperatingSystem.IsWindows())
         {
-            throw new PlatformNotSupportedException("The Windows spooler driver needs Windows.");
+            throw new PlatformNotSupportedException(WindowsOnlyMessage);
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
@@ -189,7 +192,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     {
         if (!OperatingSystem.IsWindows())
         {
-            throw new PlatformNotSupportedException("The Windows spooler driver needs Windows.");
+            throw new PlatformNotSupportedException(WindowsOnlyMessage);
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
@@ -233,7 +236,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     {
         if (!OperatingSystem.IsWindows())
         {
-            throw new PlatformNotSupportedException("The Windows spooler driver needs Windows.");
+            throw new PlatformNotSupportedException(WindowsOnlyMessage);
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
@@ -314,7 +317,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     {
         if (!OperatingSystem.IsWindows())
         {
-            throw new PlatformNotSupportedException("The Windows spooler driver needs Windows.");
+            throw new PlatformNotSupportedException(WindowsOnlyMessage);
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
@@ -377,19 +380,16 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     {
         if (!OperatingSystem.IsWindows())
         {
-            throw new PlatformNotSupportedException("The Windows spooler driver needs Windows.");
+            throw new PlatformNotSupportedException(WindowsOnlyMessage);
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
         ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
 
         var jobs = await GetJobsAsync(queueName, cancellationToken).ConfigureAwait(false);
-        foreach (var job in jobs)
+        foreach (var job in jobs.Where(job => String.Equals(job.JobId, jobId, StringComparison.Ordinal)))
         {
-            if (String.Equals(job.JobId, jobId, StringComparison.Ordinal))
-            {
-                return job;
-            }
+            return job;
         }
 
         return null;
@@ -399,7 +399,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     {
         if (!OperatingSystem.IsWindows())
         {
-            throw new PlatformNotSupportedException("The Windows spooler driver needs Windows.");
+            throw new PlatformNotSupportedException(WindowsOnlyMessage);
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);

@@ -51,7 +51,7 @@ internal static class SnmpResponses
 
     public static Variable Null(string oid) => new(oid, DotNetSnmp.Asn1.SyntaxObjects.Null.Instance);
 
-    private static IAsnSerializable Absent(SnmpType typeCode)
+    private static AbsentValue Absent(SnmpType typeCode)
     {
         if (typeCode == SnmpType.NoSuchObject)
         {

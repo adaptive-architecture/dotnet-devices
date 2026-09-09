@@ -68,7 +68,7 @@ public sealed class PrinterManager : IPrinterManager
         {
             if (result.Error is null)
             {
-                succeeded += 1;
+                succeeded++;
                 found.AddRange(result.Printers);
             }
             else
@@ -150,21 +150,33 @@ public sealed class PrinterManager : IPrinterManager
     }
 
     /// <inheritdoc />
-    public async IAsyncEnumerable<PrintJobInfo> WatchJobAsync(
+    public IAsyncEnumerable<PrintJobInfo> WatchJobAsync(
+        PrinterId id,
+        string jobId,
+        PrintJobMonitorOptions options,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
+        ArgumentNullException.ThrowIfNull(options);
+
+        return WatchJobAsyncCore(id, jobId, options, cancellationToken);
+    }
+
+    // Guards must throw as soon as WatchJobAsync is called, not on first enumeration. An
+    // iterator body only starts running when the caller enumerates it, so the guards live in
+    // the public method above and this private iterator holds the rest of the work.
+    private async IAsyncEnumerable<PrintJobInfo> WatchJobAsyncCore(
         PrinterId id,
         string jobId,
         PrintJobMonitorOptions options,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
-        ArgumentNullException.ThrowIfNull(options);
-
         var entry = await ResolveAsync(id, cancellationToken).ConfigureAwait(false);
         if (!HasJobQueue(entry.Endpoint))
         {
             throw new NotSupportedException(
                 $"Printer '{entry.Id}' has no job queue, so a job sent to it cannot be watched. " +
-                $"A raw channel gives back no job identifier, and the job was reported complete when it was submitted. " +
+                "A raw channel gives back no job identifier, and the job was reported complete when it was submitted. " +
                 $"Its endpoint is {entry.Endpoint}.");
         }
 

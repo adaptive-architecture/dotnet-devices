@@ -26,7 +26,7 @@ internal sealed class FakeSpoolerDriver : ISpoolerDriver
 
     public Task<PrinterConfiguration> GetConfigurationAsync(string queueName, CancellationToken cancellationToken)
     {
-        ConfigurationReads += 1;
+        ConfigurationReads++;
         return Task.FromResult(_configuration);
     }
 

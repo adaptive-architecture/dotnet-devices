@@ -1,4 +1,5 @@
-﻿using SharpIpp.Protocol.Models;
+﻿using System.Linq;
+using SharpIpp.Protocol.Models;
 
 namespace AdaptArch.Devices.Printing.Ipp;
 
@@ -39,18 +40,15 @@ internal static class IppConfigurationMapper
             return false;
         }
 
-        foreach (var side in sides)
+        foreach (var side in sides.Where(side => side.Value?.StartsWith("two-sided", StringComparison.Ordinal) == true))
         {
-            if (side.Value is not null && side.Value.StartsWith("two-sided", StringComparison.Ordinal))
-            {
-                return true;
-            }
+            return true;
         }
 
         return false;
     }
 
-    private static IReadOnlyList<string> ReadMedia(Media[]? media)
+    private static List<string> ReadMedia(Media[]? media)
     {
         if (media is null || media.Length == 0)
         {
@@ -58,12 +56,9 @@ internal static class IppConfigurationMapper
         }
 
         List<string> names = [];
-        foreach (var entry in media)
+        foreach (var entry in media.Where(entry => !String.IsNullOrWhiteSpace(entry.Value)))
         {
-            if (!String.IsNullOrWhiteSpace(entry.Value))
-            {
-                names.Add(entry.Value);
-            }
+            names.Add(entry.Value);
         }
 
         return names;
@@ -71,7 +66,7 @@ internal static class IppConfigurationMapper
 
     // The Printer MIB and IPP both allow dots per centimetre. The model holds dots per
     // inch only, so an entry in another unit is not reported.
-    private static IReadOnlyList<int> ReadResolutions(Resolution[]? resolutions)
+    private static List<int> ReadResolutions(Resolution[]? resolutions)
     {
         if (resolutions is null || resolutions.Length == 0)
         {

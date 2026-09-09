@@ -21,7 +21,7 @@ internal static class IppRequests
         IReadOnlyList<string> dropped,
         CancellationToken cancellationToken)
     {
-        using MemoryStream document = new(payload.Data.ToArray());
+        await using MemoryStream document = new(payload.Data.ToArray());
         PrintJobRequest request = new()
         {
             Document = document,

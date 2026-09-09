@@ -93,8 +93,8 @@ public class PollingPrintJobMonitorTests
             seen.Add(job);
         }
 
-        Assert.Single(seen);
-        Assert.Equal(PrintJobState.Printing, seen[0].State);
+        var seenJob = Assert.Single(seen);
+        Assert.Equal(PrintJobState.Printing, seenJob.State);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
-﻿using AdaptArch.Devices.Printing.Ipp;
+﻿using System.Linq;
+using AdaptArch.Devices.Printing.Ipp;
 using SharpIpp.Models.Requests;
 using SharpIpp.Protocol.Models;
 
@@ -53,13 +54,10 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
 
         var attributes = response.PrintersAttributes ?? [];
         List<DiscoveredPrinter> printers = new(attributes.Length);
-        foreach (var printer in attributes)
+        // A queue with no name cannot be addressed, so it is not reported.
+        foreach (var printer in attributes.Where(printer => !String.IsNullOrWhiteSpace(printer.PrinterName)))
         {
-            // A queue with no name cannot be addressed, so it is not reported.
-            if (!String.IsNullOrWhiteSpace(printer.PrinterName))
-            {
-                printers.Add(MapDiscovered(printer));
-            }
+            printers.Add(MapDiscovered(printer));
         }
 
         return printers;

@@ -20,7 +20,7 @@ internal sealed class FakeSnmpChannelFactory
 
     public IUdpChannel Create()
     {
-        AttemptCount += 1;
+        AttemptCount++;
         var answers = _attempts.Count > 0 ? _attempts.Dequeue() : [];
         return new FakeSnmpChannel(answers, Requests);
     }

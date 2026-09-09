@@ -1,4 +1,5 @@
-﻿using DotNetSnmp.Asn1.Serialization;
+﻿using System.Linq;
+using DotNetSnmp.Asn1.Serialization;
 using DotNetSnmp.Asn1.SyntaxObjects;
 
 namespace AdaptArch.Devices.Printing;
@@ -56,12 +57,9 @@ internal static class SnmpPrinterMapper
         IReadOnlyList<Variable> supplies)
     {
         Dictionary<string, IAsnSerializable> values = new(StringComparer.Ordinal);
-        foreach (var variable in scalars)
+        foreach (var variable in scalars.Where(variable => !SnmpValues.IsAbsent(variable.Data)))
         {
-            if (!SnmpValues.IsAbsent(variable.Data))
-            {
-                values.TryAdd(variable.Id.Oid, variable.Data);
-            }
+            values.TryAdd(variable.Id.Oid, variable.Data);
         }
 
         var id = PrinterId.FromNetwork(host);
@@ -141,7 +139,7 @@ internal static class SnmpPrinterMapper
         return index < bits.Length && (bits[index] & (0x80 >> (bit % 8))) != 0;
     }
 
-    private static IReadOnlyList<PrinterMarker> MapMarkers(IReadOnlyList<Variable> supplies)
+    private static List<PrinterMarker> MapMarkers(IReadOnlyList<Variable> supplies)
     {
         List<string> order = [];
         Dictionary<string, string> descriptions = new(StringComparer.Ordinal);
@@ -181,24 +179,12 @@ internal static class SnmpPrinterMapper
         var oid = variable.Id.Oid;
         var number = SnmpValues.GetNumber(variable.Data);
 
-        var row = GetRow(oid, PrinterMibOids.SuppliesDescription);
-        if (row is not null)
+        if (CollectDescription(variable, oid, order, descriptions))
         {
-            var text = SnmpValues.GetText(variable.Data);
-            if (text is not null)
-            {
-                descriptions[row] = text;
-            }
-
-            if (!order.Contains(row))
-            {
-                order.Add(row);
-            }
-
             return;
         }
 
-        row = GetRow(oid, PrinterMibOids.SuppliesMaxCapacity);
+        var row = GetRow(oid, PrinterMibOids.SuppliesMaxCapacity);
         if (row is not null && number is not null)
         {
             capacities[row] = number.Value;
@@ -233,6 +219,29 @@ internal static class SnmpPrinterMapper
                 colorants[row] = text;
             }
         }
+    }
+
+    // Split out of CollectSupplyValue to keep its cognitive complexity within the repository limit.
+    private static bool CollectDescription(Variable variable, string oid, List<string> order, Dictionary<string, string> descriptions)
+    {
+        var row = GetRow(oid, PrinterMibOids.SuppliesDescription);
+        if (row is null)
+        {
+            return false;
+        }
+
+        var text = SnmpValues.GetText(variable.Data);
+        if (text is not null)
+        {
+            descriptions[row] = text;
+        }
+
+        if (!order.Contains(row))
+        {
+            order.Add(row);
+        }
+
+        return true;
     }
 
     private static PrinterMarker CreateMarker(

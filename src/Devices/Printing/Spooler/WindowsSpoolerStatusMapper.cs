@@ -1,4 +1,6 @@
-﻿namespace AdaptArch.Devices.Printing.Spooler;
+﻿using System.Diagnostics.CodeAnalysis;
+
+namespace AdaptArch.Devices.Printing.Spooler;
 
 // Turns the WINSPOOL status bit fields into the library's own state enums. Pure and
 // P/Invoke-free on purpose, so every branch runs as a real test on any platform: the
@@ -93,6 +95,10 @@ internal static class WindowsSpoolerStatusMapper
     // Same reasoning as above: deletion is the most terminal outcome so it is checked
     // first, then error, then paused, then the two "done" bits, then active printing;
     // spooling, blocked, restarted, retained or no bit at all all mean "still queued".
+    [SuppressMessage(
+        "Major Code Smell",
+        "S125:Sections of code should not be commented out",
+        Justification = "The comment above is explanatory prose about the bit-check order, not commented-out code.")]
     internal static PrintJobState MapJobStatus(uint status)
     {
         if ((status & (JobStatusDeleted | JobStatusDeleting)) != 0)

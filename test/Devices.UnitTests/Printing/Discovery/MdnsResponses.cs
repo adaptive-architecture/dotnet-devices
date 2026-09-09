@@ -37,10 +37,7 @@ internal static class MdnsResponses
         });
 
         var text = new TXTRecord { Name = instanceName, Class = InternetWithCacheFlush };
-        foreach (var entry in texts)
-        {
-            text.Strings.Add(entry);
-        }
+        text.Strings.AddRange(texts);
 
         response.AdditionalRecords.Add(text);
 

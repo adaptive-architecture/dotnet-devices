@@ -17,7 +17,7 @@ internal sealed class FakeMdnsDiscovery : IMdnsPrinterDiscovery
 
     public async Task<IReadOnlyList<DiscoveredPrinter>> DiscoverPrintersAsync(MdnsPrinterDiscoveryOptions options, CancellationToken cancellationToken)
     {
-        Calls += 1;
+        Calls++;
         if (Gate is not null)
         {
             await Gate().ConfigureAwait(false);
@@ -37,7 +37,7 @@ internal sealed class FakeSpoolerDiscovery : IPrinterDiscovery
 
     public Task<IReadOnlyList<DiscoveredPrinter>> GetPrintersAsync(CancellationToken cancellationToken)
     {
-        Calls += 1;
+        Calls++;
         return _answer is null
             ? Task.FromException<IReadOnlyList<DiscoveredPrinter>>(new InvalidOperationException("The spooler failed."))
             : Task.FromResult(_answer);
@@ -54,7 +54,7 @@ internal sealed class FakeNetworkProbe : INetworkPrinterDiscovery
 
     public Task<IReadOnlyList<DiscoveredPrinter>> DiscoverNetworkPrintersAsync(NetworkPrinterDiscoveryOptions options, CancellationToken cancellationToken)
     {
-        Calls += 1;
+        Calls++;
         return Task.FromResult(_answer);
     }
 }

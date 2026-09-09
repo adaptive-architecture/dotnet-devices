@@ -58,11 +58,11 @@ internal sealed class CapturingIppProtocol : IIppProtocol
     }
 
     /// <inheritdoc />
-    public Task<IIppRequestMessage> ReadIppRequestAsync(Stream stream, CancellationToken cancellationToken) =>
+    public Task<IIppRequestMessage> ReadIppRequestAsync(Stream stream, CancellationToken cancellationToken = default) =>
         _inner.ReadIppRequestAsync(stream, cancellationToken);
 
     /// <inheritdoc />
-    public async Task<IIppResponseMessage> ReadIppResponseAsync(Stream stream, CancellationToken cancellationToken)
+    public async Task<IIppResponseMessage> ReadIppResponseAsync(Stream stream, CancellationToken cancellationToken = default)
     {
         var message = await _inner.ReadIppResponseAsync(stream, cancellationToken).ConfigureAwait(false);
         Response = message;
@@ -70,10 +70,10 @@ internal sealed class CapturingIppProtocol : IIppProtocol
     }
 
     /// <inheritdoc />
-    public Task WriteIppRequestAsync(IIppRequestMessage message, Stream stream, CancellationToken cancellationToken) =>
-        _inner.WriteIppRequestAsync(message, stream, cancellationToken);
+    public Task WriteIppRequestAsync(IIppRequestMessage ippRequestMessage, Stream stream, CancellationToken cancellationToken = default) =>
+        _inner.WriteIppRequestAsync(ippRequestMessage, stream, cancellationToken);
 
     /// <inheritdoc />
-    public Task WriteIppResponseAsync(IIppResponseMessage message, Stream stream, CancellationToken cancellationToken) =>
+    public Task WriteIppResponseAsync(IIppResponseMessage message, Stream stream, CancellationToken cancellationToken = default) =>
         _inner.WriteIppResponseAsync(message, stream, cancellationToken);
 }
