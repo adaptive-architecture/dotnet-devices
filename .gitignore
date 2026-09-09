@@ -366,3 +366,4 @@ specs
 
 # Subagent-driven-development scratch workspace.
 .superpowers/
+docs/superpowers
