@@ -10,9 +10,8 @@ namespace AdaptArch.Devices.Printing.Ipp;
 // the same code. Keeping one copy is what stops the two paths drifting apart.
 internal static class IppRequests
 {
-    // Sends a document and reports the job the printer created. The caller supplies the
-    // options it already validated, and the list of options it dropped, so one submit
-    // path fills DroppedOptions for every caller.
+    // The caller supplies the options it already validated and the list it dropped, so
+    // one submit path fills DroppedOptions for every caller.
     public static async Task<PrintJobInfo> SubmitAsync(
         HttpClient httpClient,
         Uri uri,

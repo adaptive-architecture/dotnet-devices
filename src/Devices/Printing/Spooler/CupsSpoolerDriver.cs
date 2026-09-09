@@ -117,6 +117,5 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         return IppRequests.CancelJobAsync(_httpClient, QueueUri(queueName), jobId, cancellationToken);
     }
 
-    // "printers/lobby" against "ipp://localhost:631/" gives "ipp://localhost:631/printers/lobby".
     private Uri QueueUri(string queueName) => new(_baseUri, $"printers/{queueName}");
 }

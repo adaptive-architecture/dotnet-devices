@@ -2,8 +2,7 @@
 
 // One shape for the two platform spooler drivers: CupsSpoolerDriver (Linux and macOS, over
 // CUPS) and WindowsSpoolerDriver (Windows, over the Win32 print spooler). SpoolerPrinter and
-// SpoolerPrintJobQueue consume this interface, not the concrete drivers, so the shape is a contract:
-// do not add or rename members here without updating every implementation and caller.
+// SpoolerPrintJobQueue consume this interface, not the concrete drivers.
 internal interface ISpoolerDriver
 {
     Task<IReadOnlyList<DiscoveredPrinter>> EnumeratePrintersAsync(CancellationToken cancellationToken);

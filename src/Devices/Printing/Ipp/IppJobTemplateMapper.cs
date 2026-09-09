@@ -38,8 +38,6 @@ internal static class IppJobTemplateMapper
         return template;
     }
 
-    // IDE0066 turns off switch expressions in this repository, so each map is a chain
-    // of if statements.
     private static Sides? MapSides(DuplexMode? duplex)
     {
         if (duplex == DuplexMode.Simplex)

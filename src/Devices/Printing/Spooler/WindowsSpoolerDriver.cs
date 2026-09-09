@@ -297,9 +297,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 return [];
             }
 
-            // The queue can report more entries on the second call than the first, if
-            // its driver changes state in between. Clamp to what was actually
-            // allocated, or the copy below reads past the buffer.
+            // Clamp for the same reason as ReadResolutions above.
             written = Math.Min(written, count);
             var chars = new char[written * BlockLength];
             Marshal.Copy(buffer, chars, 0, chars.Length);

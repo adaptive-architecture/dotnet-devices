@@ -2,8 +2,7 @@
 
 namespace AdaptArch.Devices.Printing.Ipp;
 
-// Turns an IPP job state into the library job state. Shared so IppPrinter and the job
-// queue (a later addition) map the same wire values the same way.
+// Shared by IppPrinter and the job queue, so both map the same wire values the same way.
 internal static class IppJobStateMapper
 {
     public static PrintJobState Map(JobState? state)

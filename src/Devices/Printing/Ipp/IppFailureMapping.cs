@@ -13,13 +13,9 @@ namespace AdaptArch.Devices.Printing.Ipp;
 // exception. The two need different exception types, so callers must tell them apart before
 // asking for the mapping, typically with a `when (exception.InnerException is not null)` guard.
 //
-// ToIppError always throws a plain InvalidOperationException, deliberately not a richer,
-// derived type: xunit's Assert.ThrowsAsync<T> requires an exact type match, not merely an
-// assignable one, and IppOperationsTests / IppPrinterStatusClientTests already assert this
-// exact type. A caller that needs the IPP status code (IppPrintJobQueue, to tell
-// "job not found" apart from every other IPP error) reads it separately with
-// StatusCodeOf(IppOperations.LastRawResponse), which SharpIppNext keeps populated even
-// though the call that read it goes on to throw.
+// ToIppError throws a plain InvalidOperationException, never a derived type: the tests
+// assert this exact type, and xunit matches an exception type exactly. A caller that needs
+// the IPP status code reads it with StatusCodeOf(IppOperations.LastRawResponse) instead.
 internal static class IppFailureMapping
 {
     public static InvalidOperationException ToIppError(Uri uri, Exception exception) =>
