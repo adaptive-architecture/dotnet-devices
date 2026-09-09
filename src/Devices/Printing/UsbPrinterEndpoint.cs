@@ -43,7 +43,7 @@ public sealed class UsbPrinterEndpoint : PrinterEndpoint, IEquatable<UsbPrinterE
         other is not null &&
         VendorId == other.VendorId &&
         ProductId == other.ProductId &&
-        string.Equals(SerialNumber, other.SerialNumber, StringComparison.Ordinal);
+        String.Equals(SerialNumber, other.SerialNumber, StringComparison.Ordinal);
 
     /// <inheritdoc />
     public override bool Equals(object? obj) => obj is UsbPrinterEndpoint other && Equals(other);

@@ -9,6 +9,7 @@ This directory provides progressive discovery of the `dotnet-devices` repository
 - [Capabilities](capabilities.md) — what the library does today and planned device support
 - [Printers](printers.md) — printer abstractions: payloads, transports, discovery, queues
 - [Development](development.md) — build, test, docs, and contribution workflow
+- [Windows manual tests](windows-manual-tests.md) — the spooler interop that no automated test can run
 
 ## Quick Commands
 

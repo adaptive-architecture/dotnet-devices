@@ -42,6 +42,9 @@ jobs:
         run: |
           dotnet restore
 
+      - name: Verify format
+        run: dotnet format --verify-no-changes
+
       - name: Install tools
         run: |
           dotnet tool install --global dotnet-sonarscanner

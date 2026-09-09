@@ -13,16 +13,16 @@ public class TcpPrinterTransportTests
     {
         using TcpListener listener = new(IPAddress.Loopback, 0);
         listener.Start();
-        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(10));
 
-        Task<byte[]> readTask = ReadOnceAsync(listener, timeoutSource.Token);
+        var readTask = ReadOnceAsync(listener, timeoutSource.Token);
         TcpPrinterTransport transport = new();
         NetworkPrinterEndpoint endpoint = new("127.0.0.1", port);
-        PrinterPayload payload = PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl);
+        var payload = PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl);
 
         await transport.WriteAsync(endpoint, payload, timeoutSource.Token);
-        byte[] received = await readTask;
+        var received = await readTask;
 
         Assert.Equal("^XA^XZ", Encoding.UTF8.GetString(received));
     }
@@ -41,7 +41,7 @@ public class TcpPrinterTransportTests
     public async Task WriteAsync_UnsupportedEndpoint_ThrowsNotSupported()
     {
         TcpPrinterTransport transport = new();
-        PrinterPayload payload = PrinterPayload.FromBytes(new byte[] { 0x00 }, PrinterContentTypes.OctetStream);
+        var payload = PrinterPayload.FromBytes(new byte[] { 0x00 }, PrinterContentTypes.OctetStream);
 
         await Assert.ThrowsAsync<NotSupportedException>(() =>
             transport.WriteAsync(new UsbPrinterEndpoint(1, 2), payload, CancellationToken.None));
@@ -51,7 +51,7 @@ public class TcpPrinterTransportTests
     public async Task WriteAsync_CanceledToken_ThrowsOperationCanceled()
     {
         TcpPrinterTransport transport = new();
-        PrinterPayload payload = PrinterPayload.FromBytes(new byte[] { 0x00 }, PrinterContentTypes.OctetStream);
+        var payload = PrinterPayload.FromBytes(new byte[] { 0x00 }, PrinterContentTypes.OctetStream);
         using CancellationTokenSource canceledSource = new();
         await canceledSource.CancelAsync();
 
@@ -61,10 +61,10 @@ public class TcpPrinterTransportTests
 
     private static async Task<byte[]> ReadOnceAsync(TcpListener listener, CancellationToken cancellationToken)
     {
-        using TcpClient client = await listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
-        using NetworkStream stream = client.GetStream();
+        using var client = await listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
+        using var stream = client.GetStream();
         using MemoryStream buffer = new();
-        byte[] chunk = new byte[1024];
+        var chunk = new byte[1024];
         int read;
         while ((read = await stream.ReadAsync(chunk, cancellationToken).ConfigureAwait(false)) > 0)
         {

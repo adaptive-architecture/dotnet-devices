@@ -12,7 +12,7 @@ public class TcpNetworkPrinterDiscoveryTests
     {
         using TcpListener listener = new(IPAddress.Loopback, 0);
         listener.Start();
-        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(15));
 
         TcpNetworkPrinterDiscovery discovery = new();
@@ -23,19 +23,19 @@ public class TcpNetworkPrinterDiscoveryTests
             ConnectTimeout = TimeSpan.FromSeconds(5),
         };
 
-        IReadOnlyList<DiscoveredPrinter> found = await discovery.DiscoverNetworkPrintersAsync(options, timeoutSource.Token);
+        var found = await discovery.DiscoverNetworkPrintersAsync(options, timeoutSource.Token);
 
-        DiscoveredPrinter printer = Assert.Single(found);
+        var printer = Assert.Single(found);
         Assert.Equal(PrinterIdKind.Network, printer.Id.Kind);
         Assert.Equal("127.0.0.1", printer.Id.Value);
-        NetworkPrinterEndpoint endpoint = Assert.IsType<NetworkPrinterEndpoint>(printer.Endpoint);
+        var endpoint = Assert.IsType<NetworkPrinterEndpoint>(printer.Endpoint);
         Assert.Equal(port, endpoint.Port);
     }
 
     [Fact]
     public async Task DiscoverNetworkPrintersAsync_SkipsClosedPorts()
     {
-        int closedPort = GetClosedPort();
+        var closedPort = GetClosedPort();
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(15));
 
         TcpNetworkPrinterDiscovery discovery = new();
@@ -46,7 +46,7 @@ public class TcpNetworkPrinterDiscoveryTests
             ConnectTimeout = TimeSpan.FromSeconds(2),
         };
 
-        IReadOnlyList<DiscoveredPrinter> found = await discovery.DiscoverNetworkPrintersAsync(options, timeoutSource.Token);
+        var found = await discovery.DiscoverNetworkPrintersAsync(options, timeoutSource.Token);
 
         Assert.Empty(found);
     }
@@ -56,7 +56,7 @@ public class TcpNetworkPrinterDiscoveryTests
     {
         TcpNetworkPrinterDiscovery discovery = new();
 
-        IReadOnlyList<DiscoveredPrinter> found = await discovery
+        var found = await discovery
             .DiscoverNetworkPrintersAsync(new NetworkPrinterDiscoveryOptions(), CancellationToken.None);
 
         Assert.Empty(found);
@@ -66,10 +66,10 @@ public class TcpNetworkPrinterDiscoveryTests
     public async Task DiscoverNetworkPrintersAsync_SkipsBlankHosts()
     {
         TcpNetworkPrinterDiscovery discovery = new();
-        NetworkPrinterDiscoveryOptions options = new() { Hosts = ["  ", string.Empty] };
+        NetworkPrinterDiscoveryOptions options = new() { Hosts = ["  ", String.Empty] };
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(15));
 
-        IReadOnlyList<DiscoveredPrinter> found = await discovery.DiscoverNetworkPrintersAsync(options, timeoutSource.Token);
+        var found = await discovery.DiscoverNetworkPrintersAsync(options, timeoutSource.Token);
 
         Assert.Empty(found);
     }
@@ -78,7 +78,7 @@ public class TcpNetworkPrinterDiscoveryTests
     {
         using TcpListener listener = new(IPAddress.Loopback, 0);
         listener.Start();
-        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         listener.Stop();
         return port;
     }

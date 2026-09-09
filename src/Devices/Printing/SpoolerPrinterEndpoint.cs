@@ -26,7 +26,7 @@ public sealed class SpoolerPrinterEndpoint : PrinterEndpoint, IEquatable<Spooler
 
     /// <inheritdoc />
     public bool Equals(SpoolerPrinterEndpoint? other) =>
-        other is not null && string.Equals(Name, other.Name, StringComparison.Ordinal);
+        other is not null && String.Equals(Name, other.Name, StringComparison.Ordinal);
 
     /// <inheritdoc />
     public override bool Equals(object? obj) => obj is SpoolerPrinterEndpoint other && Equals(other);
