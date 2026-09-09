@@ -360,3 +360,10 @@ coverage/
 
 .claude/*.local.*
 specs
+
+# Superpowers design specs are tracked; the generic "specs" rule above must not hide them.
+!docs/superpowers/specs/
+
+# Subagent-driven-development scratch workspace.
+.superpowers/
+docs/superpowers

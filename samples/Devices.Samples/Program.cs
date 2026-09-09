@@ -1,12 +1,6 @@
-﻿using System.Net;
-using System.Net.NetworkInformation;
-using System.Net.Sockets;
-using System.Text;
-using AdaptArch.Devices.DependencyInjection;
-using AdaptArch.Devices.Printing;
+﻿using AdaptArch.Devices.DependencyInjection;
+using AdaptArch.Devices.Samples;
 using Microsoft.Extensions.DependencyInjection;
-
-const int MaxProbeHosts = 4096;
 
 Console.WriteLine("AdaptArch.Devices samples");
 Console.WriteLine($"Current OS: {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
@@ -14,239 +8,144 @@ Console.WriteLine($"Current OS: {System.Runtime.InteropServices.RuntimeInformati
 // Registrations from AdaptArch.Devices.DependencyInjection; the core package has zero runtime dependencies.
 ServiceCollection services = new();
 services.AddPrinters();
-using ServiceProvider provider = services.BuildServiceProvider();
+using var provider = services.BuildServiceProvider();
 
-string printFilesDirectory = Path.Combine(AppContext.BaseDirectory, "PrintFiles");
+var printFilesDirectory = Path.Combine(AppContext.BaseDirectory, "PrintFiles");
 Console.WriteLine("Printable files:");
-foreach (string file in GetPrintFiles(printFilesDirectory))
+foreach (var file in SampleHelpers.GetPrintFiles(printFilesDirectory))
 {
     Console.WriteLine($"- {file}");
 }
 
-if (args.Length == 3 && args[0] == "--send")
+if (args.Length == 0)
 {
-    if (args[2] == "*")
-    {
-        foreach (string file in GetPrintFiles(printFilesDirectory))
-        {
-            await SendFileAsync(provider, printFilesDirectory, args[1], file).ConfigureAwait(false);
-        }
-    }
-    else
-    {
-        await SendFileAsync(provider, printFilesDirectory, args[1], args[2]).ConfigureAwait(false);
-    }
-
+    // No arguments meets a newcomer at the recommended path: the manager, not the seams.
+    await PrinterManagerScenario.DiscoverAsync(provider).ConfigureAwait(false);
+    PrintHelp();
     return;
 }
 
-// Probe every host on the local subnets for an open raw print channel (TCP 9100).
-IReadOnlyList<string> hosts = GetLocalSubnetHosts();
-Console.WriteLine($"Probing {hosts.Count} local hosts for printers...");
-INetworkPrinterDiscovery discovery = provider.GetRequiredService<INetworkPrinterDiscovery>();
-using CancellationTokenSource timeoutSource = new(TimeSpan.FromMinutes(2));
-NetworkPrinterDiscoveryOptions options = new()
+switch (args[0])
 {
-    Hosts = hosts,
-    ConnectTimeout = TimeSpan.FromMilliseconds(500),
-    MaxDegreeOfParallelism = 64,
-};
-
-try
-{
-    IReadOnlyList<DiscoveredPrinter> printers =
-        await discovery.DiscoverNetworkPrintersAsync(options, timeoutSource.Token).ConfigureAwait(false);
-
-    if (printers.Count == 0)
-    {
-        Console.WriteLine("No printers found on the local network.");
-    }
-    else
-    {
-        IppPrinterStatusClient statusClient = provider.GetRequiredService<IppPrinterStatusClient>();
-        foreach (DiscoveredPrinter printer in printers)
-        {
-            Console.WriteLine($"- {printer.Id.Value} ({printer.Endpoint})");
-            if (printer.Endpoint is NetworkPrinterEndpoint network)
-            {
-                await PrintDetailsAsync(statusClient, network).ConfigureAwait(false);
-            }
-        }
-    }
-}
-catch (OperationCanceledException)
-{
-    Console.WriteLine("Probe timed out before completing.");
+    case "print-manager":
+        await RunPrinterManagerAsync(args).ConfigureAwait(false);
+        return;
+    case "manual-management":
+        await RunManualManagementAsync(args).ConfigureAwait(false);
+        return;
+    case "win-printer-test":
+        await RunWinPrinterTestAsync(args).ConfigureAwait(false);
+        return;
+    default:
+        PrintHelp();
+        return;
 }
 
-Console.WriteLine("Pass --send <host> <file> to transmit a file from PrintFiles over TCP port 9100 ('*' sends all files).");
-
-static IReadOnlyList<string> GetPrintFiles(string directory)
+async Task RunPrinterManagerAsync(string[] commandArgs)
 {
-    if (!Directory.Exists(directory))
+    if (commandArgs.Length >= 2 && commandArgs[1] == "discover")
     {
-        return [];
-    }
-
-    List<string> files = [];
-    foreach (string path in Directory.GetFiles(directory))
-    {
-        files.Add(Path.GetFileName(path));
-    }
-
-    files.Sort(StringComparer.Ordinal);
-    return files;
-}
-
-static async Task SendFileAsync(ServiceProvider provider, string directory, string host, string fileName)
-{
-    string safeFileName = Path.GetFileName(fileName);
-    string path = Path.Combine(directory, safeFileName);
-    if (!File.Exists(path))
-    {
-        Console.WriteLine($"File '{safeFileName}' not found in PrintFiles.");
+        await PrinterManagerScenario.DiscoverAsync(provider).ConfigureAwait(false);
         return;
     }
 
-    string contentType;
-    try
+    if (commandArgs.Length == 4 && commandArgs[1] == "send")
     {
-        contentType = GetContentType(safeFileName);
-    }
-    catch (NotSupportedException exception)
-    {
-        Console.WriteLine(exception.Message);
-        return;
-    }
-
-    using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(15));
-    try
-    {
-        byte[] data = await File.ReadAllBytesAsync(path, timeoutSource.Token).ConfigureAwait(false);
-        if (data.Length == 0)
+        if (!SampleHelpers.Confirm($"Send '{commandArgs[3]}' to printer {commandArgs[2]}?"))
         {
-            Console.WriteLine($"File '{safeFileName}' is empty; nothing to transmit.");
+            Console.WriteLine("Cancelled; nothing was sent.");
             return;
         }
 
-        PrinterPayload payload = PrinterPayload.FromBytes(data, contentType);
-        IPrinterTransport transport = provider.GetRequiredService<IPrinterTransport>();
-        await transport.WriteAsync(new NetworkPrinterEndpoint(host), payload, timeoutSource.Token).ConfigureAwait(false);
-        Console.WriteLine($"Sent {data.Length} bytes ({contentType}) to {host}.");
+        await PrinterManagerScenario.SendAsync(provider, printFilesDirectory, commandArgs[2], commandArgs[3]).ConfigureAwait(false);
+        return;
     }
-    catch (Exception exception)
+
+    if (commandArgs.Length == 4 && commandArgs[1] == "watch")
     {
-        Console.WriteLine($"Send failed: {exception.Message}");
+        if (!SampleHelpers.Confirm($"Send '{commandArgs[3]}' to printer {commandArgs[2]} and watch the job?"))
+        {
+            Console.WriteLine("Cancelled; nothing was sent.");
+            return;
+        }
+
+        await PrinterManagerScenario.WatchAsync(provider, printFilesDirectory, commandArgs[2], commandArgs[3]).ConfigureAwait(false);
+        return;
     }
+
+    if (commandArgs.Length == 3 && commandArgs[1] == "zpl")
+    {
+        if (!SampleHelpers.Confirm($"Send a ZPL test label to printer {commandArgs[2]} over its passthrough channel?"))
+        {
+            Console.WriteLine("Cancelled; nothing was sent.");
+            return;
+        }
+
+        await PrinterManagerScenario.SendZplAsync(provider, commandArgs[2]).ConfigureAwait(false);
+        return;
+    }
+
+    PrintHelp();
 }
 
-static string GetContentType(string fileName)
+async Task RunManualManagementAsync(string[] commandArgs)
 {
-    string extension = Path.GetExtension(fileName).ToLowerInvariant();
-    if (extension == ".zpl")
+    if (commandArgs.Length >= 2 && commandArgs[1] == "discover")
     {
-        return PrinterContentTypes.Zpl;
+        await ManualManagementScenario.DiscoverAsync(provider).ConfigureAwait(false);
+        return;
     }
 
-    if (extension == ".epl")
+    if (commandArgs.Length == 3 && commandArgs[1] == "status")
     {
-        return PrinterContentTypes.Epl;
+        await ManualManagementScenario.StatusAsync(provider, commandArgs[2]).ConfigureAwait(false);
+        return;
     }
 
-    if (extension == ".png")
+    if (commandArgs.Length == 4 && commandArgs[1] == "send")
     {
-        return PrinterContentTypes.Png;
+        if (!SampleHelpers.Confirm($"Send '{commandArgs[3]}' to printer {commandArgs[2]} on TCP port 9100?"))
+        {
+            Console.WriteLine("Cancelled; nothing was sent.");
+            return;
+        }
+
+        await ManualManagementScenario.SendAsync(provider, printFilesDirectory, commandArgs[2], commandArgs[3]).ConfigureAwait(false);
+        return;
     }
 
-    if (extension == ".pdf")
-    {
-        return PrinterContentTypes.Pdf;
-    }
-
-    throw new NotSupportedException($"Files with extension '{extension}' are not supported.");
+    PrintHelp();
 }
 
-static async Task PrintDetailsAsync(IppPrinterStatusClient client, NetworkPrinterEndpoint endpoint)
+async Task RunWinPrinterTestAsync(string[] commandArgs)
 {
-    using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(10));
-    try
+    if (commandArgs.Length < 2)
     {
-        IppPrinterDetails details = await client.GetDetailsAsync(endpoint.Host, timeoutSource.Token).ConfigureAwait(false);
-        StringBuilder line = new($"{details.Info.Name} — {details.Status.State}");
-        if (details.Status.Detail is not null)
-        {
-            line.Append($"; {details.Status.Detail}");
-        }
-
-        foreach (PrinterMarker marker in details.Status.Markers)
-        {
-            line.Append($"; {marker.Name} {(marker.LevelPercent is null ? "level unknown" : marker.LevelPercent + "%")}");
-        }
-
-        Console.WriteLine($"    {line}");
+        PrintHelp();
+        return;
     }
-    catch (Exception exception)
-    {
-        Console.WriteLine($"    Status unavailable: {exception.Message}");
-    }
+
+    var wantsPrint = commandArgs.Length >= 3 && commandArgs[2] == "--print";
+    await WindowsPrinterTestScenario.RunAsync(commandArgs[1], wantsPrint).ConfigureAwait(false);
 }
 
-static IReadOnlyList<string> GetLocalSubnetHosts()
+static void PrintHelp()
 {
-    HashSet<string> hosts = new(StringComparer.Ordinal);
-    foreach (NetworkInterface adapter in NetworkInterface.GetAllNetworkInterfaces())
-    {
-        if (adapter.OperationalStatus != OperationalStatus.Up)
-        {
-            continue;
-        }
-
-        foreach (UnicastIPAddressInformation unicast in adapter.GetIPProperties().UnicastAddresses)
-        {
-            if (unicast.Address.AddressFamily != AddressFamily.InterNetwork)
-            {
-                continue;
-            }
-
-            byte[] addressBytes = unicast.Address.GetAddressBytes();
-            if (IPAddress.IsLoopback(unicast.Address) || IsLinkLocal(addressBytes))
-            {
-                continue;
-            }
-
-            if (!HasGateway(adapter))
-            {
-                continue;
-            }
-
-            if (unicast.PrefixLength < 16 || unicast.PrefixLength > 30)
-            {
-                continue;
-            }
-
-            uint address = ReadUInt32(addressBytes);
-            uint mask = 0xFFFFFFFFu << (32 - unicast.PrefixLength);
-            uint network = address & mask;
-            uint broadcast = network | ~mask;
-            for (uint host = network + 1; host < broadcast && hosts.Count < MaxProbeHosts; host++)
-            {
-                hosts.Add(ToAddress(host));
-            }
-        }
-    }
-
-    List<string> result = [.. hosts];
-    result.Sort(StringComparer.Ordinal);
-    return result;
+    Console.WriteLine();
+    Console.WriteLine("Usage:");
+    Console.WriteLine("  dotnet run -- print-manager discover");
+    Console.WriteLine("  dotnet run -- print-manager send  <printer-id> <file>");
+    Console.WriteLine("  dotnet run -- print-manager watch <printer-id> <file>");
+    Console.WriteLine("  dotnet run -- print-manager zpl   <printer-id>");
+    Console.WriteLine();
+    Console.WriteLine("  dotnet run -- manual-management discover");
+    Console.WriteLine("  dotnet run -- manual-management status <printer-id>");
+    Console.WriteLine("  dotnet run -- manual-management send   <printer-id> <file>");
+    Console.WriteLine();
+    Console.WriteLine("  dotnet run -- win-printer-test <queue-name> [--print]");
+    Console.WriteLine();
+    Console.WriteLine("<file> is a name from PrintFiles, above.");
+    Console.WriteLine("<printer-id> is a printer identifier, such as Network:192.168.0.152 or Spooler:EPSON_L6270_Series.");
+    Console.WriteLine("A bare value with no 'Kind:' prefix, such as 192.168.0.152, is treated as a network printer.");
+    Console.WriteLine("'discover' prints the exact identifier to use for each printer it finds.");
 }
-
-static bool IsLinkLocal(byte[] addressBytes) => addressBytes[0] == 169 && addressBytes[1] == 254;
-
-static bool HasGateway(NetworkInterface adapter) => adapter.GetIPProperties().GatewayAddresses.Any(gateway =>
-    gateway.Address.AddressFamily == AddressFamily.InterNetwork && !gateway.Address.Equals(IPAddress.Any));
-
-static uint ReadUInt32(byte[] addressBytes) =>
-    ((uint)addressBytes[0] << 24) | ((uint)addressBytes[1] << 16) | ((uint)addressBytes[2] << 8) | addressBytes[3];
-
-static string ToAddress(uint address) => new IPAddress(
-    [(byte)(address >> 24), (byte)(address >> 16), (byte)(address >> 8), (byte)address]).ToString();

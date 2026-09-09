@@ -8,7 +8,7 @@ public class PrinterIdTests
     [Fact]
     public void FromSpooler_CreatesSpoolerId()
     {
-        PrinterId id = PrinterId.FromSpooler("Office-Laser");
+        var id = PrinterId.FromSpooler("Office-Laser");
 
         Assert.Equal(PrinterIdKind.Spooler, id.Kind);
         Assert.Equal("Office-Laser", id.Value);
@@ -17,7 +17,7 @@ public class PrinterIdTests
     [Fact]
     public void FromNetwork_CreatesNetworkId()
     {
-        PrinterId id = PrinterId.FromNetwork("192.168.1.50");
+        var id = PrinterId.FromNetwork("192.168.1.50");
 
         Assert.Equal(PrinterIdKind.Network, id.Kind);
         Assert.Equal("192.168.1.50", id.Value);
@@ -26,7 +26,7 @@ public class PrinterIdTests
     [Fact]
     public void FromUsb_CreatesUsbId()
     {
-        PrinterId id = PrinterId.FromUsb("Zebra-1234");
+        var id = PrinterId.FromUsb("Zebra-1234");
 
         Assert.Equal(PrinterIdKind.Usb, id.Kind);
         Assert.Equal("Zebra-1234", id.Value);

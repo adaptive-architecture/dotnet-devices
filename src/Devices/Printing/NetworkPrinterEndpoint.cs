@@ -41,7 +41,7 @@ public sealed class NetworkPrinterEndpoint : PrinterEndpoint, IEquatable<Network
     public bool Equals(NetworkPrinterEndpoint? other) =>
         other is not null &&
         Port == other.Port &&
-        string.Equals(Host, other.Host, StringComparison.OrdinalIgnoreCase);
+        String.Equals(Host, other.Host, StringComparison.OrdinalIgnoreCase);
 
     /// <inheritdoc />
     public override bool Equals(object? obj) => obj is NetworkPrinterEndpoint other && Equals(other);

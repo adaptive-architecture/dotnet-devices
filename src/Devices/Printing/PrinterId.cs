@@ -49,7 +49,7 @@ public readonly struct PrinterId : IEquatable<PrinterId>
     public static PrinterId FromUsb(string device) => new(PrinterIdKind.Usb, device);
 
     /// <inheritdoc />
-    public bool Equals(PrinterId other) => Kind == other.Kind && string.Equals(Value, other.Value, StringComparison.Ordinal);
+    public bool Equals(PrinterId other) => Kind == other.Kind && String.Equals(Value, other.Value, StringComparison.Ordinal);
 
     /// <inheritdoc />
     public override bool Equals(object? obj) => obj is PrinterId other && Equals(other);

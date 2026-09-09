@@ -49,4 +49,25 @@ public sealed class PrintJobInfo
     /// Gets or sets the time at which the job reached a terminal state, when applicable.
     /// </summary>
     public DateTimeOffset? CompletedAt { get; set; }
+
+    /// <summary>
+    /// Gets or sets the number of pages printed, when the source reports it.
+    /// </summary>
+    public int? ImpressionsCompleted { get; set; }
+
+    /// <summary>
+    /// Gets or sets the total number of pages in the job, when the source reports it.
+    /// </summary>
+    public int? TotalImpressions { get; set; }
+
+    /// <summary>
+    /// Gets or sets a readable reason for the current state, when the source reports one.
+    /// </summary>
+    public string? Detail { get; set; }
+
+    /// <summary>
+    /// Gets or sets the options that were removed because the printer does not support them.
+    /// This is empty unless <see cref="UnsupportedOptionBehavior.Drop"/> was used.
+    /// </summary>
+    public IReadOnlyList<string> DroppedOptions { get; set; } = [];
 }

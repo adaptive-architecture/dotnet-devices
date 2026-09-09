@@ -43,7 +43,7 @@ public sealed class TcpPrinterTransport : IPrinterTransport
         }
 
         using TcpClient client = new();
-        using CancellationTokenSource timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutSource.CancelAfter(_connectTimeout);
         try
         {
@@ -54,7 +54,7 @@ public sealed class TcpPrinterTransport : IPrinterTransport
             throw new TimeoutException($"Timed out connecting to printer '{network}'.", exception);
         }
 
-        using NetworkStream stream = client.GetStream();
+        using var stream = client.GetStream();
         await stream.WriteAsync(payload.Data, cancellationToken).ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }

@@ -34,4 +34,14 @@ public sealed class DiscoveredPrinter
     /// Gets descriptive information about the printer.
     /// </summary>
     public PrinterInfo Info { get; }
+
+    /// <summary>
+    /// Gets or sets the discovery that reported this printer.
+    /// </summary>
+    /// <remarks>
+    /// Two entries can describe one physical device, because a printer can answer a
+    /// multicast browse and also have a queue in the operating system spooler. The two
+    /// entries keep separate identifiers, and this property says where each came from.
+    /// </remarks>
+    public DiscoverySource Source { get; set; }
 }

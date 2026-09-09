@@ -46,4 +46,19 @@ public sealed class PrinterStatus
     /// Gets or sets the time at which the status was observed.
     /// </summary>
     public DateTimeOffset Timestamp { get; set; }
+
+    /// <summary>
+    /// Gets or sets the serial number of the printer, or <c>null</c> when the printer did
+    /// not report one. Only SNMP fills this today; IPP and the operating system spooler do
+    /// not report a serial number yet, but a future path for either could set it.
+    /// </summary>
+    public string? SerialNumber { get; set; }
+
+    /// <summary>
+    /// Gets or sets the number of pages that the printer has marked over its life, or
+    /// <c>null</c> when the printer did not report one. Only SNMP fills this today; IPP and
+    /// the operating system spooler do not report a lifetime page count yet, but a future
+    /// path for either could set it.
+    /// </summary>
+    public long? LifetimePageCount { get; set; }
 }

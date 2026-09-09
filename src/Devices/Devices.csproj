@@ -2,6 +2,27 @@
 
   <PropertyGroup>
     <Description>Cross-platform .NET abstractions for interacting with devices such as printers, scanners, and similar peripherals.</Description>
+    <!-- LibraryImport's source-generated marshalling stubs (WindowsSpoolerInterop) emit unsafe code. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+
+  <PropertyGroup>
+    <!--
+      NU5104: a stable release should not have a prerelease dependency.
+      Lextm.SharpSnmpLib is taken at 13.0.0-beta.3 on purpose. Only version 13 drops the
+      RequiresUnreferencedCode annotations on its send and parse paths, so only version 13
+      keeps this package trim-safe and AOT-safe. Version 12.5.7 cannot be used for that
+      reason. Remove this exception when 13.x reaches a stable release.
+      See docs/packages.md for the review of this dependency.
+    -->
+    <NoWarn>$(NoWarn);NU5104</NoWarn>
+  </PropertyGroup>
+
+  <!-- Reviewed runtime dependencies. See docs/packages.md before adding another. -->
+  <ItemGroup>
+    <PackageReference Include="Lextm.SharpSnmpLib" />
+    <PackageReference Include="Makaretu.Dns.New" />
+    <PackageReference Include="SharpIppNext" />
+  </ItemGroup>
 
 </Project>

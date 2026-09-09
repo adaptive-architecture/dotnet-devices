@@ -23,7 +23,7 @@ public class PrintingModelTests
     [Fact]
     public void PrinterStatus_DefaultsToAcceptingJobs()
     {
-        PrinterId id = PrinterId.FromNetwork("host");
+        var id = PrinterId.FromNetwork("host");
         PrinterStatus status = new(id, PrinterStatusState.Idle);
 
         Assert.Equal(id, status.PrinterId);
@@ -36,7 +36,7 @@ public class PrintingModelTests
     [Fact]
     public void PrinterConfiguration_DefaultsToEmptyCapabilities()
     {
-        PrinterId id = PrinterId.FromSpooler("Q");
+        var id = PrinterId.FromSpooler("Q");
         PrinterConfiguration configuration = new(id);
 
         Assert.Equal(id, configuration.PrinterId);
@@ -50,7 +50,7 @@ public class PrintingModelTests
     [Fact]
     public void PrintJobInfo_RecordsCreationTime()
     {
-        PrinterId id = PrinterId.FromUsb("dev");
+        var id = PrinterId.FromUsb("dev");
         PrintJobInfo job = new("42", id, PrintJobState.Queued) { JobName = "Label" };
 
         Assert.Equal("42", job.JobId);
@@ -64,7 +64,7 @@ public class PrintingModelTests
     [Fact]
     public void DiscoveredPrinter_RequiresEndpointAndInfo()
     {
-        PrinterId id = PrinterId.FromNetwork("host");
+        var id = PrinterId.FromNetwork("host");
         Assert.Throws<ArgumentNullException>(() => new DiscoveredPrinter(id, null, new PrinterInfo(id, "P")));
         Assert.Throws<ArgumentNullException>(() => new DiscoveredPrinter(id, new NetworkPrinterEndpoint("host"), null));
     }
@@ -78,5 +78,32 @@ public class PrintingModelTests
         Assert.Equal(9100, options.Port);
         Assert.Equal(TimeSpan.FromSeconds(1), options.ConnectTimeout);
         Assert.Equal(32, options.MaxDegreeOfParallelism);
+    }
+
+    [Fact]
+    public void PrintOptions_DefaultsToSendingUnsupportedOptions()
+    {
+        PrintOptions options = new();
+
+        Assert.Equal(UnsupportedOptionBehavior.Send, options.OnUnsupported);
+    }
+
+    [Fact]
+    public void PrintJobInfo_HasNoProgressAndNoDroppedOptionsByDefault()
+    {
+        PrintJobInfo job = new("42", PrinterId.FromNetwork("printer.local"), PrintJobState.Queued);
+
+        Assert.Null(job.ImpressionsCompleted);
+        Assert.Null(job.TotalImpressions);
+        Assert.Null(job.Detail);
+        Assert.Empty(job.DroppedOptions);
+    }
+
+    [Fact]
+    public void PrintOptions_DoesNotRequirePassthroughByDefault()
+    {
+        PrintOptions options = new();
+
+        Assert.False(options.RequirePassthrough);
     }
 }

@@ -27,7 +27,7 @@ public sealed class TcpNetworkPrinterDiscovery : INetworkPrinterDiscovery
         };
         await Parallel.ForEachAsync(options.Hosts, parallelOptions, async (host, hostCancellationToken) =>
         {
-            if (string.IsNullOrWhiteSpace(host))
+            if (String.IsNullOrWhiteSpace(host))
             {
                 return;
             }
@@ -36,19 +36,19 @@ public sealed class TcpNetworkPrinterDiscovery : INetworkPrinterDiscovery
             {
                 PrinterId id = new(PrinterIdKind.Network, host);
                 NetworkPrinterEndpoint endpoint = new(host, options.Port);
-                found.Add(new DiscoveredPrinter(id, endpoint, new PrinterInfo(id, host)));
+                found.Add(new DiscoveredPrinter(id, endpoint, new PrinterInfo(id, host)) { Source = DiscoverySource.NetworkProbe });
             }
         }).ConfigureAwait(false);
 
         List<DiscoveredPrinter> result = [.. found];
-        result.Sort(static (left, right) => string.Compare(left.Id.Value, right.Id.Value, StringComparison.Ordinal));
+        result.Sort(static (left, right) => String.Compare(left.Id.Value, right.Id.Value, StringComparison.Ordinal));
         return result;
     }
 
     private static async Task<bool> IsReachableAsync(string host, NetworkPrinterDiscoveryOptions options, CancellationToken cancellationToken)
     {
         using TcpClient client = new();
-        using CancellationTokenSource timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutSource.CancelAfter(options.ConnectTimeout);
         try
         {

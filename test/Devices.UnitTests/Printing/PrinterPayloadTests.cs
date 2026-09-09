@@ -9,7 +9,7 @@ public class PrinterPayloadTests
     [Fact]
     public void FromString_EncodesAsUtf8ByDefault()
     {
-        PrinterPayload payload = PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl);
+        var payload = PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl);
 
         Assert.Equal(PrinterContentTypes.Zpl, payload.ContentType);
         Assert.Equal("^XA^XZ", Encoding.UTF8.GetString(payload.Data.Span));
@@ -18,7 +18,7 @@ public class PrinterPayloadTests
     [Fact]
     public void FromString_HonorsExplicitEncoding()
     {
-        PrinterPayload payload = PrinterPayload.FromString("ä", PrinterContentTypes.Text, Encoding.Latin1);
+        var payload = PrinterPayload.FromString("ä", PrinterContentTypes.Text, Encoding.Latin1);
 
         Assert.Equal("ä", Encoding.Latin1.GetString(payload.Data.Span));
     }
@@ -27,7 +27,7 @@ public class PrinterPayloadTests
     public void FromBytes_PreservesDataAndContentType()
     {
         byte[] data = [0x1B, 0x40];
-        PrinterPayload payload = PrinterPayload.FromBytes(data, PrinterContentTypes.EscPos);
+        var payload = PrinterPayload.FromBytes(data, PrinterContentTypes.EscPos);
 
         Assert.Equal(PrinterContentTypes.EscPos, payload.ContentType);
         Assert.Equal(data, payload.Data.ToArray());
