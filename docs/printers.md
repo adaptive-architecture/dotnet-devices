@@ -635,7 +635,7 @@ services.AddPrinters(options => options.AllowPlainIpp = false);
 
 ## Sample
 
-`samples/Devices.Samples` has four scenarios:
+`samples/Devices.Samples` has five scenarios:
 
 - `interactive` — a menu, and the default when no argument is given. It discovers once, then
   lets you list the printers, print a file through a queue (spooler or IPP) and watch the
@@ -644,6 +644,13 @@ services.AddPrinters(options => options.AllowPlainIpp = false);
   flow asks for a colour mode for an image, and for a rotation and a scaling mode when the
   printer reported which ones it accepts. The raw flow lists the spooler beside the raw
   channel, and says which of the two promises to keep the bytes.
+- `test-run` — one scripted hardware test, also menu entry 6. It discovers, prints the
+  capabilities and the status of every printer, then sends five jobs through one spooler
+  queue: a PDF with the defaults, a PNG in colour at its own size, a PNG in grayscale
+  rotated 90 degrees, a JPEG rotated 180 degrees, and a JPEG in grayscale filling the media.
+  It then asks again, and sends one JPEG raw to every raw-capable channel. The jobs never
+  change, so two runs can be compared. An option the printer did not report is still sent,
+  and the run says so first.
 - `print-manager` — `IPrinterManager` for discovery, status, sending, watching and ZPL. This
   is the layer most callers want.
 - `manual-management` — `IMdnsPrinterDiscovery`, `INetworkPrinterDiscovery` and
@@ -664,10 +671,25 @@ TCP port 9100 without a change, and nothing on the way converts them. A printer 
 PDF interpreter prints nothing, or prints the PDF source as text. The same rule applies to
 PNG and to a label language.
 
-Two attributes answer the question before you send:
+**Ask the channel, not the device.** The channels of one printer read different formats,
+and `document-format-supported` describes the IPP service alone. The `pdl` key of the
+DNS-SD advertisement, which the library keeps in `PrinterInfo.DriverName`, names what one
+channel reads, so it is the first place to look. An EPSON L6270 answers like this:
+
+```text
+ipp channel  pdl = application/octet-stream, image/pwg-raster, image/urf, image/jpeg,
+                   application/vnd.epson.escpr
+raw channel  pdl = application/vnd.epson.escpr
+```
+
+The IPP service takes a JPEG; TCP port 9100 takes ESC/P-R and nothing else. Judging that
+printer by its device-wide format list would promise a raw JPEG print that cannot work.
+
+Three sources answer the question before you send, in this order:
+`PrinterInfo.DriverName` for the channel, then
 `PrinterConfiguration.SupportedDocumentFormats`, which comes from IPP
-`document-format-supported`, and `PrinterDeviceDetails.CommandSets`, which comes from the
-IEEE 1284 `CMD` field. The `interactive` scenario reads both and warns when the printer
+`document-format-supported`, then `PrinterDeviceDetails.CommandSets`, which comes from the
+IEEE 1284 `CMD` field and belongs to the whole device. The `interactive` scenario reads both and warns when the printer
 reports neither `application/pdf` nor a `PDF` command set. A printer that reports nothing did
 not refuse; it only did not answer.
 

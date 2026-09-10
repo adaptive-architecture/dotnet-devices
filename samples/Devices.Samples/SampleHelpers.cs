@@ -46,38 +46,66 @@ internal static class SampleHelpers
         return choice - 1;
     }
 
-    // Three states: true the printer reports the format, false it reports other formats
-    // only, null it reports nothing. A printer that reports nothing did not refuse.
-    internal static bool? Accepts(PrinterDevice device, string contentType)
+    // Three states: true the channel reports the format, false it reports other formats
+    // only, null it reports nothing. A channel that reports nothing did not refuse.
+    //
+    // The judgement is per channel, never per device. The channels of one printer read
+    // different formats: an IPP service can take a JPEG that the raw port, which feeds the
+    // bytes straight to the page description language interpreter, cannot.
+    internal static bool? Accepts(PrinterDevice device, DiscoveredPrinter channel, string contentType)
     {
-        var reported = false;
-        foreach (var channel in device.Channels)
+        // The "pdl" record of the advertisement names what this channel itself reads, so
+        // it answers before anything the device says about itself as a whole.
+        var advertised = SplitFormats(channel.Info.DriverName);
+        if (advertised.Count > 0)
         {
-            var formats = channel.Configuration?.SupportedDocumentFormats ?? [];
-            if (formats.Count == 0)
-            {
-                continue;
-            }
-
-            reported = true;
-            if (formats.Contains(contentType, StringComparer.OrdinalIgnoreCase))
-            {
-                return true;
-            }
+            return advertised.Contains(contentType, StringComparer.OrdinalIgnoreCase);
         }
 
-        // IEEE 1284 names the languages the firmware reads, such as ZPL, PDF or PCL.
+        var formats = channel.Configuration?.SupportedDocumentFormats ?? [];
+        if (formats.Count > 0)
+        {
+            return formats.Contains(contentType, StringComparer.OrdinalIgnoreCase);
+        }
+
+        // IEEE 1284 names the languages the firmware reads. It belongs to the device, not
+        // to one channel, so it is the last word and not the first.
+        if (device.Details.CommandSets.Count == 0)
+        {
+            return null;
+        }
+
         var commandSet = GetCommandSet(contentType);
         foreach (var command in device.Details.CommandSets)
         {
-            reported = true;
             if (command.Contains(commandSet, StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
         }
 
-        return reported ? false : null;
+        return false;
+    }
+
+    // The "pdl" TXT record is a comma-separated list of media types.
+    private static List<string> SplitFormats(string list)
+    {
+        List<string> formats = [];
+        if (String.IsNullOrWhiteSpace(list))
+        {
+            return formats;
+        }
+
+        foreach (var entry in list.Split(','))
+        {
+            var format = entry.Trim();
+            if (format.Length > 0)
+            {
+                formats.Add(format);
+            }
+        }
+
+        return formats;
     }
 
     private static string GetCommandSet(string contentType)

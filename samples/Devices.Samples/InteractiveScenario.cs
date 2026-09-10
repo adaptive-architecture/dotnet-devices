@@ -21,6 +21,7 @@ internal static class InteractiveScenario
             Console.WriteLine("  3) Print a file raw, through a passthrough or spooler channel");
             Console.WriteLine("  4) Show the status of a printer");
             Console.WriteLine("  5) Show the capabilities of a printer");
+            Console.WriteLine("  6) Run the whole test sequence");
             Console.Write("Choice: ");
 
             // A null line means the input closed, so the loop must end.
@@ -48,6 +49,9 @@ internal static class InteractiveScenario
                     break;
                 case "5":
                     ShowCapabilities(devices);
+                    break;
+                case "6":
+                    devices = await TestRunAsync(provider, printFilesDirectory).ConfigureAwait(false);
                     break;
                 default:
                     Console.WriteLine("Select a number from the menu.");
@@ -237,6 +241,191 @@ internal static class InteractiveScenario
         }
     }
 
+    // A fixed sequence for a hardware test: the same jobs, in the same order, every time,
+    // so two runs can be compared and a change in the output has one cause. It returns the
+    // devices it found, so the menu keeps them.
+    internal static async Task<IReadOnlyList<PrinterDevice>> TestRunAsync(ServiceProvider provider, string directory)
+    {
+        var devices = await DiscoverAsync(provider).ConfigureAwait(false);
+        if (devices.Count == 0)
+        {
+            return devices;
+        }
+
+        var manager = provider.GetRequiredService<IPrinterManager>();
+        Console.WriteLine();
+        Console.WriteLine("== Capabilities ==");
+        foreach (var device in devices)
+        {
+            WriteCapabilities(device);
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("== Status ==");
+        foreach (var device in devices)
+        {
+            await ShowStatusAsync(manager, device).ConfigureAwait(false);
+        }
+
+        await RunQueueJobsAsync(provider, devices, directory).ConfigureAwait(false);
+        await RunRawJobsAsync(provider, devices, directory).ConfigureAwait(false);
+        return devices;
+    }
+
+    // The five jobs the test sequence sends through one queue. Each one changes exactly
+    // one thing from the one before it, so a wrong page names its own option.
+    private static IReadOnlyList<TestJob> BuildJobs() =>
+    [
+        new TestJob("document.pdf", "a PDF with the printer defaults", new PrintOptions()),
+        new TestJob(
+            "image.png",
+            "a PNG in colour, at its own size",
+            new PrintOptions { ColorMode = PrintColorMode.Color, Scaling = PrintScaling.None }),
+        new TestJob(
+            "image.png",
+            "a PNG in grayscale, rotated 90 degrees",
+            new PrintOptions { ColorMode = PrintColorMode.Monochrome, Orientation = PrintOrientation.Landscape }),
+        new TestJob(
+            "photo.jpeg",
+            "a JPEG rotated 180 degrees",
+            new PrintOptions { Orientation = PrintOrientation.ReversePortrait }),
+        new TestJob(
+            "photo.jpeg",
+            "a JPEG in grayscale, filling the media",
+            new PrintOptions { ColorMode = PrintColorMode.Monochrome, Scaling = PrintScaling.Fill }),
+    ];
+
+    private static async Task RunQueueJobsAsync(ServiceProvider provider, IReadOnlyList<PrinterDevice> devices, string directory)
+    {
+        var channels = Collect(devices, static channel => channel.Endpoint.Scheme == PrinterScheme.Spooler);
+        if (channels.Count == 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("No printer of the list has a spooler queue, so the queue jobs are skipped.");
+            return;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("== Queue jobs ==");
+        var selected = SampleHelpers.Choose("Spooler queue to print with:", Label(channels));
+        if (selected < 0)
+        {
+            return;
+        }
+
+        var target = channels[selected];
+        var jobs = BuildJobs();
+        Console.WriteLine($"The sequence prints {jobs.Count} documents:");
+        foreach (var job in jobs)
+        {
+            Console.WriteLine($"  {job.FileName}: {job.Description}");
+        }
+
+        if (!SampleHelpers.Confirm($"Print all {jobs.Count} on {target.Printer.Id}?"))
+        {
+            Console.WriteLine("Cancelled; nothing was sent.");
+            return;
+        }
+
+        foreach (var job in jobs)
+        {
+            await RunJobAsync(provider, target, directory, job).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task RunJobAsync(ServiceProvider provider, Channel target, string directory, TestJob job)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"-- {job.FileName}: {job.Description}");
+        if (!File.Exists(Path.Combine(directory, job.FileName)))
+        {
+            Console.WriteLine($"   '{job.FileName}' is not in PrintFiles, so this job is skipped.");
+            return;
+        }
+
+        WarnUnreported(target.Printer, job.Options);
+        job.Options.JobName = $"{job.FileName} — {job.Description}";
+        await SendAndWatchAsync(
+            provider,
+            target.Printer.Id,
+            directory,
+            job.FileName,
+            SampleHelpers.GetContentType(job.FileName),
+            job.Options).ConfigureAwait(false);
+    }
+
+    // The job is still sent: the printer is the authority, and a value it did not list is
+    // not a value it refused. Saying so first makes an odd page easy to explain.
+    private static void WarnUnreported(DiscoveredPrinter channel, PrintOptions options)
+    {
+        var configuration = channel.Configuration;
+        if (configuration is null)
+        {
+            return;
+        }
+
+        if (options.Orientation is PrintOrientation orientation
+            && configuration.SupportedOrientations.Count > 0
+            && !configuration.SupportedOrientations.Contains(orientation))
+        {
+            Console.WriteLine($"   note: the printer did not report the rotation {orientation}. It is sent anyway.");
+        }
+
+        if (options.Scaling is PrintScaling scaling
+            && configuration.SupportedScalings.Count > 0
+            && !configuration.SupportedScalings.Contains(scaling))
+        {
+            Console.WriteLine($"   note: the printer did not report the scaling {scaling}. It is sent anyway.");
+        }
+    }
+
+    // One JPEG to every channel that can take it unchanged, so the raw path is compared
+    // across the printers in one step.
+    private static async Task RunRawJobsAsync(ServiceProvider provider, IReadOnlyList<PrinterDevice> devices, string directory)
+    {
+        const string FileName = "photo.jpeg";
+        var channels = Collect(
+            devices,
+            static channel => channel.GivesPassthrough || channel.Endpoint.Scheme == PrinterScheme.Spooler);
+        if (channels.Count == 0 || !File.Exists(Path.Combine(directory, FileName)))
+        {
+            Console.WriteLine();
+            Console.WriteLine($"No raw-capable channel, or no '{FileName}', so the raw jobs are skipped.");
+            return;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("== Raw jobs ==");
+        Console.WriteLine($"'{FileName}' goes to each of these channels, unchanged:");
+        foreach (var label in Label(channels))
+        {
+            Console.WriteLine($"  {label}");
+        }
+
+        if (!SampleHelpers.Confirm($"Send '{FileName}' raw to all {channels.Count}?"))
+        {
+            Console.WriteLine("Cancelled; nothing was sent.");
+            return;
+        }
+
+        var contentType = SampleHelpers.GetContentType(FileName);
+        foreach (var channel in channels)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"-- {channel.Printer.Id}");
+            var accepts = SampleHelpers.Accepts(channel.Device, channel.Printer, contentType);
+            if (accepts == false)
+            {
+                Console.WriteLine($"   note: this printer did not report {contentType}. It is sent anyway.");
+            }
+
+            await SendRawAsync(provider, channel, directory, FileName, contentType).ConfigureAwait(false);
+        }
+    }
+
+    // One job of the test sequence. The options are built once and used once.
+    private sealed record TestJob(string FileName, string Description, PrintOptions Options);
+
     // A raw channel writes the bytes to the device without a change. The device must read
     // the format itself, because nothing on the way converts it. The spooler is offered
     // beside it: on Windows it uses the RAW data type and keeps the same promise, and on
@@ -274,7 +463,7 @@ internal static class InteractiveScenario
         }
 
         WriteRawWarning(target);
-        if (!ConfirmRaw(target.Device, fileName, contentType))
+        if (!ConfirmRaw(target, fileName, contentType))
         {
             Console.WriteLine("Cancelled; nothing was sent.");
             return;
@@ -299,26 +488,40 @@ internal static class InteractiveScenario
     }
 
     // The printer reads the bytes itself, so ask it first whether it knows the format.
-    private static bool ConfirmRaw(PrinterDevice device, string fileName, string contentType)
+    private static bool ConfirmRaw(Channel target, string fileName, string contentType)
     {
-        var accepts = SampleHelpers.Accepts(device, contentType);
+        var accepts = SampleHelpers.Accepts(target.Device, target.Printer, contentType);
         if (accepts is null)
         {
-            Console.WriteLine($"{device.Details.Name} reports no format and no command set, so it is not");
-            Console.WriteLine($"known whether it reads {contentType}. A printer that reads nothing prints nothing.");
+            Console.WriteLine($"{target.Printer.Id} reports no format and no command set, so it is");
+            Console.WriteLine($"not known whether it reads {contentType}. A printer that reads nothing prints nothing.");
             return SampleHelpers.Confirm($"Send '{fileName}' anyway?");
         }
 
         if (accepts == false)
         {
-            Console.WriteLine($"{device.Details.Name} does not report {contentType}. A raw send is not");
+            Console.WriteLine($"{target.Printer.Id} does not report {contentType}. A raw send is not");
             Console.WriteLine("converted, so the printer will probably print nothing, or print the source as text.");
             Console.WriteLine("A PDF needs a PDF interpreter in the firmware; a label needs the label language.");
+            WriteAdvertised(target.Printer);
             return SampleHelpers.Confirm($"Send '{fileName}' anyway, to see what the printer does?");
         }
 
-        Console.WriteLine($"{device.Details.Name} reports {contentType}.");
-        return SampleHelpers.Confirm($"Send '{fileName}' unchanged to {device.Id}?");
+        Console.WriteLine($"{target.Printer.Id} reports {contentType}.");
+        return SampleHelpers.Confirm($"Send '{fileName}' unchanged to {target.Printer.Id}?");
+    }
+
+    // The list the channel does read is the useful next step, so it is printed with the
+    // refusal instead of leaving the operator to go and look it up.
+    private static void WriteAdvertised(DiscoveredPrinter channel)
+    {
+        var advertised = String.IsNullOrWhiteSpace(channel.Info.DriverName)
+            ? String.Join(", ", channel.Configuration?.SupportedDocumentFormats ?? [])
+            : channel.Info.DriverName;
+        if (!String.IsNullOrWhiteSpace(advertised))
+        {
+            Console.WriteLine($"This channel reads: {advertised}");
+        }
     }
 
     // RequirePassthrough is asked for only where the channel can keep it. A CUPS queue
@@ -371,11 +574,16 @@ internal static class InteractiveScenario
             return;
         }
 
-        var manager = provider.GetRequiredService<IPrinterManager>();
+        await ShowStatusAsync(provider.GetRequiredService<IPrinterManager>(), devices[selected]).ConfigureAwait(false);
+    }
+
+    private static async Task ShowStatusAsync(IPrinterManager manager, PrinterDevice device)
+    {
+        Console.WriteLine($"- {device.Details.Name}");
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(15));
         try
         {
-            var status = await manager.GetStatusAsync(devices[selected].Id, timeoutSource.Token).ConfigureAwait(false);
+            var status = await manager.GetStatusAsync(device.Id, timeoutSource.Token).ConfigureAwait(false);
             StringBuilder line = new($"{status.State}, accepting jobs: {status.IsAcceptingJobs}");
             if (status.SerialNumber is not null)
             {
@@ -405,18 +613,27 @@ internal static class InteractiveScenario
     private static void ShowCapabilities(IReadOnlyList<PrinterDevice> devices)
     {
         var selected = SampleHelpers.Choose("Printers:", Select(devices));
-        if (selected < 0)
+        if (selected >= 0)
         {
-            return;
+            WriteCapabilities(devices[selected]);
         }
+    }
 
-        var device = devices[selected];
+    private static void WriteCapabilities(PrinterDevice device)
+    {
+        Console.WriteLine($"- {device.Details.Name}");
         Console.WriteLine($"  device      : {device.Key}");
         WriteList("command sets", device.Details.CommandSets);
         foreach (var channel in device.Channels)
         {
             Console.WriteLine($"  {channel.Endpoint.Scheme,-8}: {channel.Id}");
             Console.WriteLine($"      options : {channel.SupportedOptions}");
+            // The "pdl" TXT record of the advertisement: what this channel itself reads.
+            if (!String.IsNullOrWhiteSpace(channel.Info.DriverName))
+            {
+                Console.WriteLine($"      pdl     : {channel.Info.DriverName}");
+            }
+
             WriteList("      formats", channel.Configuration?.SupportedDocumentFormats ?? []);
             WriteList("      rotation", Names(channel.Configuration?.SupportedOrientations ?? []));
             WriteList("      scaling", Names(channel.Configuration?.SupportedScalings ?? []));

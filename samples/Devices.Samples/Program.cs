@@ -25,6 +25,9 @@ switch (args[0])
     case "interactive":
         await InteractiveScenario.RunAsync(provider, printFilesDirectory).ConfigureAwait(false);
         return;
+    case "test-run":
+        _ = await InteractiveScenario.TestRunAsync(provider, printFilesDirectory).ConfigureAwait(false);
+        return;
     case "print-manager":
         await RunPrinterManagerAsync(args).ConfigureAwait(false);
         return;
@@ -132,6 +135,7 @@ static void PrintHelp()
     Console.WriteLine();
     Console.WriteLine("Usage:");
     Console.WriteLine("  dotnet run -- interactive        (a menu; also the default)");
+    Console.WriteLine("  dotnet run -- test-run           (the whole test sequence, once)");
     Console.WriteLine();
     Console.WriteLine("  dotnet run -- print-manager discover");
     Console.WriteLine("  dotnet run -- print-manager send  <printer-id> <file>");
