@@ -155,7 +155,9 @@ public class PrinterManagerPrintTests
         Assert.Equal(expected, PrinterManager.GivesPassthrough(new NetworkPrinterEndpoint("printer.local", port), isWindows));
 
     [Theory]
-    // The Windows spooler sends RAW through; CUPS applies its own filter chain.
+    // The Windows spooler sends RAW through. CUPS does not give the promise: submitting a
+    // printer language as application/vnd.cups-raw stops the text filters, but a queue
+    // with a driver, and a driverless queue, still convert the job for the device.
     [InlineData(true, true)]
     [InlineData(false, false)]
     public void GivesPassthrough_ReadsThePlatformForASpoolerQueue(bool isWindows, bool expected) =>

@@ -76,7 +76,16 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
         ArgumentNullException.ThrowIfNull(payload);
-        return IppRequests.SubmitAsync(_httpClient, QueueUri(queueName), PrinterId.FromSpooler(queueName), payload, options, [], cancellationToken);
+        // The daemon is CUPS by construction, so the format needs no negotiation.
+        return IppRequests.SubmitAsync(
+            _httpClient,
+            QueueUri(queueName),
+            PrinterId.FromSpooler(queueName),
+            payload,
+            IppDocumentFormat.ForCups(payload.ContentType),
+            options,
+            [],
+            cancellationToken);
     }
 
     public Task<PrinterStatus> GetStatusAsync(string queueName, CancellationToken cancellationToken)

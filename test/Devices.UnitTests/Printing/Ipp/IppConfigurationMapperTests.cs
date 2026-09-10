@@ -56,6 +56,23 @@ public class IppConfigurationMapperTests
     }
 
     [Fact]
+    public async Task Map_ReadsTheSupportedDocumentFormats()
+    {
+        // 0x49 is the mimeMediaType tag.
+        var body = IppMessages.Response(0x0000,
+            (0x49, "document-format-supported", "application/pdf"),
+            (0x49, null, "application/vnd.cups-raw"),
+            (0x49, null, "application/octet-stream"));
+        var attributes = await IppMessages.DecodePrinterAttributesAsync(body);
+
+        var configuration = IppConfigurationMapper.Map(Id, attributes);
+
+        Assert.Equal(
+            ["application/pdf", "application/vnd.cups-raw", "application/octet-stream"],
+            configuration.SupportedDocumentFormats);
+    }
+
+    [Fact]
     public void Map_ReturnsAnEmptyConfigurationForNoAttributes()
     {
         var configuration = IppConfigurationMapper.Map(Id, null);
@@ -65,5 +82,6 @@ public class IppConfigurationMapperTests
         Assert.Null(configuration.SupportsDuplex);
         Assert.Null(configuration.SupportsColor);
         Assert.Null(configuration.DefaultMediaSize);
+        Assert.Empty(configuration.SupportedDocumentFormats);
     }
 }

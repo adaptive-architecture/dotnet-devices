@@ -101,8 +101,17 @@ public sealed class IppPrinter : IPrinter, IDisposable
             effectiveOptions = PrintOptionValidator.Apply(options, configuration, out dropped);
         }
 
+        // A printer language must never be re-typed by the server. Only a raw payload
+        // needs the printer's format list, so every other job costs no extra request.
+        var format = payload.ContentType;
+        if (IppDocumentFormat.IsRawLanguage(format))
+        {
+            var configuration = await GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
+            format = IppDocumentFormat.Negotiate(format, configuration.SupportedDocumentFormats);
+        }
+
         return await _resolver.RunAsync(
-            (uri, token) => IppRequests.SubmitAsync(_httpClient, uri, Id, payload, effectiveOptions, dropped, token),
+            (uri, token) => IppRequests.SubmitAsync(_httpClient, uri, Id, payload, format, effectiveOptions, dropped, token),
             cancellationToken).ConfigureAwait(false);
     }
 

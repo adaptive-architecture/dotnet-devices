@@ -151,8 +151,13 @@ public sealed class PrinterManager : IPrinterManager
         }
     }
 
-    // IPP, IPPS and CUPS can filter or rasterise a document; a raw channel and the
-    // Windows spooler cannot. The platform is a parameter so both branches are testable.
+    // A raw channel always sends the bytes through, and so does the Windows spooler with
+    // the RAW data type. CUPS does not give the promise, even though the library now
+    // submits a printer language as application/vnd.cups-raw: that format is necessary
+    // but not sufficient. A queue with a driver, and a driverless queue, still convert
+    // the job into what the device reads, and CUPS exposes no dependable attribute that
+    // tells such a queue from a raw one. An unverifiable promise must not be made.
+    // The platform is a parameter so both branches are testable.
     internal static bool GivesPassthrough(PrinterEndpoint endpoint, bool isWindows)
     {
         if (endpoint is NetworkPrinterEndpoint network)

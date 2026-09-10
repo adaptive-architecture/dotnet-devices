@@ -14,6 +14,7 @@ internal static class IppRequests
         Uri uri,
         PrinterId printerId,
         PrinterPayload payload,
+        string documentFormat,
         PrintOptions? options,
         IReadOnlyList<string> dropped,
         CancellationToken cancellationToken)
@@ -27,7 +28,7 @@ internal static class IppRequests
             OperationAttributes = new()
             {
                 PrinterUri = uri,
-                DocumentFormat = new DocumentFormat(payload.ContentType, true),
+                DocumentFormat = new DocumentFormat(documentFormat, true),
                 JobName = options?.JobName,
                 RequestingUserName = options?.RequestingUserName ?? PrintOptions.DefaultRequestingUserName,
             },
@@ -35,11 +36,21 @@ internal static class IppRequests
         };
 
         IppOperations operations = new(httpClient);
-        var response = await operations.SendAsync(
-            static (client, message, token) => client.PrintJobAsync(message, token),
-            request,
-            uri,
-            cancellationToken).ConfigureAwait(false);
+        SharpIpp.Models.Responses.PrintJobResponse response;
+        try
+        {
+            response = await operations.SendAsync(
+                static (client, message, token) => client.PrintJobAsync(message, token),
+                request,
+                uri,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException exception)
+            when (IppFailureMapping.StatusCodeOf(operations.LastRawResponse) == IppStatusCode.ClientErrorDocumentFormatNotSupported)
+        {
+            // The generic IPP error hides the one cause a caller can act on.
+            throw IppFailureMapping.ToUnsupportedDocumentFormat(uri, documentFormat, exception);
+        }
 
         var job = response.JobAttributes
             ?? throw new InvalidDataException($"The IPP response from '{uri}' did not include job attributes.");

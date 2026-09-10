@@ -14,6 +14,7 @@ public sealed class PrinterConfiguration
         PrinterId = printerId;
         SupportedResolutionsDpi = [];
         MediaSizes = [];
+        SupportedDocumentFormats = [];
     }
 
     /// <summary>
@@ -47,4 +48,10 @@ public sealed class PrinterConfiguration
     /// Gets the default media size name, when known.
     /// </summary>
     public string? DefaultMediaSize { get; init; }
+
+    /// <summary>
+    /// Gets the document formats (MIME media types) the printer accepts. An empty list
+    /// means the printer did not report them, which is not the same as "accepts none".
+    /// </summary>
+    public IReadOnlyList<string> SupportedDocumentFormats { get; init; }
 }

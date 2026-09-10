@@ -1,4 +1,4 @@
-# Capabilities
+﻿# Capabilities
 
 ## Today
 
@@ -14,6 +14,9 @@
   list, and TCP probing of explicit hosts (`TcpNetworkPrinterDiscovery`).
 - **Printer manager** — `IPrinterManager` combines every discovery source and prints to a
   found printer by its identifier, from one entry point.
+- **Document formats** — a printer command language (ZPL, EPL, CPCL, ESC-POS) is mapped to
+  a `document-format` the IPP peer accepts without converting the job. See
+  [Printers](printers.md#document-formats-and-raw-printer-languages).
 - **Printer status** — over IPP (`IppPrinterStatusClient`) and over SNMP version 2c
   (`SnmpPrinterStatusClient`), which adds the serial number and the page count.
 - **Scanners, other peripherals** — not yet implemented.

@@ -177,10 +177,13 @@ internal static class PrinterManagerScenario
         }
         catch (NotSupportedException exception)
         {
-            // The refusal is the guarantee working, not a failure.
-            Console.WriteLine("The printer refused the job. This is the correct result.");
-            Console.WriteLine("The printer has no channel that sends the bytes unchanged.");
-            Console.WriteLine("A filtering channel could rasterise the ZPL and print the wrong output.");
+            // The refusal is the guarantee working: no channel of this printer keeps it.
+            Console.WriteLine("The manager sent nothing, because no channel of this printer");
+            Console.WriteLine("sends the bytes unchanged. A filtering channel could rasterise");
+            Console.WriteLine("the ZPL and print the command source instead of the label.");
+            Console.WriteLine("A raw TCP channel keeps the promise, and so does the Windows spooler.");
+            Console.WriteLine("CUPS does not: only a raw CUPS queue passes the bytes on, and CUPS");
+            Console.WriteLine("reports nothing that tells such a queue apart, so it is refused here.");
             Console.WriteLine("Send without RequirePassthrough only when the printer reads the format you send.");
             Console.WriteLine($"Reason: {exception.Message}");
         }

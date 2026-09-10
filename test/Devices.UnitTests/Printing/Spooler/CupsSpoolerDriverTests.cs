@@ -1,4 +1,5 @@
-﻿using AdaptArch.Devices.Printing;
+﻿using System.Text;
+using AdaptArch.Devices.Printing;
 using AdaptArch.Devices.Printing.Spooler;
 using AdaptArch.Devices.UnitTests.Printing.Ipp;
 using Xunit;
@@ -45,6 +46,59 @@ public class CupsSpoolerDriverTests
         Assert.Equal("localhost", request.RequestUri.Host);
         Assert.Equal(631, request.RequestUri.Port);
         Assert.Equal("/printers/lobby", request.RequestUri.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_SendsAPrinterLanguageAsTheCupsRawFormat()
+    {
+        // CUPS rejects application/vnd.zebra-zpl, and it re-types octet-stream as
+        // text/plain for ZPL, which prints the command source on a page.
+        var body = IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 7), (0x23, "job-state", 3));
+        BodyCapturingHandler handler = new(body);
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        _ = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
+            null,
+            TestContext.Current.CancellationToken);
+
+        var text = Encoding.Latin1.GetString(handler.LastBody);
+        Assert.Contains("application/vnd.cups-raw", text, StringComparison.Ordinal);
+        Assert.DoesNotContain(PrinterContentTypes.Zpl, text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_SendsAFormatCupsKnowsUnchanged()
+    {
+        var body = IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 7), (0x23, "job-state", 3));
+        BodyCapturingHandler handler = new(body);
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        _ = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            null,
+            TestContext.Current.CancellationToken);
+
+        var text = Encoding.Latin1.GetString(handler.LastBody);
+        Assert.Contains(PrinterContentTypes.Pdf, text, StringComparison.Ordinal);
+        Assert.DoesNotContain("application/vnd.cups-raw", text, StringComparison.Ordinal);
+    }
+
+    private sealed class BodyCapturingHandler : HttpMessageHandler
+    {
+        private readonly byte[] _responseBody;
+
+        public BodyCapturingHandler(byte[] responseBody) => _responseBody = responseBody;
+
+        public byte[] LastBody { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            LastBody = await request.Content!.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+            return IppMessages.Ok(_responseBody);
+        }
     }
 
     [Fact]

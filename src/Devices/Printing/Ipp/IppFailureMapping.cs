@@ -12,6 +12,9 @@ internal static class IppFailureMapping
     public static InvalidOperationException ToIppError(Uri uri, Exception exception) =>
         new($"Printer '{uri}' reported an IPP error.", exception);
 
+    public static InvalidOperationException ToUnsupportedDocumentFormat(Uri uri, string documentFormat, Exception exception) =>
+        new($"Printer '{uri}' does not accept the document format '{documentFormat}'.", exception);
+
     public static InvalidDataException ToMalformedResponse(Uri uri, Exception exception) =>
         new($"The IPP response from '{uri}' is malformed.", exception);
 

@@ -48,7 +48,8 @@ touching hardware.
 - `PrinterStatus` also carries `SerialNumber` and `LifetimePageCount`. A value is
   `null` when the printer did not report it. Only SNMP fills these two fields today.
   IPP and the operating system spooler do not report them yet.
-- `PrinterConfiguration` — supported DPIs, duplex/color support, media sizes.
+- `PrinterConfiguration` — supported DPIs, duplex/color support, media sizes, and the
+  document formats the printer accepts (`SupportedDocumentFormats`).
   `SupportsDuplex` and `SupportsColor` are `bool?`: `null` means the printer did not
   report the capability, `false` means it reported that it lacks it. An empty
   configuration means the capabilities are **not known**, not that nothing is supported.
@@ -104,6 +105,45 @@ if (printer is IDisposable disposable)
     disposable.Dispose();
 }
 ```
+
+## Document formats and raw printer languages
+
+A payload keeps its `ContentType` end to end over a raw TCP channel, but an IPP server
+reads the `document-format` attribute and may convert the job. The four printer command
+languages — `Zpl`, `Epl`, `Cpcl` and `EscPos` — are not formats an IPP server knows, so
+the library chooses the format it sends for them. Every other content type is sent
+unchanged.
+
+Two wrong choices are possible, and the library avoids both:
+
+- **The language itself.** CUPS answers `client-error-document-format-not-supported`
+  and the job never prints.
+- **`application/octet-stream`.** CUPS accepts it and then *re-types* the job by reading
+  the bytes. ZPL, EPL and CPCL are printable ASCII, so CUPS calls them `text/plain` and
+  prints the command source as text on the label. ESC/POS starts with a control byte, so
+  it escapes this by luck. The job reports success while the output is wrong.
+
+`application/vnd.cups-raw` is the only format that turns the conversion off, and only
+CUPS offers it. So the choice depends on the peer:
+
+| Peer | Format sent for a printer language |
+| --- | --- |
+| The local CUPS daemon (`SpoolerPrinter` on Linux and macOS) | `application/vnd.cups-raw` |
+| A network printer that lists the language itself | the language, unchanged |
+| A network peer that offers `application/vnd.cups-raw` (a CUPS server) | `application/vnd.cups-raw` |
+| Any other network printer | `application/octet-stream` |
+
+`IppPrinter` reads `document-format-supported` from the printer to make that choice. It
+reads it **only** for a printer-language payload, and the answer is the cached
+`GetConfigurationAsync` result, so a PDF or a PNG job costs no extra request and repeated
+raw jobs share one read. `CupsSpoolerDriver` needs no negotiation, because its peer is
+CUPS by construction.
+
+When a printer still rejects the format, the error names it:
+`Printer 'ipp://…' does not accept the document format 'application/octet-stream'.`
+
+The Windows spooler is unaffected: `WindowsSpoolerDriver` submits with the `RAW` datatype,
+which already passes the bytes to the device unchanged.
 
 ## Transports
 
@@ -390,6 +430,29 @@ Every result carries a `DiscoverySource`. Two entries can describe one physical 
 one from the browse, and one from the spooler. The manager keeps these two entries
 separate on purpose. For a printer language such as ZPL, the raw channel sends the
 bytes unchanged. The spooler queue may not send the bytes unchanged.
+
+`RequirePassthrough` picks a channel that sends the payload bytes to the device
+unchanged, and throws `NotSupportedException` when the printer has no such channel:
+
+| Channel | Keeps the promise |
+| --- | --- |
+| Raw TCP channel (port 9100) | Yes |
+| Spooler queue on Windows (`RAW` data type) | Yes |
+| Spooler queue on Linux and macOS (CUPS) | No |
+| IPP channel of a network printer (port 631) | No |
+
+**CUPS is refused even though the library sends `application/vnd.cups-raw`.** That format
+stops CUPS from re-typing the job, which is necessary, but it is not sufficient. A queue
+with a driver, and a driverless (IPP Everywhere) queue, still convert the job into a
+format the device reads. A ZPL job sent to such a queue is held with
+`resources-are-not-ready` and a message like `cfFilterGhostscript: Can't detect file type`.
+Only a CUPS *raw* queue passes the bytes to the backend untouched, and CUPS reports no
+dependable attribute that tells a raw queue apart, so the library does not promise what it
+cannot verify.
+
+A caller who knows the queue is raw should print **without** `RequirePassthrough`. The
+document format the library sends is correct either way, so the job prints properly on a
+raw queue; the property only controls whether the manager makes a guarantee first.
 
 **One network identifier can have several endpoints.** The mDNS browse and the network
 probe both build `PrinterId.FromNetwork(host)`. A host that advertises IPP on port 631

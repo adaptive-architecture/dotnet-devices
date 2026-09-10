@@ -12,6 +12,7 @@ internal static class IppConfigurationMapper
         "color-supported",
         "media-supported",
         "media-default",
+        "document-format-supported",
     ];
 
     public static PrinterConfiguration Map(PrinterId id, PrinterDescriptionAttributes? attributes)
@@ -29,12 +30,25 @@ internal static class IppConfigurationMapper
             MediaSizes = ReadMedia(attributes.MediaSupported),
             DefaultMediaSize = attributes.MediaDefault?.Value,
             SupportedResolutionsDpi = ReadResolutions(attributes.PrinterResolutionSupported),
+            SupportedDocumentFormats = ReadFormats(attributes.DocumentFormatSupported),
         };
     }
 
     // A printer that reports only "one-sided" cannot print on two sides.
     private static bool? HasDuplex(Sides[]? sides) =>
         sides is null ? null : sides.Any(side => side.Value?.StartsWith("two-sided", StringComparison.Ordinal) == true);
+
+    private static List<string> ReadFormats(string[]? formats)
+    {
+        if (formats is null || formats.Length == 0)
+        {
+            return [];
+        }
+
+        return formats
+            .Where(format => !String.IsNullOrWhiteSpace(format))
+            .ToList();
+    }
 
     private static List<string> ReadMedia(Media[]? media)
     {
