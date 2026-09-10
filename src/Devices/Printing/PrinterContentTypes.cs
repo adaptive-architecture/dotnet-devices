@@ -36,6 +36,11 @@ public static class PrinterContentTypes
     public const string Png = "image/png";
 
     /// <summary>
+    /// JPEG image.
+    /// </summary>
+    public const string Jpeg = "image/jpeg";
+
+    /// <summary>
     /// PDF document.
     /// </summary>
     public const string Pdf = "application/pdf";

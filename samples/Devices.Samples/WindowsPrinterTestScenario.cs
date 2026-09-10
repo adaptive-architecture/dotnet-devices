@@ -17,17 +17,17 @@ internal static class WindowsPrinterTestScenario
 
         var jobs = new SpoolerPrintJobQueue();
         var printer = new SpoolerPrinter(new SpoolerPrinterEndpoint(queueName));
-        var printerId = PrinterId.FromSpooler(queueName);
+        var printerId = PrinterId.ForSpooler(queueName);
 
         await CheckJobListAsync(jobs, printerId).ConfigureAwait(false);
         await CheckPrinterStatusAsync(printer).ConfigureAwait(false);
-        await CheckConfigurationAsync(printer).ConfigureAwait(false);
+        var configuration = await CheckConfigurationAsync(printer).ConfigureAwait(false);
         var cancelledWithoutException = await CheckErrorPathsAsync(jobs, printerId).ConfigureAwait(false);
 
         var submitted = false;
         if (print)
         {
-            submitted = await CheckPrintCycleAsync(printer).ConfigureAwait(false);
+            submitted = await CheckPrintCycleAsync(printer, configuration).ConfigureAwait(false);
         }
         else
         {
@@ -88,20 +88,30 @@ internal static class WindowsPrinterTestScenario
         Console.WriteLine($"  IsAcceptingJobs: {status.IsAcceptingJobs}");
     }
 
-    private static async Task CheckConfigurationAsync(SpoolerPrinter printer)
+    private static async Task<PrinterConfiguration> CheckConfigurationAsync(SpoolerPrinter printer)
     {
         Console.WriteLine();
         Console.WriteLine("Check 6 — configuration.");
         var configuration = await printer.GetConfigurationAsync(CancellationToken.None).ConfigureAwait(false);
-        foreach (var mediaSize in configuration.MediaSizes)
+        foreach (var media in configuration.Media)
         {
             // The delimiters make truncation or a stray character visible.
-            Console.WriteLine($"  [{mediaSize}]");
+            Console.WriteLine($"  [{media.Name}] = {media.WindowsPaperNumber}");
+        }
+
+        foreach (var source in configuration.MediaSources)
+        {
+            Console.WriteLine($"  Tray [{source.Name}] = {source.WindowsBinNumber}");
         }
 
         Console.WriteLine($"  Resolutions (dpi): {String.Join(", ", configuration.SupportedResolutionsDpi)}");
         Console.WriteLine($"  SupportsDuplex: {configuration.SupportsDuplex}");
         Console.WriteLine($"  SupportsColor: {configuration.SupportsColor}");
+        Console.WriteLine($"  DefaultMediaSize: [{configuration.DefaultMediaSize}]");
+        Console.WriteLine($"  DefaultMediaSource: [{configuration.DefaultMediaSource}]");
+        Console.WriteLine($"  DefaultOrientation: {configuration.DefaultOrientation}");
+        Console.WriteLine($"  DefaultResolutionDpi: {configuration.DefaultResolutionDpi}");
+        return configuration;
     }
 
     // Returns whether the cancel call completed, for the check 7 summary.
@@ -136,21 +146,52 @@ internal static class WindowsPrinterTestScenario
         }
     }
 
-    // Returns whether a job was actually submitted, for the check 7 summary.
-    private static async Task<bool> CheckPrintCycleAsync(SpoolerPrinter printer)
+    // Returns whether a job was actually submitted, for the check 7 summary. The options
+    // are built from what this queue reported, so what a device mode carries and what it
+    // cannot carry are both visible in one job.
+    private static async Task<bool> CheckPrintCycleAsync(SpoolerPrinter printer, PrinterConfiguration configuration)
     {
         Console.WriteLine();
         Console.WriteLine("Check 3 — the print cycle.");
-        if (!SampleHelpers.Confirm($"Send a tiny test payload to '{printer.Id.Value}'?"))
+        if (!SampleHelpers.Confirm($"Send a tiny test payload to '{printer.Id}' twice, as two copies?"))
         {
             Console.WriteLine("Cancelled; nothing was sent.");
             return false;
         }
 
+        var options = DeviceModeOptions(configuration);
+        Console.WriteLine($"  Asked for: Copies=2 Orientation={options.Orientation} MediaSize=[{options.MediaSize}] MediaSource=[{options.MediaSource}]");
+        Console.WriteLine($"             MediaType=[{options.MediaType}] OutputBin=[{options.OutputBin}] NumberUp={options.NumberUp} PageRanges=1-1");
+
         var payload = PrinterPayload.FromString("Windows spooler test payload\n", PrinterContentTypes.Text);
-        var submitted = await printer.PrintAsync(payload, options: null, CancellationToken.None).ConfigureAwait(false);
-        Console.WriteLine($"  Job {submitted.JobId} submitted.");
-        Console.WriteLine("  Compare this job id against the Windows print queue window.");
+        var submitted = await printer.PrintAsync(payload, options, CancellationToken.None).ConfigureAwait(false);
+        Console.WriteLine($"  Job {submitted.JobId} submitted. Detail: {submitted.Detail}");
+        Console.WriteLine($"  DroppedOptions: {String.Join(", ", submitted.DroppedOptions)}");
+        Console.WriteLine("  MediaType, OutputBin, PageRanges and NumberUp must be in that list, and nothing else.");
+        Console.WriteLine("  The print queue window must show two jobs, and this job id must be the first.");
+        Console.WriteLine("  Open the job properties and compare the orientation, the paper and the tray.");
         return true;
     }
+
+    // A name the queue never reported has no device mode number, so the first reported
+    // name is used. An empty list leaves the option unset, which drops nothing.
+    private static PrintOptions DeviceModeOptions(PrinterConfiguration configuration) =>
+        new()
+        {
+            JobName = "AdaptArch device mode check",
+            Copies = 2,
+            Orientation = PrintOrientation.Portrait,
+            MediaSize = configuration.DefaultMediaSize ?? FirstName(configuration.Media),
+            MediaSource = configuration.DefaultMediaSource ?? FirstName(configuration.MediaSources),
+            MediaType = "labels",
+            OutputBin = "face-down",
+            PageRanges = [new PageRange(1, 1)],
+            NumberUp = 1,
+        };
+
+    private static string FirstName(IReadOnlyList<PrinterMedia> media) =>
+        media.Count == 0 ? null : media[0].Name;
+
+    private static string FirstName(IReadOnlyList<PrinterMediaSource> sources) =>
+        sources.Count == 0 ? null : sources[0].Name;
 }

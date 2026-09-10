@@ -8,7 +8,7 @@ public class PrinterManagerDiscoveryTests
     [Fact]
     public async Task DiscoverAsync_ReturnsEveryEntryFromEverySource()
     {
-        FakeMdnsDiscovery mdns = new([FakePrinters.Network("192.168.1.50", 9100, DiscoverySource.Mdns)]);
+        FakeMdnsDiscovery mdns = new([FakePrinters.Raw("192.168.1.50", DiscoverySource.Mdns)]);
         FakeSpoolerDiscovery spooler = new([FakePrinters.Spooler("lobby")]);
         FakeNetworkProbe probe = new([]);
         PrinterManager manager = new(mdns, spooler, probe, new FakePrinterFactory(), new FakePrintJobMonitor([]));
@@ -16,8 +16,8 @@ public class PrinterManagerDiscoveryTests
         var printers = await manager.DiscoverAsync(null, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, printers.Count);
-        Assert.Contains(printers, p => p.Source == DiscoverySource.Mdns);
-        Assert.Contains(printers, p => p.Source == DiscoverySource.Spooler);
+        Assert.Contains(printers, p => p.Details.ContributedBy.Contains(DiscoverySource.Mdns));
+        Assert.Contains(printers, p => p.Details.ContributedBy.Contains(DiscoverySource.Spooler));
     }
 
     [Fact]
@@ -35,7 +35,7 @@ public class PrinterManagerDiscoveryTests
     [Fact]
     public async Task DiscoverAsync_RunsTheProbeWhenOptionsCarryIt()
     {
-        FakeNetworkProbe probe = new([FakePrinters.Network("10.0.0.7", 9100, DiscoverySource.NetworkProbe)]);
+        FakeNetworkProbe probe = new([FakePrinters.Raw("10.0.0.7", DiscoverySource.NetworkProbe)]);
         PrinterManager manager = new(
             new FakeMdnsDiscovery([]), new FakeSpoolerDiscovery([]), probe, new FakePrinterFactory(), new FakePrintJobMonitor([]));
         PrinterManagerOptions options = new()
@@ -46,7 +46,7 @@ public class PrinterManagerDiscoveryTests
         var printers = await manager.DiscoverAsync(options, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, probe.Calls);
-        Assert.Equal(DiscoverySource.NetworkProbe, Assert.Single(printers).Source);
+        Assert.Equal([DiscoverySource.NetworkProbe], Assert.Single(printers).Details.ContributedBy);
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public class PrinterManagerDiscoveryTests
 
         var printers = await manager.DiscoverAsync(null, TestContext.Current.CancellationToken);
 
-        Assert.Equal("lobby", Assert.Single(printers).Id.Value);
+        Assert.Equal("lobby", Assert.Single(printers).Id.Authority);
     }
 
     [Fact]
@@ -78,11 +78,11 @@ public class PrinterManagerDiscoveryTests
     }
 
     [Fact]
-    public async Task DiscoverAsync_ReportsOneEndpointOneTime()
+    public async Task DiscoverAsync_ReportsOneChannelOneTime()
     {
         // The browse and the probe both report the raw channel of one host.
-        var fromBrowse = FakePrinters.Network("192.168.1.50", 9100, DiscoverySource.Mdns);
-        var fromProbe = FakePrinters.Network("192.168.1.50", 9100, DiscoverySource.NetworkProbe);
+        var fromBrowse = FakePrinters.Raw("192.168.1.50", DiscoverySource.Mdns);
+        var fromProbe = FakePrinters.Raw("192.168.1.50", DiscoverySource.NetworkProbe);
         PrinterManager manager = new(
             new FakeMdnsDiscovery([fromBrowse]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([fromProbe]), new FakePrinterFactory(), new FakePrintJobMonitor([]));
 
@@ -127,7 +127,7 @@ public class PrinterManagerDiscoveryTests
 
         var printers = await manager.DiscoverAsync(null, TestContext.Current.CancellationToken);
 
-        Assert.Equal("lobby", Assert.Single(printers).Id.Value);
+        Assert.Equal("lobby", Assert.Single(printers).Id.Authority);
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public class PrinterManagerDiscoveryTests
     [Fact]
     public async Task DiscoverAsync_SkipsTheBrowseWhenTheOptionsSaySo()
     {
-        FakeMdnsDiscovery mdns = new([FakePrinters.Network("192.168.1.50", 9100, DiscoverySource.Mdns)]);
+        FakeMdnsDiscovery mdns = new([FakePrinters.Raw("192.168.1.50", DiscoverySource.Mdns)]);
         PrinterManager manager = new(
             mdns, new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), new FakePrinterFactory(), new FakePrintJobMonitor([]));
 
@@ -161,19 +161,19 @@ public class PrinterManagerDiscoveryTests
     [Fact]
     public async Task DiscoverAsync_RunsTheBrowseByDefault()
     {
-        FakeMdnsDiscovery mdns = new([FakePrinters.Network("192.168.1.50", 9100, DiscoverySource.Mdns)]);
+        FakeMdnsDiscovery mdns = new([FakePrinters.Raw("192.168.1.50", DiscoverySource.Mdns)]);
         PrinterManager manager = new(
             mdns, new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), new FakePrinterFactory(), new FakePrintJobMonitor([]));
 
         var printers = await manager.DiscoverAsync(null, TestContext.Current.CancellationToken);
 
-        Assert.Equal(DiscoverySource.Mdns, Assert.Single(printers).Source);
+        Assert.Equal([DiscoverySource.Mdns], Assert.Single(printers).Details.ContributedBy);
     }
 
     [Fact]
     public async Task DiscoverAsync_ReturnsEmptyAndDoesNotThrowWhenEverySourceIsSwitchedOff()
     {
-        FakeMdnsDiscovery mdns = new([FakePrinters.Network("192.168.1.50", 9100, DiscoverySource.Mdns)]);
+        FakeMdnsDiscovery mdns = new([FakePrinters.Raw("192.168.1.50", DiscoverySource.Mdns)]);
         FakeSpoolerDiscovery spooler = new([FakePrinters.Spooler("lobby")]);
         PrinterManager manager = new(mdns, spooler, new FakeNetworkProbe([]), new FakePrinterFactory(), new FakePrintJobMonitor([]));
         PrinterManagerOptions options = new()

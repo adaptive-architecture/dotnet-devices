@@ -5,14 +5,19 @@ namespace AdaptArch.Devices.Printing;
 
 /// <summary>
 /// Default <see cref="IPrinterManager"/>. Runs every configured discovery source
-/// together and combines the printers they found.
+/// together and reports the devices they found.
 /// </summary>
 /// <remarks>
-/// One identifier can have several endpoints: a host that advertises IPP on port 631 and
-/// also answers the raw port 9100 probe gives two entries with one identifier. The manager
-/// keeps every endpoint and picks one per call. A print that requires passthrough takes
-/// the raw channel. Every other call prefers the endpoint with a job queue, so a job can
-/// be watched after it is sent.
+/// Discovery has three phases. Every source runs at once and reports the channels it
+/// found. When the caller asked for it, each channel is then opened once and asked what
+/// it supports and which device it belongs to. Finally the channels are grouped, so one
+/// physical printer is one <see cref="PrinterDevice"/> however many ways it can be
+/// reached.
+/// <para>
+/// A device usually has several channels, and each call picks the one it needs. A print
+/// that requires passthrough takes the raw channel; every other call prefers a channel
+/// with a job queue, so the job can be watched after it is sent.
+/// </para>
 /// </remarks>
 public sealed class PrinterManager : IPrinterManager
 {
@@ -21,7 +26,11 @@ public sealed class PrinterManager : IPrinterManager
     private readonly INetworkPrinterDiscovery _probe;
     private readonly IPrinterFactory _factory;
     private readonly IPrintJobMonitor _monitor;
-    private readonly ConcurrentDictionary<PrinterId, IReadOnlyList<DiscoveredPrinter>> _cache = new();
+
+    // Every key of a device maps to that device: its own key and each alias a source
+    // vouched for. A caller that kept an old address identifier therefore still resolves
+    // after the device has been recognised by its identity.
+    private readonly ConcurrentDictionary<PrinterDeviceKey, PrinterDevice> _devices = new();
     private readonly SemaphoreSlim _refresh = new(1, 1);
 
     /// <summary>
@@ -30,8 +39,8 @@ public sealed class PrinterManager : IPrinterManager
     /// <param name="mdns">The multicast DNS discovery source.</param>
     /// <param name="spooler">The operating system print spooler discovery source.</param>
     /// <param name="probe">The direct network probe discovery source.</param>
-    /// <param name="factory">The factory used to open a printer once found.</param>
-    /// <param name="monitor">The monitor used to watch a job on a printer that has a job queue.</param>
+    /// <param name="factory">The factory used to open a channel once found.</param>
+    /// <param name="monitor">The monitor used to watch a job on a channel that has a job queue.</param>
     public PrinterManager(IMdnsPrinterDiscovery mdns, IPrinterDiscovery spooler, INetworkPrinterDiscovery probe, IPrinterFactory factory, IPrintJobMonitor monitor)
     {
         ArgumentNullException.ThrowIfNull(mdns);
@@ -47,23 +56,45 @@ public sealed class PrinterManager : IPrinterManager
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<DiscoveredPrinter>> DiscoverAsync(PrinterManagerOptions? options, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<PrinterDevice>> DiscoverAsync(PrinterManagerOptions? options, CancellationToken cancellationToken)
     {
         var effective = options ?? new PrinterManagerOptions();
-        List<Task<(DiscoverySource Source, IReadOnlyList<DiscoveredPrinter> Printers, Exception? Error)>> running = [];
-        if (effective.IncludeMdns)
+        ArgumentOutOfRangeException.ThrowIfLessThan(effective.MaxEnrichmentConcurrency, 1);
+
+        var channels = await FindAsync(effective, cancellationToken).ConfigureAwait(false);
+        Dictionary<PrinterId, IReadOnlyList<PrinterStatusSource>> statusSources = [];
+        if (effective.ReadIdentity || effective.ReadCapabilities)
         {
-            running.Add(RunAsync(DiscoverySource.Mdns, () => _mdns.DiscoverAsync(effective.Mdns, cancellationToken), cancellationToken));
+            channels = await EnrichAsync(channels, effective, statusSources, cancellationToken).ConfigureAwait(false);
         }
 
-        if (effective.IncludeSpooler)
+        var devices = PrinterDeviceGrouper.Group(channels, statusSources);
+        foreach (var device in devices)
+        {
+            Remember(device);
+        }
+
+        return devices;
+    }
+
+    // Phase one. Every source runs at once, and a source that fails does not fail the
+    // call: an empty list is an answer, so only an all-source failure throws.
+    private async Task<IReadOnlyList<DiscoveredPrinter>> FindAsync(PrinterManagerOptions options, CancellationToken cancellationToken)
+    {
+        List<Task<(DiscoverySource Source, IReadOnlyList<DiscoveredPrinter> Printers, Exception? Error)>> running = [];
+        if (options.IncludeMdns)
+        {
+            running.Add(RunAsync(DiscoverySource.Mdns, () => _mdns.DiscoverAsync(options.Mdns, cancellationToken), cancellationToken));
+        }
+
+        if (options.IncludeSpooler)
         {
             running.Add(RunAsync(DiscoverySource.Spooler, () => _spooler.DiscoverAsync(cancellationToken), cancellationToken));
         }
 
-        if (effective.Probe is not null)
+        if (options.Probe is not null)
         {
-            running.Add(RunAsync(DiscoverySource.NetworkProbe, () => _probe.DiscoverAsync(effective.Probe, cancellationToken), cancellationToken));
+            running.Add(RunAsync(DiscoverySource.NetworkProbe, () => _probe.DiscoverAsync(options.Probe, cancellationToken), cancellationToken));
         }
 
         var results = await Task.WhenAll(running).ConfigureAwait(false);
@@ -82,20 +113,203 @@ public sealed class PrinterManager : IPrinterManager
             }
         }
 
-        // An empty list is an answer, so only an all-source failure throws.
         if (failures.Count > 0 && failures.Count == results.Length)
         {
             throw new PrinterDiscoveryException(failures);
         }
 
-        // Two sources can report one endpoint, but every distinct endpoint is kept.
-        var distinct = found.DistinctBy(static printer => (printer.Id, printer.Endpoint)).ToList();
-        foreach (var group in distinct.GroupBy(static printer => printer.Id))
+        // Two sources can report one channel, but every distinct channel is kept.
+        return found.DistinctBy(static channel => (channel.Id, channel.Endpoint)).ToList();
+    }
+
+    // Phase two. Opens each channel once and asks it what it supports and which device it
+    // is. It is opt-in because every answer costs a request. A channel that fails to
+    // answer is left as it was: an enrichment must never fail a discovery that worked.
+    private async Task<IReadOnlyList<DiscoveredPrinter>> EnrichAsync(
+        IReadOnlyList<DiscoveredPrinter> channels,
+        PrinterManagerOptions options,
+        Dictionary<PrinterId, IReadOnlyList<PrinterStatusSource>> statusSources,
+        CancellationToken cancellationToken)
+    {
+        var enriched = new DiscoveredPrinter[channels.Count];
+        ParallelOptions parallel = new()
         {
-            _cache[group.Key] = [.. group];
+            CancellationToken = cancellationToken,
+            MaxDegreeOfParallelism = options.MaxEnrichmentConcurrency,
+        };
+
+        Lock guard = new();
+        await Parallel.ForAsync(0, channels.Count, parallel, async (index, token) =>
+        {
+            var channel = channels[index];
+            var read = await ReadAsync(channel, options, token).ConfigureAwait(false);
+            enriched[index] = read.Channel;
+            if (read.Sources.Count > 0)
+            {
+                lock (guard)
+                {
+                    statusSources[read.Channel.Id] = read.Sources;
+                }
+            }
+        }).ConfigureAwait(false);
+
+        return enriched;
+    }
+
+    private async Task<(DiscoveredPrinter Channel, IReadOnlyList<PrinterStatusSource> Sources)> ReadAsync(
+        DiscoveredPrinter channel,
+        PrinterManagerOptions options,
+        CancellationToken cancellationToken)
+    {
+        IPrinter? printer = null;
+        try
+        {
+            // The open is inside the guard on purpose: a channel that cannot even be
+            // opened must not fail a discovery that already succeeded.
+            printer = _factory.Open(channel);
+
+            PrinterConfiguration? configuration = null;
+            if (options.ReadCapabilities)
+            {
+                configuration = await TryReadAsync<PrinterConfiguration>(async () => await printer.GetConfigurationAsync(cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+            }
+
+            PrinterIdentity? identity = null;
+            if (options.ReadIdentity)
+            {
+                identity = await TryReadAsync(() => printer.GetIdentityAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
+            }
+
+            var sources = identity is null && configuration is null ? [] : SourcesOf(channel);
+            return (Apply(channel, identity, configuration), sources);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // The channel could not be opened or read. It stays as discovery found it.
+            return (channel, []);
+        }
+        finally
+        {
+            if (printer is IDisposable disposable)
+            {
+                disposable.Dispose();
+            }
+        }
+    }
+
+    // Only the caller's own cancellation fails a read: an HttpClient timeout also arrives
+    // as TaskCanceledException, and must not hide what the printer did answer.
+    private static async Task<T?> TryReadAsync<T>(Func<Task<T?>> read, CancellationToken cancellationToken)
+        where T : class
+    {
+        try
+        {
+            return await read().ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static IReadOnlyList<PrinterStatusSource> SourcesOf(DiscoveredPrinter channel)
+    {
+        if (channel.Endpoint.Scheme is PrinterScheme.Ipp or PrinterScheme.Ipps)
+        {
+            return [PrinterStatusSource.Ipp];
         }
 
-        return distinct;
+        if (channel.Endpoint.Scheme == PrinterScheme.Spooler)
+        {
+            return [PrinterStatusSource.Spooler];
+        }
+
+        // A raw channel reports nothing itself; what answered was the SNMP agent.
+        return channel.Endpoint.Scheme == PrinterScheme.Raw ? [PrinterStatusSource.Snmp] : [];
+    }
+
+    // Folds what a channel reported into the channel, keeping the old key as an alias so
+    // an identifier a caller already holds keeps resolving.
+    internal static DiscoveredPrinter Apply(DiscoveredPrinter channel, PrinterIdentity? identity, PrinterConfiguration? configuration)
+    {
+        if (identity is null)
+        {
+            return configuration is null
+                ? channel
+                : channel.With(channel.Id, channel.Info, configuration, channel.Aliases);
+        }
+
+        List<PrinterDeviceKey> aliases = [.. channel.Aliases, channel.Id.DeviceKey];
+        aliases.AddRange(identity.Aliases);
+
+        var uuid = identity.Uuid;
+        if (PrinterDeviceKey.IsUsableIdentity(uuid))
+        {
+            aliases.Add(PrinterDeviceKey.ForDeviceIdentity(uuid!));
+        }
+
+        if (PrinterDeviceKey.IsUsableIdentity(identity.SerialNumber))
+        {
+            aliases.Add(PrinterDeviceKey.ForDeviceIdentity(identity.SerialNumber!));
+        }
+
+        PrinterInfo info = new(channel.Info.Id, PickName(channel, identity.Name))
+        {
+            Location = channel.Info.Location ?? identity.Location,
+            DriverName = channel.Info.DriverName,
+            IsDefault = channel.Info.IsDefault || identity.IsDefault,
+            IsShared = channel.Info.IsShared || identity.IsShared,
+            Uuid = channel.Info.Uuid ?? uuid,
+            SerialNumber = channel.Info.SerialNumber ?? identity.SerialNumber,
+            Manufacturer = channel.Info.Manufacturer ?? identity.Manufacturer,
+            Model = channel.Info.Model ?? identity.Model ?? identity.MakeAndModel,
+            CommandSets = channel.Info.CommandSets.Count > 0 ? channel.Info.CommandSets : identity.CommandSets,
+        };
+
+        // The identifier becomes the identity form only when the device named itself with
+        // a UUID. A serial number reads like a host name, so writing one into the
+        // authority would make the text ambiguous; it still groups the device.
+        var id = PrinterId.TryParseDeviceUuid(uuid, out var parsed)
+            ? PrinterId.ForDeviceUuid(channel.Endpoint.Scheme, parsed)
+            : channel.Id;
+
+        return channel.With(id, info, configuration, Distinct(aliases));
+    }
+
+    // A discovery that learned no name uses the address as one. That placeholder gives
+    // way to a real name; a name a source actually reported does not.
+    private static string PickName(DiscoveredPrinter channel, string? reported)
+    {
+        if (String.IsNullOrWhiteSpace(reported))
+        {
+            return channel.Info.Name;
+        }
+
+        var isPlaceholder = String.Equals(channel.Info.Name, channel.Id.Authority, StringComparison.OrdinalIgnoreCase);
+        return isPlaceholder ? reported : channel.Info.Name;
+    }
+
+    private static List<PrinterDeviceKey> Distinct(List<PrinterDeviceKey> keys) => [.. keys.Distinct()];
+
+    private void Remember(PrinterDevice device)
+    {
+        _devices[device.Key] = device;
+        foreach (var channel in device.Channels)
+        {
+            _devices[channel.Id.DeviceKey] = device;
+            foreach (var alias in channel.Aliases)
+            {
+                _devices[alias] = device;
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -103,22 +317,9 @@ public sealed class PrinterManager : IPrinterManager
     {
         ArgumentNullException.ThrowIfNull(payload);
 
-        var entries = await ResolveAsync(id, cancellationToken).ConfigureAwait(false);
-        DiscoveredPrinter entry;
-        if (options?.RequirePassthrough == true)
-        {
-            var isWindows = OperatingSystem.IsWindows();
-            entry = entries.FirstOrDefault(candidate => GivesPassthrough(candidate.Endpoint, isWindows))
-                ?? throw new NotSupportedException(
-                    $"Printer '{id}' has no channel that sends the payload unchanged, and the options require one. " +
-                    $"Its endpoints are {String.Join(", ", entries.Select(static candidate => candidate.Endpoint))}.");
-        }
-        else
-        {
-            entry = Prefer(entries, HasJobQueue);
-        }
-
-        var printer = _factory.Open(entry);
+        var device = await ResolveAsync(id, cancellationToken).ConfigureAwait(false);
+        var channel = Choose(device, id, options?.RequirePassthrough == true);
+        var printer = _factory.Open(channel);
         try
         {
             return await printer.PrintAsync(payload, options, cancellationToken).ConfigureAwait(false);
@@ -135,9 +336,8 @@ public sealed class PrinterManager : IPrinterManager
     /// <inheritdoc />
     public async Task<PrinterStatus> GetStatusAsync(PrinterId id, CancellationToken cancellationToken)
     {
-        var entries = await ResolveAsync(id, cancellationToken).ConfigureAwait(false);
-
-        var printer = _factory.Open(Prefer(entries, HasJobQueue));
+        var device = await ResolveAsync(id, cancellationToken).ConfigureAwait(false);
+        var printer = _factory.Open(Choose(device, id, false));
         try
         {
             return await printer.GetStatusAsync(cancellationToken).ConfigureAwait(false);
@@ -149,39 +349,6 @@ public sealed class PrinterManager : IPrinterManager
                 disposable.Dispose();
             }
         }
-    }
-
-    // A raw channel always sends the bytes through, and so does the Windows spooler with
-    // the RAW data type. CUPS does not give the promise, even though the library now
-    // submits a printer language as application/vnd.cups-raw: that format is necessary
-    // but not sufficient. A queue with a driver, and a driverless queue, still convert
-    // the job into what the device reads, and CUPS exposes no dependable attribute that
-    // tells such a queue from a raw one. An unverifiable promise must not be made.
-    // The platform is a parameter so both branches are testable.
-    internal static bool GivesPassthrough(PrinterEndpoint endpoint, bool isWindows)
-    {
-        if (endpoint is NetworkPrinterEndpoint network)
-        {
-            return network.Port != IppPrinterStatusClient.DefaultPort;
-        }
-
-        if (endpoint is SpoolerPrinterEndpoint)
-        {
-            return isWindows;
-        }
-
-        return false;
-    }
-
-    // A raw channel gives back no job identifier. Both spooler drivers have a queue.
-    internal static bool HasJobQueue(PrinterEndpoint endpoint)
-    {
-        if (endpoint is NetworkPrinterEndpoint network)
-        {
-            return network.Port == IppPrinterStatusClient.DefaultPort;
-        }
-
-        return endpoint is SpoolerPrinterEndpoint;
     }
 
     /// <inheritdoc />
@@ -204,29 +371,56 @@ public sealed class PrinterManager : IPrinterManager
         PrintJobMonitorOptions options,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var entries = await ResolveAsync(id, cancellationToken).ConfigureAwait(false);
-        if (!entries.Any(static entry => HasJobQueue(entry.Endpoint)))
+        var device = await ResolveAsync(id, cancellationToken).ConfigureAwait(false);
+        if (!device.HasJobQueue)
         {
             throw new NotSupportedException(
                 $"Printer '{id}' has no job queue, so a job sent to it cannot be watched. " +
                 "A raw channel gives back no job identifier, and the job was reported complete when it was submitted. " +
-                $"Its endpoints are {String.Join(", ", entries.Select(static entry => entry.Endpoint))}.");
+                $"Its endpoints are {String.Join(", ", device.Channels.Select(static channel => channel.Endpoint))}.");
         }
 
-        await foreach (var reading in _monitor.WatchJobAsync(id, jobId, options, cancellationToken).ConfigureAwait(false))
+        // The job queue is addressed, not the device: an identity names no host, so the
+        // endpoint of the chosen channel is what the queue can be opened from.
+        var channel = Choose(device, id, false);
+        await foreach (var reading in _monitor.WatchJobAsync(PrinterId.FromEndpoint(channel.Endpoint), jobId, options, cancellationToken).ConfigureAwait(false))
         {
             yield return reading;
         }
     }
 
-    private static DiscoveredPrinter Prefer(IReadOnlyList<DiscoveredPrinter> entries, Func<PrinterEndpoint, bool> preferred) =>
-        entries.FirstOrDefault(entry => preferred(entry.Endpoint)) ?? entries[0];
-
-    // A network identifier names its host, so a miss opens that host directly instead
-    // of browsing the whole link. Every other kind runs one fresh discovery.
-    private async Task<IReadOnlyList<DiscoveredPrinter>> ResolveAsync(PrinterId id, CancellationToken cancellationToken)
+    // The channel the caller named is used when it does what the call needs; otherwise
+    // another channel of the same device is. A device found through the spooler can
+    // therefore still be printed to over its raw channel.
+    private static DiscoveredPrinter Choose(PrinterDevice device, PrinterId id, bool requirePassthrough)
     {
-        if (_cache.TryGetValue(id, out var cached))
+        var named = device.Channels.FirstOrDefault(channel => channel.Id == id);
+        if (requirePassthrough)
+        {
+            if (named?.GivesPassthrough == true)
+            {
+                return named;
+            }
+
+            return device.Channels.FirstOrDefault(static channel => channel.GivesPassthrough)
+                ?? throw new NotSupportedException(
+                    $"Printer '{id}' has no channel that sends the payload unchanged, and the options require one. " +
+                    $"Its endpoints are {String.Join(", ", device.Channels.Select(static channel => channel.Endpoint))}.");
+        }
+
+        if (named?.HasJobQueue == true)
+        {
+            return named;
+        }
+
+        return device.Channels.FirstOrDefault(static channel => channel.HasJobQueue) ?? named ?? device.Channels[0];
+    }
+
+    // An address form names its own endpoint, so a miss opens it directly and nothing is
+    // browsed. An identity form names no address and runs one fresh discovery.
+    private async Task<PrinterDevice> ResolveAsync(PrinterId id, CancellationToken cancellationToken)
+    {
+        if (_devices.TryGetValue(id.DeviceKey, out var cached))
         {
             return cached;
         }
@@ -235,17 +429,17 @@ public sealed class PrinterManager : IPrinterManager
         try
         {
             // Another caller may have filled the cache while this one waited.
-            if (_cache.TryGetValue(id, out cached))
+            if (_devices.TryGetValue(id.DeviceKey, out cached))
             {
                 return cached;
             }
 
-            if (id.Kind == PrinterIdKind.Network)
+            if (id.TryCreateEndpoint(out var endpoint) && endpoint is not null)
             {
-                var opened = await _factory.OpenAsync(id, cancellationToken).ConfigureAwait(false);
-                DiscoveredPrinter entry = new(id, opened.Endpoint, opened.Info) { Source = DiscoverySource.NetworkProbe };
-                (opened as IDisposable)?.Dispose();
-                return _cache[id] = [entry];
+                DiscoveredPrinter channel = new(id, endpoint, new PrinterInfo(id, id.Authority));
+                PrinterDevice device = new(id.DeviceKey, [channel]);
+                Remember(device);
+                return device;
             }
 
             _ = await DiscoverAsync(null, cancellationToken).ConfigureAwait(false);
@@ -255,7 +449,7 @@ public sealed class PrinterManager : IPrinterManager
             _ = _refresh.Release();
         }
 
-        return _cache.TryGetValue(id, out var found)
+        return _devices.TryGetValue(id.DeviceKey, out var found)
             ? found
             : throw new InvalidOperationException($"No printer with the identifier '{id}' was found, and a fresh discovery did not find one either.");
     }

@@ -50,7 +50,7 @@ public sealed class RawPrinter : IPrinter
         ArgumentNullException.ThrowIfNull(ippClient);
         Endpoint = endpoint;
         _host = endpoint.Host;
-        Id = PrinterId.FromNetwork(_host);
+        Id = PrinterId.FromEndpoint(endpoint);
         Info = new PrinterInfo(Id, _host);
         _transport = new TcpPrinterTransport();
         SnmpStatusClient = snmpClient;
@@ -118,6 +118,36 @@ public sealed class RawPrinter : IPrinter
         }
 
         return new PrinterStatus(Id, PrinterStatusState.Unknown);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The raw channel itself reports nothing, so the identity is read over SNMP, which
+    /// carries the serial number that IPP does not. A printer with no SNMP agent reports
+    /// <c>null</c>.
+    /// </remarks>
+    public async Task<PrinterIdentity?> GetIdentityAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var details = await SnmpStatusClient.GetDetailsAsync(_host, cancellationToken).ConfigureAwait(false);
+            PrinterIdentity identity = new()
+            {
+                SerialNumber = details.Status.SerialNumber,
+                Name = details.Info.Name,
+                Location = details.Info.Location,
+            };
+            return identity.IsEmpty ? null : identity;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or InvalidDataException)
+        {
+            // No SNMP agent answered. That is not a failure of the discovery.
+            return null;
+        }
     }
 
     /// <inheritdoc />

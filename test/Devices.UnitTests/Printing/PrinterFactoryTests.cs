@@ -8,14 +8,14 @@ namespace AdaptArch.Devices.UnitTests.Printing;
 public class PrinterFactoryTests
 {
     private static DiscoveredPrinter Found(PrinterEndpoint endpoint) =>
-        new(PrinterId.FromNetwork("printer.local"), endpoint, new PrinterInfo(PrinterId.FromNetwork("printer.local"), "Lobby"));
+        new(PrinterId.ForRaw("printer.local"), endpoint, new PrinterInfo(PrinterId.ForRaw("printer.local"), "Lobby"));
 
     [Fact]
     public void Open_MakesAnIppPrinterForPort631()
     {
         PrinterFactory factory = new();
 
-        var printer = factory.Open(Found(new NetworkPrinterEndpoint("printer.local", 631)));
+        var printer = factory.Open(Found(NetworkPrinterEndpoint.Ipp("printer.local")));
 
         _ = Assert.IsType<IppPrinter>(printer);
     }
@@ -25,23 +25,9 @@ public class PrinterFactoryTests
     {
         PrinterFactory factory = new();
 
-        var printer = factory.Open(Found(new NetworkPrinterEndpoint("printer.local", 9100)));
+        var printer = factory.Open(Found(NetworkPrinterEndpoint.Raw("printer.local")));
 
         _ = Assert.IsType<RawPrinter>(printer);
-    }
-
-    [Fact]
-    public void Open_ThrowsForAUsbEndpoint()
-    {
-        PrinterFactory factory = new();
-        var discovered = new DiscoveredPrinter(
-            PrinterId.FromUsb("usb-1"),
-            new UsbPrinterEndpoint(0x04B8, 0x0202),
-            new PrinterInfo(PrinterId.FromUsb("usb-1"), "Label printer"));
-
-        var error = Assert.Throws<NotSupportedException>(() => factory.Open(discovered));
-
-        Assert.Contains("USB", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -49,9 +35,9 @@ public class PrinterFactoryTests
     {
         PrinterFactory factory = new();
         var discovered = new DiscoveredPrinter(
-            PrinterId.FromSpooler("Lobby"),
+            PrinterId.ForSpooler("Lobby"),
             new SpoolerPrinterEndpoint("Lobby"),
-            new PrinterInfo(PrinterId.FromSpooler("Lobby"), "Lobby"));
+            new PrinterInfo(PrinterId.ForSpooler("Lobby"), "Lobby"));
 
         var printer = factory.Open(discovered);
 
@@ -59,24 +45,25 @@ public class PrinterFactoryTests
     }
 
     [Fact]
-    public async Task OpenAsync_ThrowsForAUsbIdentifier()
-    {
-        PrinterFactory factory = new();
-
-        var error = await Assert.ThrowsAsync<NotSupportedException>(() =>
-            factory.OpenAsync(PrinterId.FromUsb("usb-1"), TestContext.Current.CancellationToken));
-
-        Assert.Contains("USB", error.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
     public async Task OpenAsync_MakesASpoolerPrinterForASpoolerIdentifier()
     {
         PrinterFactory factory = new();
 
-        var printer = await factory.OpenAsync(PrinterId.FromSpooler("Lobby"), TestContext.Current.CancellationToken);
+        var printer = await factory.OpenAsync(PrinterId.ForSpooler("Lobby"), TestContext.Current.CancellationToken);
 
         _ = Assert.IsType<SpoolerPrinter>(printer);
+    }
+
+    [Fact]
+    public async Task OpenAsync_ThrowsForAnIdentityFormBecauseItNamesNoAddress()
+    {
+        PrinterFactory factory = new();
+
+        var error = await Assert.ThrowsAsync<NotSupportedException>(() => factory.OpenAsync(
+            PrinterId.ForDeviceUuid(PrinterScheme.Ipp, Guid.Parse("e3b0c442-98fc-1c14-9afb-4c8996fb9242")),
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("IPrinterManager", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -85,7 +72,7 @@ public class PrinterFactoryTests
         // Nothing binds 127.0.0.2, so port 631 is refused at once: no DNS, no network.
         PrinterFactory factory = new();
 
-        var printer = await factory.OpenAsync(PrinterId.FromNetwork("127.0.0.2"), TestContext.Current.CancellationToken);
+        var printer = await factory.OpenAsync(PrinterId.ForRaw("127.0.0.2"), TestContext.Current.CancellationToken);
 
         var raw = Assert.IsType<RawPrinter>(printer);
         var endpoint = Assert.IsType<NetworkPrinterEndpoint>(raw.Endpoint);
@@ -102,8 +89,8 @@ public class PrinterFactoryTests
         owned.Dispose();
         borrowed.Dispose();
 
-        _ = Assert.Throws<ObjectDisposedException>(() => owned.Open(Found(new NetworkPrinterEndpoint("printer.local", 631))));
-        _ = Assert.Throws<ObjectDisposedException>(() => borrowed.Open(Found(new NetworkPrinterEndpoint("printer.local", 631))));
+        _ = Assert.Throws<ObjectDisposedException>(() => owned.Open(Found(NetworkPrinterEndpoint.Ipp("printer.local"))));
+        _ = Assert.Throws<ObjectDisposedException>(() => borrowed.Open(Found(NetworkPrinterEndpoint.Ipp("printer.local"))));
         // The supplied client is still usable after the factory that borrowed it is gone.
         Assert.Equal(TimeSpan.FromSeconds(100), supplied.Timeout);
         _ = supplied.DefaultRequestHeaders;
@@ -114,8 +101,8 @@ public class PrinterFactoryTests
     {
         PrinterFactory factory = new();
 
-        var first = Assert.IsType<RawPrinter>(factory.Open(Found(new NetworkPrinterEndpoint("printer.local", 9100))));
-        var second = Assert.IsType<RawPrinter>(factory.Open(Found(new NetworkPrinterEndpoint("other.local", 9100))));
+        var first = Assert.IsType<RawPrinter>(factory.Open(Found(NetworkPrinterEndpoint.Raw("printer.local"))));
+        var second = Assert.IsType<RawPrinter>(factory.Open(Found(NetworkPrinterEndpoint.Raw("other.local"))));
 
         Assert.Same(first.IppStatusClient, second.IppStatusClient);
         Assert.Same(first.SnmpStatusClient, second.SnmpStatusClient);

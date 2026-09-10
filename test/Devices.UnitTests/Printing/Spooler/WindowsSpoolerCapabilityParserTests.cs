@@ -1,4 +1,6 @@
-﻿using AdaptArch.Devices.Printing.Spooler;
+﻿using System.Linq;
+using AdaptArch.Devices.Printing;
+using AdaptArch.Devices.Printing.Spooler;
 using Xunit;
 
 namespace AdaptArch.Devices.UnitTests.Printing.Spooler;
@@ -93,4 +95,176 @@ public class WindowsSpoolerCapabilityParserTests
     [Fact]
     public void ParseResolutions_ReturnsEmptyForAnEmptyBuffer() =>
         Assert.Empty(WindowsSpoolerCapabilityParser.ParseResolutions([]));
+
+    private const int BinBlockLength = 24;
+
+    private static char[] BinBlock(string name)
+    {
+        var block = new char[BinBlockLength];
+        Array.Fill(block, '\0');
+        name?.CopyTo(block);
+        return block;
+    }
+
+    private static IReadOnlyList<PrinterMedia> A4AndLetter() =>
+        [new PrinterMedia("A4", 9), new PrinterMedia("Letter", 1)];
+
+    private static IReadOnlyList<PrinterMediaSource> UpperAndManual() =>
+        [new PrinterMediaSource("Upper tray", 1), new PrinterMediaSource("Manual feed", 4)];
+
+    [Fact]
+    public void ParseNames_ReadsThe24CharacterBinBlocks()
+    {
+        var buffer = BinBlock("Upper tray").Concat(BinBlock("Manual feed")).ToArray();
+
+        var names = WindowsSpoolerCapabilityParser.ParseNames(buffer, 2, BinBlockLength);
+
+        Assert.Equal(["Upper tray", "Manual feed"], names);
+    }
+
+    [Fact]
+    public void ParseNames_FallsBackToTheFullBlockWhenABinNameFillsIt()
+    {
+        var block = new char[BinBlockLength];
+        Array.Fill(block, 'B');
+
+        var names = WindowsSpoolerCapabilityParser.ParseNames(block, 1, BinBlockLength);
+
+        Assert.Equal(new string('B', BinBlockLength), Assert.Single(names));
+    }
+
+    // DeviceCapabilities answers with WORD values, which Marshal.Copy reads as short.
+    [Fact]
+    public void ParseWords_UndoesTheSignOfEveryWord()
+    {
+        var words = new short[] { 1, 9, unchecked((short)0x8001) };
+
+        var values = WindowsSpoolerCapabilityParser.ParseWords(words);
+
+        Assert.Equal([1, 9, 0x8001], values);
+    }
+
+    [Fact]
+    public void ParseWords_ReturnsAnEmptyListForAnEmptyBuffer() =>
+        Assert.Empty(WindowsSpoolerCapabilityParser.ParseWords([]));
+
+    [Fact]
+    public void PairMedia_PutsEachNumberBesideItsName()
+    {
+        var media = WindowsSpoolerCapabilityParser.PairMedia(["A4", "Letter"], [9, 1]);
+
+        Assert.Equal(["A4", "Letter"], media.Select(static entry => entry.Name));
+        Assert.Equal([9, 1], media.Select(static entry => entry.WindowsPaperNumber));
+    }
+
+    // The two lists come from two separate calls, so they can disagree.
+    [Fact]
+    public void PairMedia_LeavesANameWithNoNumberUnnumbered()
+    {
+        var media = WindowsSpoolerCapabilityParser.PairMedia(["A4", "Letter", "A5"], [9]);
+
+        Assert.Equal([9, null, null], media.Select(static entry => entry.WindowsPaperNumber));
+    }
+
+    [Fact]
+    public void PairMedia_IgnoresANumberWithNoName()
+    {
+        var media = WindowsSpoolerCapabilityParser.PairMedia(["A4"], [9, 1, 11]);
+
+        Assert.Equal(9, Assert.Single(media).WindowsPaperNumber);
+    }
+
+    [Fact]
+    public void PairMediaSources_PutsEachBinNumberBesideItsName()
+    {
+        var sources = WindowsSpoolerCapabilityParser.PairMediaSources(["Upper tray", "Manual feed"], [1]);
+
+        Assert.Equal(["Upper tray", "Manual feed"], sources.Select(static source => source.Name));
+        Assert.Equal([1, null], sources.Select(static source => source.WindowsBinNumber));
+    }
+
+    [Fact]
+    public void ReadDefaults_ReadsEveryFieldThatItsBitAnnounces()
+    {
+        const uint fields = WindowsSpoolerCapabilityParser.DmPaperSize
+            | WindowsSpoolerCapabilityParser.DmDefaultSource
+            | WindowsSpoolerCapabilityParser.DmOrientation
+            | WindowsSpoolerCapabilityParser.DmPrintQuality;
+
+        var defaults = WindowsSpoolerCapabilityParser.ReadDefaults(
+            new DeviceModeValues(fields, 2, 9, 4, 600, 0), A4AndLetter(), UpperAndManual());
+
+        Assert.Equal("A4", defaults.MediaSize);
+        Assert.Equal("Manual feed", defaults.MediaSource);
+        Assert.Equal(PrintOrientation.Landscape, defaults.Orientation);
+        Assert.Equal(600, defaults.ResolutionDpi);
+    }
+
+    // A field with no bit holds nothing, whatever value it happens to carry.
+    [Fact]
+    public void ReadDefaults_IgnoresAFieldWithNoBit()
+    {
+        var defaults = WindowsSpoolerCapabilityParser.ReadDefaults(
+            new DeviceModeValues(0, 2, 9, 4, 600, 300), A4AndLetter(), UpperAndManual());
+
+        Assert.Null(defaults.MediaSize);
+        Assert.Null(defaults.MediaSource);
+        Assert.Null(defaults.Orientation);
+        Assert.Null(defaults.ResolutionDpi);
+    }
+
+    [Fact]
+    public void ReadDefaults_ReportsNoNameForANumberNoListExplains()
+    {
+        const uint fields = WindowsSpoolerCapabilityParser.DmPaperSize | WindowsSpoolerCapabilityParser.DmDefaultSource;
+
+        var defaults = WindowsSpoolerCapabilityParser.ReadDefaults(
+            new DeviceModeValues(fields, 0, 256, 99, 0, 0), A4AndLetter(), UpperAndManual());
+
+        Assert.Null(defaults.MediaSize);
+        Assert.Null(defaults.MediaSource);
+    }
+
+    // A negative dmPrintQuality is a DMRES_* name, not a number of dots.
+    [Fact]
+    public void ReadDefaults_FallsBackToTheVerticalResolutionForAQualityName()
+    {
+        const uint fields = WindowsSpoolerCapabilityParser.DmPrintQuality | WindowsSpoolerCapabilityParser.DmYResolution;
+
+        var defaults = WindowsSpoolerCapabilityParser.ReadDefaults(
+            new DeviceModeValues(fields, 0, 0, 0, -1, 300), A4AndLetter(), UpperAndManual());
+
+        Assert.Equal(300, defaults.ResolutionDpi);
+    }
+
+    [Fact]
+    public void ReadDefaults_ReportsNoResolutionWhenNeitherFieldHoldsOne()
+    {
+        const uint fields = WindowsSpoolerCapabilityParser.DmPrintQuality | WindowsSpoolerCapabilityParser.DmYResolution;
+
+        var defaults = WindowsSpoolerCapabilityParser.ReadDefaults(
+            new DeviceModeValues(fields, 0, 0, 0, -4, 0), A4AndLetter(), UpperAndManual());
+
+        Assert.Null(defaults.ResolutionDpi);
+    }
+
+    [Theory]
+    [InlineData(1, PrintOrientation.Portrait)]
+    [InlineData(2, PrintOrientation.Landscape)]
+    public void ReadDefaults_TranslatesEveryOrientation(short value, PrintOrientation expected)
+    {
+        var defaults = WindowsSpoolerCapabilityParser.ReadDefaults(
+            new DeviceModeValues(WindowsSpoolerCapabilityParser.DmOrientation, value, 0, 0, 0, 0), [], []);
+
+        Assert.Equal(expected, defaults.Orientation);
+    }
+
+    [Fact]
+    public void ReadDefaults_ReportsNoOrientationForAnUnknownValue()
+    {
+        var defaults = WindowsSpoolerCapabilityParser.ReadDefaults(
+            new DeviceModeValues(WindowsSpoolerCapabilityParser.DmOrientation, 7, 0, 0, 0, 0), [], []);
+
+        Assert.Null(defaults.Orientation);
+    }
 }

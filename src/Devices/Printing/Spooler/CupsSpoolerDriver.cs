@@ -50,25 +50,38 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
             cancellationToken).ConfigureAwait(false);
 
         var attributes = response.PrintersAttributes ?? [];
+        var raw = operations.LastRawResponse;
         List<DiscoveredPrinter> printers = new(attributes.Length);
-        foreach (var printer in attributes.Where(printer => !String.IsNullOrWhiteSpace(printer.PrinterName)))
+
+        // An indexed loop, not a Where: the raw groups line up with the typed attributes
+        // by position, and skipping an entry with a filter would shift every one after it.
+        for (var i = 0; i < attributes.Length; i++)
         {
-            printers.Add(MapDiscovered(printer));
+            if (String.IsNullOrWhiteSpace(attributes[i].PrinterName))
+            {
+                continue;
+            }
+
+            printers.Add(MapDiscovered(attributes[i], IppRawAttributes.ReadText(raw, i, "device-uri")));
         }
 
         return printers;
     }
 
-    private static DiscoveredPrinter MapDiscovered(PrinterDescriptionAttributes attributes)
+    private static DiscoveredPrinter MapDiscovered(PrinterDescriptionAttributes attributes, string? deviceUri)
     {
         var name = attributes.PrinterName!;
-        var id = PrinterId.FromSpooler(name);
+        var id = PrinterId.ForSpooler(name);
         SpoolerPrinterEndpoint endpoint = new(name);
         PrinterInfo info = new(id, attributes.PrinterInfo ?? name)
         {
             Location = attributes.PrinterLocation,
         };
-        return new DiscoveredPrinter(id, endpoint, info) { Source = DiscoverySource.Spooler };
+        return new DiscoveredPrinter(id, endpoint, info)
+        {
+            Source = DiscoverySource.Spooler,
+            Aliases = SpoolerAliases.FromDeviceUri(deviceUri),
+        };
     }
 
     // The options are validated above this driver, so nothing is dropped here.
@@ -80,7 +93,7 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         return IppRequests.SubmitAsync(
             _httpClient,
             QueueUri(queueName),
-            PrinterId.FromSpooler(queueName),
+            PrinterId.ForSpooler(queueName),
             payload,
             IppDocumentFormat.ForCups(payload.ContentType),
             options,
@@ -91,25 +104,32 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     public Task<PrinterStatus> GetStatusAsync(string queueName, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.GetStatusAsync(_httpClient, QueueUri(queueName), PrinterId.FromSpooler(queueName), cancellationToken);
+        return IppRequests.GetStatusAsync(_httpClient, QueueUri(queueName), PrinterId.ForSpooler(queueName), cancellationToken);
     }
 
     public Task<PrinterConfiguration> GetConfigurationAsync(string queueName, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.GetConfigurationAsync(_httpClient, QueueUri(queueName), PrinterId.FromSpooler(queueName), cancellationToken);
+        return IppRequests.GetConfigurationAsync(_httpClient, QueueUri(queueName), PrinterId.ForSpooler(queueName), cancellationToken);
+    }
+
+    public async Task<PrinterIdentity?> GetIdentityAsync(string queueName, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
+        var identity = await IppRequests.GetQueueIdentityAsync(_httpClient, QueueUri(queueName), cancellationToken).ConfigureAwait(false);
+        return identity.IsEmpty ? null : identity;
     }
 
     public Task<IReadOnlyList<PrintJobInfo>> GetJobsAsync(string queueName, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.GetJobsAsync(_httpClient, QueueUri(queueName), PrinterId.FromSpooler(queueName), cancellationToken);
+        return IppRequests.GetJobsAsync(_httpClient, QueueUri(queueName), PrinterId.ForSpooler(queueName), cancellationToken);
     }
 
     public Task<PrintJobInfo?> GetJobAsync(string queueName, string jobId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.GetJobAsync(_httpClient, QueueUri(queueName), PrinterId.FromSpooler(queueName), jobId, cancellationToken);
+        return IppRequests.GetJobAsync(_httpClient, QueueUri(queueName), PrinterId.ForSpooler(queueName), jobId, cancellationToken);
     }
 
     public Task<bool> CancelJobAsync(string queueName, string jobId, CancellationToken cancellationToken)

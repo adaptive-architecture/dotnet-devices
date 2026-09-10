@@ -37,14 +37,14 @@ public sealed class TcpNetworkPrinterDiscovery : INetworkPrinterDiscovery
 
             if (await IsReachableAsync(host, options, hostCancellationToken).ConfigureAwait(false))
             {
-                PrinterId id = new(PrinterIdKind.Network, host);
-                NetworkPrinterEndpoint endpoint = new(host, options.Port);
+                var id = PrinterId.ForNetwork(options.Scheme, host, options.Port);
+                NetworkPrinterEndpoint endpoint = new(host, options.Scheme, options.Port);
                 found.Add(new DiscoveredPrinter(id, endpoint, new PrinterInfo(id, host)) { Source = DiscoverySource.NetworkProbe });
             }
         }).ConfigureAwait(false);
 
         List<DiscoveredPrinter> result = [.. found];
-        result.Sort(static (left, right) => String.CompareOrdinal(left.Id.Value, right.Id.Value));
+        result.Sort(static (left, right) => String.CompareOrdinal(left.Id.ToString(), right.Id.ToString()));
         return result;
     }
 

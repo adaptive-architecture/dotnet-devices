@@ -1,6 +1,6 @@
 ﻿# Architecture
 
-## Repository Layout
+## Repository layout
 
 ```
 dotnet-devices/
@@ -15,41 +15,32 @@ dotnet-devices/
 ├── .github/workflows/    # CI/CD
 ├── Directory.Build.props # Shared MSBuild properties
 ├── Directory.Packages.props # Central package version management
-└── Devices.slnx   # Solution (modern .slnx format)
+└── Devices.slnx          # Solution (modern .slnx format)
 ```
 
-## Platform Strategy
+## Platform strategy
 
-`dotnet-devices` targets Windows, Linux, and macOS. The core `AdaptArch.Devices` library contains shared device abstractions; platform-specific behavior is selected at runtime via `System.RuntimeInformation`/OS checks, or via compile-time target frameworks where that is not possible.
+`dotnet-devices` targets Windows, Linux and macOS. The core `AdaptArch.Devices` library
+holds the shared device abstractions, and picks the platform behaviour at run time with an
+OS check, or at compile time where that is not possible.
 
-Prefer single-library + runtime OS checks over many platform-specific projects to keep the package surface small and simple. Only split out platform projects when a platform cannot be expressed in-process.
+Prefer one library with run-time OS checks to many platform-specific projects: it keeps the
+package surface small. Split out a platform project only when a platform cannot be
+expressed in-process.
 
-## Printing Layer
+## Printing layer
 
-The printing code lives in `src/Devices/Printing`. It has four layers. [Printers](printers.md)
-describes each one in full.
+The printing code is in `src/Devices/Printing`, in four layers: the models, the printers
+and their transports, the discovery sources, and one transport policy that every IPP
+connection follows. [Printers](printers.md) describes each layer and the reasons behind it.
 
-- **Models**: `PrinterId`, `PrinterEndpoint`, `PrinterPayload`, `PrintOptions`,
-  `PrinterStatus`, `PrinterConfiguration`, `PrintJobInfo`. Pure data, read-only after
-  construction.
-- **Printers and transports**: `IPrinter` is the seam. `IppPrinter`, `RawPrinter` and
-  `SpoolerPrinter` implement it for IPP, the raw TCP channel and the operating system
-  spooler. `PrinterFactory` picks one for an endpoint.
-- **Discovery**: mDNS, the network probe and the spooler each report `DiscoveredPrinter`
-  entries. `PrinterManager` runs them together, keeps a cache, and resolves an
-  identifier to an endpoint per call.
-- **Transport policy**: every IPP connection follows one `IppTransportOptions`. One
-  `HttpClient`, built by `IppHttpClientFactory`, is shared by the factory, the status
-  client and the job queue. The dependency injection package builds that client and
-  disposes it with the container.
+## Naming convention
 
-## Naming Convention
-
-- Package/namespace/assembly prefix: `AdaptArch.` (e.g. `AdaptArch.Devices`)
-- Project directories: `Devices.*` under `src/`
-- Solution: `Devices.slnx`
-- Root namespace = `AdaptArch.$(MSBuildProjectName)` (set in `Directory.Build.props`)
+- Package, namespace and assembly prefix: `AdaptArch.` (`AdaptArch.$(MSBuildProjectName)`,
+  set in `Directory.Build.props`)
+- Project directories: `Devices.*` under `src/`; solution: `Devices.slnx`
 
 ## License
 
-Apache 2.0 (see `LICENSE`). Note this differs from the sibling `common-utilities` repo, which uses MIT.
+Apache 2.0 (see `LICENSE`). Note this differs from the sibling `common-utilities`
+repository, which uses MIT.

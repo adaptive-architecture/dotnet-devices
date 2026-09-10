@@ -1,5 +1,6 @@
 ﻿using System.Globalization;
 using System.Runtime.InteropServices;
+using AdaptArch.Devices.Printing.Spooler;
 using SharpIpp.Models.Requests;
 using SharpIpp.Protocol.Models;
 
@@ -68,11 +69,45 @@ internal static class IppRequests
         return IppStatusMapper.Map(printerId, response.PrinterAttributes, operations.LastRawResponse).Status;
     }
 
+    public static async Task<PrinterIdentity> GetIdentityAsync(HttpClient httpClient, Uri uri, CancellationToken cancellationToken)
+    {
+        IppOperations operations = new(httpClient);
+        var response = await ReadAttributesAsync(operations, uri, IppIdentityMapper.RequestedAttributes, cancellationToken).ConfigureAwait(false);
+        return IppIdentityMapper.Map(response.PrinterAttributes);
+    }
+
+    // A CUPS queue answers with its device-uri, which the typed model does not carry.
+    // Asking for no attribute list at all makes CUPS answer with every attribute, which
+    // is what carries it.
+    public static async Task<PrinterIdentity> GetQueueIdentityAsync(HttpClient httpClient, Uri uri, CancellationToken cancellationToken)
+    {
+        IppOperations operations = new(httpClient);
+        var response = await ReadAttributesAsync(operations, uri, [], cancellationToken).ConfigureAwait(false);
+        var identity = IppIdentityMapper.Map(response.PrinterAttributes);
+        var deviceUri = IppRawAttributes.ReadText(operations.LastRawResponse, 0, "device-uri");
+        return new PrinterIdentity
+        {
+            // The printer-uuid CUPS reports belongs to the queue, not to the device: it
+            // is an MD5 over the server, the port and the queue name, so two queues to
+            // one printer report two different values. Only the device URI links them.
+            Uuid = null,
+            SerialNumber = identity.SerialNumber,
+            Manufacturer = identity.Manufacturer,
+            Model = identity.Model,
+            MakeAndModel = identity.MakeAndModel,
+            CommandSets = identity.CommandSets,
+            Name = identity.Name,
+            Location = identity.Location,
+            DeviceUri = deviceUri,
+            Aliases = SpoolerAliases.FromDeviceUri(deviceUri),
+        };
+    }
+
     public static async Task<PrinterConfiguration> GetConfigurationAsync(HttpClient httpClient, Uri uri, PrinterId printerId, CancellationToken cancellationToken)
     {
         IppOperations operations = new(httpClient);
         var response = await ReadAttributesAsync(operations, uri, IppConfigurationMapper.RequestedAttributes, cancellationToken).ConfigureAwait(false);
-        return IppConfigurationMapper.Map(printerId, response.PrinterAttributes);
+        return IppConfigurationMapper.Map(printerId, response.PrinterAttributes, operations.LastRawResponse);
     }
 
     public static async Task<IReadOnlyList<PrintJobInfo>> GetJobsAsync(HttpClient httpClient, Uri uri, PrinterId printerId, CancellationToken cancellationToken)

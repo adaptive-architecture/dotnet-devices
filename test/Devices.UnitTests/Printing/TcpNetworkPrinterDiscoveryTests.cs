@@ -26,8 +26,9 @@ public class TcpNetworkPrinterDiscoveryTests
         var found = await discovery.DiscoverAsync(options, timeoutSource.Token);
 
         var printer = Assert.Single(found);
-        Assert.Equal(PrinterIdKind.Network, printer.Id.Kind);
-        Assert.Equal("127.0.0.1", printer.Id.Value);
+        Assert.Equal(PrinterScheme.Raw, printer.Id.Scheme);
+        Assert.True(printer.Id.TryGetHost(out var host));
+        Assert.Equal("127.0.0.1", host);
         Assert.Equal(DiscoverySource.NetworkProbe, printer.Source);
         var endpoint = Assert.IsType<NetworkPrinterEndpoint>(printer.Endpoint);
         Assert.Equal(port, endpoint.Port);
@@ -93,7 +94,8 @@ public class TcpNetworkPrinterDiscoveryTests
 
         var found = await discovery.DiscoverAsync(options, timeoutSource.Token);
 
-        Assert.Equal("127.0.0.1", Assert.Single(found).Id.Value);
+        Assert.True(Assert.Single(found).Id.TryGetHost(out var host));
+        Assert.Equal("127.0.0.1", host);
     }
 
     [Fact]
@@ -114,4 +116,23 @@ public class TcpNetworkPrinterDiscoveryTests
         listener.Stop();
         return port;
     }
+
+    // The result depends on the adapters of the machine, so only the shape is asserted.
+    [Fact]
+    public void LocalSubnetHosts_GivesASortedListWithoutADuplicate()
+    {
+        var hosts = NetworkPrinterDiscoveryOptions.LocalSubnetHosts();
+
+        Assert.Equal(hosts.Distinct(StringComparer.Ordinal).Count(), hosts.Count);
+        Assert.Equal(hosts.Order(StringComparer.Ordinal), hosts);
+        Assert.All(hosts, static host => Assert.True(IPAddress.TryParse(host, out _)));
+    }
+
+    [Fact]
+    public void LocalSubnetHosts_StopsAtTheMaximum() =>
+        Assert.True(NetworkPrinterDiscoveryOptions.LocalSubnetHosts(4).Count <= 4);
+
+    [Fact]
+    public void LocalSubnetHosts_RefusesAMaximumThatIsNotPositive() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() => NetworkPrinterDiscoveryOptions.LocalSubnetHosts(0));
 }

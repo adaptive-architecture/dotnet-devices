@@ -65,7 +65,7 @@ public sealed class IppPrinter : IPrinter, IDisposable
         ArgumentNullException.ThrowIfNull(endpoint);
         ArgumentNullException.ThrowIfNull(options);
         Endpoint = endpoint;
-        Id = PrinterId.FromNetwork(endpoint.Host);
+        Id = PrinterId.FromEndpoint(endpoint);
         Info = new PrinterInfo(Id, endpoint.Host);
         _httpClient = httpClient;
         _ownsClient = ownsClient;
@@ -141,6 +141,17 @@ public sealed class IppPrinter : IPrinter, IDisposable
             cancellationToken).ConfigureAwait(false);
         _configuration = configuration;
         return configuration;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>Reads <c>printer-uuid</c> and <c>printer-device-id</c>, both of which are optional.</remarks>
+    public async Task<PrinterIdentity?> GetIdentityAsync(CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var identity = await _resolver.RunAsync(
+            (uri, token) => IppRequests.GetIdentityAsync(_httpClient, uri, token),
+            cancellationToken).ConfigureAwait(false);
+        return identity.IsEmpty ? null : identity;
     }
 
     /// <inheritdoc />

@@ -32,8 +32,8 @@ public class SnmpPrinterStatusClientTests
         Assert.Equal(48210, details.Status.LifetimePageCount);
         Assert.Equal(PrinterStatusState.Idle, details.Status.State);
         Assert.True(details.Status.IsAcceptingJobs);
-        Assert.Equal(PrinterIdKind.Network, details.Info.Id.Kind);
-        Assert.Equal(Host, details.Info.Id.Value);
+        Assert.Equal(PrinterScheme.Raw, details.Info.Id.Scheme);
+        Assert.Equal(Host, details.Info.Id.Authority);
     }
 
     [Fact]

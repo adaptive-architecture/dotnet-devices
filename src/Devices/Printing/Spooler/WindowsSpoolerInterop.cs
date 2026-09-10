@@ -53,6 +53,16 @@ internal static partial class WindowsSpoolerInterop
     [LibraryImport("winspool.drv", EntryPoint = "DeviceCapabilitiesW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     internal static partial int DeviceCapabilities(string device, string? port, ushort capability, nint output, nint deviceMode);
 
+    // The only way to get a DEVMODE whose driver-private tail is valid: the driver builds
+    // it. With both buffers and both mode bits, the driver also validates what it is given.
+    [LibraryImport("winspool.drv", EntryPoint = "DocumentPropertiesW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    internal static partial int DocumentProperties(nint window, nint printerHandle, string deviceName, nint output, nint input, uint mode);
+
+    // wingdi.h DM_OUT_BUFFER and DM_IN_BUFFER. DM_UPDATE is deliberately absent: it would
+    // write the queue default, which is not a per-job change and needs administrator rights.
+    internal const uint DmOutBuffer = 2;
+    internal const uint DmInBuffer = 8;
+
     // JOB_CONTROL_CANCEL
     internal const int JobControlCancel = 3;
 
@@ -67,6 +77,9 @@ internal static partial class WindowsSpoolerInterop
 
     // WORD (unsigned) in wingdi.h: a signed short would misrepresent DC_* above 0x7FFF.
     internal const ushort DcPaperNames = 16;
+    internal const ushort DcPapers = 2;
+    internal const ushort DcBins = 6;
+    internal const ushort DcBinNames = 12;
     internal const ushort DcDuplex = 7;
     internal const ushort DcColorDevice = 32;
     internal const ushort DcEnumResolutions = 13;
@@ -152,6 +165,50 @@ internal static partial class WindowsSpoolerInterop
         internal SystemTime Submitted;
         internal uint Time;
         internal uint PagesPrinted;
+    }
+
+    // wingdi.h DEVMODEW, declared up to dmPanningHeight. Only dmFields, dmOrientation,
+    // dmPaperSize, dmDefaultSource, dmPrintQuality and dmYResolution are read; the rest
+    // are present so that every offset is correct.
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct DevMode
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        internal string DeviceName;
+        internal ushort SpecVersion;
+        internal ushort DriverVersion;
+        internal ushort Size;
+        internal ushort DriverExtra;
+        internal uint Fields;
+        internal short Orientation;
+        internal short PaperSize;
+        internal short PaperLength;
+        internal short PaperWidth;
+        internal short Scale;
+        internal short Copies;
+        internal short DefaultSource;
+        internal short PrintQuality;
+        internal short Color;
+        internal short Duplex;
+        internal short YResolution;
+        internal short TTOption;
+        internal short Collate;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        internal string FormName;
+        internal ushort LogPixels;
+        internal uint BitsPerPel;
+        internal uint PelsWidth;
+        internal uint PelsHeight;
+        internal uint DisplayFlags;
+        internal uint DisplayFrequency;
+        internal uint ICMMethod;
+        internal uint ICMIntent;
+        internal uint MediaType;
+        internal uint DitherType;
+        internal uint Reserved1;
+        internal uint Reserved2;
+        internal uint PanningWidth;
+        internal uint PanningHeight;
     }
 
     // SYSTEMTIME. Present only to keep the JobInfo2 offsets after it correct.

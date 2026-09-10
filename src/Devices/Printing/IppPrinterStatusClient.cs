@@ -120,7 +120,7 @@ public sealed class IppPrinterStatusClient : IDisposable
         var resolver = _resolvers.GetOrAdd(
             $"{host}:{port}/{resourcePath}",
             _ => new IppEndpointResolver(_httpClient, host, port, resourcePath, _options));
-        return resolver.RunAsync((uri, token) => ReadDetailsAsync(uri, PrinterId.FromNetwork(host), token), cancellationToken);
+        return resolver.RunAsync((uri, token) => ReadDetailsAsync(uri, PrinterId.ForIpp(host), token), cancellationToken);
     }
 
     private async Task<IppPrinterDetails> ReadDetailsAsync(Uri uri, PrinterId id, CancellationToken cancellationToken)

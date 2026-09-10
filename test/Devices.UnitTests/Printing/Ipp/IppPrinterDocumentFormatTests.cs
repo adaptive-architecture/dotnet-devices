@@ -10,7 +10,7 @@ namespace AdaptArch.Devices.UnitTests.Printing.Ipp;
 // receives decides whether a label prints or the ZPL source prints as text.
 public class IppPrinterDocumentFormatTests
 {
-    private static readonly NetworkPrinterEndpoint Endpoint = new("printer.local", 631);
+    private static readonly NetworkPrinterEndpoint Endpoint = NetworkPrinterEndpoint.Ipp("printer.local");
 
     // 0x02 is the job-attributes group: a job answer populates from no other tag.
     private static byte[] JobResponse() =>

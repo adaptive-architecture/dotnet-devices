@@ -27,7 +27,7 @@ internal static class ManualManagementScenario
 
         if (printers.Count == 0)
         {
-            var hosts = SampleHelpers.GetLocalSubnetHosts();
+            var hosts = NetworkPrinterDiscoveryOptions.LocalSubnetHosts();
             Console.WriteLine($"No printer answered mDNS. Probing {hosts.Count} local hosts on TCP port 9100...");
             var network = provider.GetRequiredService<INetworkPrinterDiscovery>();
             NetworkPrinterDiscoveryOptions options = new()
@@ -70,14 +70,14 @@ internal static class ManualManagementScenario
 
     internal static async Task StatusAsync(ServiceProvider provider, string identifierText)
     {
-        var id = SampleHelpers.ParsePrinterId(identifierText);
-        if (id.Kind != PrinterIdKind.Network)
+        var id = PrinterId.ParseOrRaw(identifierText);
+        if (!id.TryGetHost(out var host))
         {
-            Console.WriteLine("IPP and SNMP status need a network endpoint; a spooler or USB printer cannot answer this way.");
+            Console.WriteLine("IPP and SNMP status need a network host; a spooler printer cannot answer this way.");
             return;
         }
 
-        var endpoint = new NetworkPrinterEndpoint(id.Value);
+        var endpoint = NetworkPrinterEndpoint.Raw(host);
         var ippClient = provider.GetRequiredService<IppPrinterStatusClient>();
         var snmpClient = provider.GetRequiredService<SnmpPrinterStatusClient>();
         await PrintIppDetailsAsync(ippClient, endpoint).ConfigureAwait(false);
@@ -86,8 +86,8 @@ internal static class ManualManagementScenario
 
     internal static async Task SendAsync(ServiceProvider provider, string directory, string identifierText, string fileName)
     {
-        var id = SampleHelpers.ParsePrinterId(identifierText);
-        if (id.Kind != PrinterIdKind.Network)
+        var id = PrinterId.ParseOrRaw(identifierText);
+        if (!id.TryGetHost(out var host))
         {
             Console.WriteLine("This scenario sends over raw TCP and cannot reach a spooler queue. Use print-manager send instead.");
             return;
@@ -124,8 +124,8 @@ internal static class ManualManagementScenario
 
             var payload = PrinterPayload.FromBytes(data, contentType);
             var transport = provider.GetRequiredService<IPrinterTransport>();
-            await transport.WriteAsync(new NetworkPrinterEndpoint(id.Value), payload, timeoutSource.Token).ConfigureAwait(false);
-            Console.WriteLine($"Sent {data.Length} bytes ({contentType}) to {id.Value}.");
+            await transport.WriteAsync(NetworkPrinterEndpoint.Raw(host), payload, timeoutSource.Token).ConfigureAwait(false);
+            Console.WriteLine($"Sent {data.Length} bytes ({contentType}) to {host}.");
         }
         catch (Exception exception)
         {

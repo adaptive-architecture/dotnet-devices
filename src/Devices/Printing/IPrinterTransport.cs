@@ -3,7 +3,7 @@
 /// <summary>
 /// Low-level transmission channel for raw printer payloads. Endpoints describe
 /// <i>where</i> a printer is; transports implement <i>how</i> bytes get there
-/// (TCP, USB, OS spooler).
+/// (TCP, OS spooler).
 /// </summary>
 public interface IPrinterTransport
 {

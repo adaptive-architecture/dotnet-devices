@@ -18,22 +18,29 @@ public sealed class SpoolerPrinterEndpoint : PrinterEndpoint, IEquatable<Spooler
     /// </exception>
     public SpoolerPrinterEndpoint(string name)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        if (!IsValidName(name))
-        {
-            throw new ArgumentException("A print queue name has at most 127 characters and contains no control character and none of '/', '?' or '#'.", nameof(name));
-        }
-
+        ThrowIfNotAQueueName(name, nameof(name));
         Name = name;
     }
 
     // 127 is the CUPS limit, and the rejected characters would end the URI path segment.
     // A backslash stays allowed: a Windows printer connection is named \\server\queue.
-    private static bool IsValidName(string name) =>
-        name.Length <= 127 && !name.Any(static c => Char.IsControl(c) || c is '/' or '?' or '#');
+    // PrinterId shares this rule rather than restating it, so the two never drift.
+    internal static bool IsValidName(string name) =>
+        !String.IsNullOrWhiteSpace(name) &&
+        name.Length <= 127 &&
+        !name.Any(static c => Char.IsControl(c) || c is '/' or '?' or '#');
+
+    internal static void ThrowIfNotAQueueName(string name, string parameterName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (!IsValidName(name))
+        {
+            throw new ArgumentException("A print queue name has at most 127 characters and contains no control character and none of '/', '?' or '#'.", parameterName);
+        }
+    }
 
     /// <inheritdoc />
-    public override PrinterIdKind Kind => PrinterIdKind.Spooler;
+    public override PrinterScheme Scheme => PrinterScheme.Spooler;
 
     /// <summary>
     /// Gets the operating system print queue name.

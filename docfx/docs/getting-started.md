@@ -1,29 +1,23 @@
 # Overview
 
-.NET Devices is a cross-platform library for interacting with hardware peripherals such as printers, scanners, and similar devices. It runs on Windows, Linux, and macOS.
+.NET Devices is a cross-platform library for interacting with hardware peripherals such as
+printers and scanners. It runs on Windows, Linux and macOS.
 
 ## Design
 
-Device abstractions live in a shared library with platform-specific behavior selected at runtime via `RuntimeInformation`/OS checks (or, where needed, compile-time target frameworks).
+The device abstractions live in one shared library. The platform behaviour is picked at run
+time with an OS check, or at compile time where that is not possible. Every external device
+interaction sits behind an interface, so a unit test can substitute it.
 
-- **Shared contracts** define the public API surface.
-- **Platform implementations** handle OS-specific behavior behind those interfaces.
-- **Testability** is achieved by abstracting external device interactions behind interfaces that can be substituted in unit tests.
-
-## Repository Structure
-
-```
-dotnet-devices/
-├── src/          # Source projects (NuGet packages)
-├── test/         # Unit and integration tests
-├── samples/      # Usage demonstration projects
-└── pipeline/     # Build and deployment scripts
-```
-
-## Getting Started
+## Install
 
 ```bash
-dotnetup dotnet build
-dotnetup dotnet test
 dotnet add package AdaptArch.Devices
+dotnet add package AdaptArch.Devices.DependencyInjection   # optional
 ```
+
+```csharp
+services.AddPrinters();
+```
+
+Then read [Printers](printers.md).

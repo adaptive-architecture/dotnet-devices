@@ -2,36 +2,24 @@
 
 ## Today
 
-- **Printers** — see [Printers](printers.md): raw payloads (ZPL/EPL/CPCL/ESC-POS/PNG/PDF as
-  byte streams with content types), endpoint models (network/USB/spooler), `IPrinter`,
-  `IPrinterFactory`, TCP transport, IPP printing, the job queue (`IPrintJobQueue`), job
-  progress (`IPrintJobMonitor`), and spooler discovery and printing across Windows (native
-  interop) and Linux/macOS (local CUPS over IPP). USB transmission is not yet implemented.
-  The Windows spooler code has not run on a real Windows machine yet. It has passed code
-  review and a Linux-only test suite only. See
-  [Windows Manual Tests](windows-manual-tests.md) for the checks still needed.
-- **Printer discovery** — mDNS/DNS-SD browse (`MdnsPrinterDiscovery`), which needs no host
-  list, and TCP probing of explicit hosts (`TcpNetworkPrinterDiscovery`).
-- **Printer manager** — `IPrinterManager` combines every discovery source and prints to a
-  found printer by its identifier, from one entry point.
-- **Document formats** — a printer command language (ZPL, EPL, CPCL, ESC-POS) is mapped to
-  a `document-format` the IPP peer accepts without converting the job. See
-  [Printers](printers.md#document-formats-and-raw-printer-languages).
-- **Printer status** — over IPP (`IppPrinterStatusClient`) and over SNMP version 2c
-  (`SnmpPrinterStatusClient`), which adds the serial number and the page count.
-- **Scanners, other peripherals** — not yet implemented.
+| Area | State |
+| :--- | :--- |
+| Printing | Raw payloads with a content type, IPP and raw TCP transports, the operating system spooler on Windows (native interop) and on Linux and macOS (local CUPS over IPP), job queues and job progress. |
+| Printer discovery | mDNS/DNS-SD browse, which needs no host list; a TCP probe of explicit hosts, with a helper that lists the local subnet; the operating system spooler. |
+| Printer manager | One entry point that runs every source, groups the channels into one device per physical printer, and prints, reads a status or watches a job by identifier. |
+| Printer capabilities | Media sizes, trays, media types, output bins, qualities, pages per sheet, and the defaults the printer applies when a job asks for nothing. |
+| Printer status | Over IPP, and over SNMP version 2c, which adds the serial number and the page count. |
+| Document formats | A printer command language (ZPL, EPL, CPCL, ESC/POS) is mapped to a `document-format` the IPP peer accepts without converting the job. `PrinterDevice.Accepts` says whether one channel reads a content type, before a job is sent. |
+| USB printers | Reached through the operating system queue. A direct USB transport is not implemented and is not planned. |
+| Scanners, other peripherals | Not implemented. |
 
-The core structure, build configuration, documentation site, CI, and package publishing are in place.
+[Printers](printers.md) describes each one, and the reasons behind them.
 
-## Planned Device Support
+**The Windows spooler code has not run on a real Windows machine yet.** It has passed code
+review and a Linux-only test suite only. [Windows manual tests](windows-manual-tests.md)
+lists the checks still needed.
 
-- **Printers** — send print jobs, query status across Windows, Linux, and macOS
-- **Scanners** — initiate scans, retrieve images across supported platforms
-- **Other peripherals** — extensible via shared device interfaces
+## Planned
 
-## Design Goals
-
-- **Cross-platform** — one API surface on Windows, Linux, macOS
-- **Testable** — device interactions abstracted behind interfaces for unit testing
-- **Extensible** — add new device types without modifying shared code
-- **DI-ready** — registration via `Microsoft.Extensions.DependencyInjection`
+Scanners (start a scan, get the image) and further peripherals, behind the same shared
+device interfaces.

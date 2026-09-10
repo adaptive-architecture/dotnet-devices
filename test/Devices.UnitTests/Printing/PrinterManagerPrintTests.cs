@@ -10,13 +10,15 @@ public class PrinterManagerPrintTests
     // Printing tests never watch, so an empty script satisfies the constructor.
     private static FakePrintJobMonitor NoMonitor() => new([]);
 
+    private static readonly Guid Uuid = Guid.Parse("e3b0c442-98fc-1c14-9afb-4c8996fb9242");
+
     [Fact]
-    public async Task PrintAsync_DiscoversOnceWhenTheCacheIsEmpty()
+    public async Task PrintAsync_DiscoversOnceWhenTheCacheMissesAnIdentity()
     {
-        var printer = FakePrinters.Spooler("lobby");
-        FakeMdnsDiscovery mdns = new([]);
+        var printer = FakePrinters.Identity("192.168.1.50", Uuid, DiscoverySource.Mdns);
+        FakeMdnsDiscovery mdns = new([printer]);
         FakePrinterFactory factory = new();
-        PrinterManager manager = new(mdns, new FakeSpoolerDiscovery([printer]), new FakeNetworkProbe([]), factory, NoMonitor());
+        PrinterManager manager = new(mdns, new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor());
 
         var job = await manager.PrintAsync(printer.Id, Zpl(), null, TestContext.Current.CancellationToken);
 
@@ -25,12 +27,17 @@ public class PrinterManagerPrintTests
         Assert.Equal(printer.Id, Assert.Single(factory.Opened).Id);
     }
 
-    [Fact]
-    public async Task PrintAsync_NetworkMissOpensTheHostThroughTheFactoryAndDoesNotBrowse()
+    [Theory]
+    [InlineData("raw://192.168.1.50")]
+    [InlineData("ipp://192.168.1.50")]
+    [InlineData("spooler://lobby")]
+    public async Task PrintAsync_AnAddressFormOpensDirectlyAndDoesNotBrowse(string text)
     {
-        var id = PrinterId.FromNetwork("192.168.1.50");
+        // The scheme states the transport and the authority states the address, so there
+        // is nothing left to discover or to probe.
+        var id = PrinterId.Parse(text);
         FakeMdnsDiscovery mdns = new([]);
-        FakePrinterFactory factory = new() { OpenById = found => FakePrinters.Network(found.Value, 631, DiscoverySource.NetworkProbe) };
+        FakePrinterFactory factory = new();
         PrinterManager manager = new(mdns, new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor());
 
         var job = await manager.PrintAsync(id, Zpl(), null, TestContext.Current.CancellationToken);
@@ -38,15 +45,15 @@ public class PrinterManagerPrintTests
 
         Assert.Equal("1", job.JobId);
         Assert.Equal(0, mdns.Calls);
-        // The host was opened by identifier one time, then served from the cache.
-        Assert.Equal(id, Assert.Single(factory.OpenedById));
+        Assert.Empty(factory.OpenedById);
         Assert.Equal(2, factory.Opened.Count);
+        Assert.Equal(id, factory.Opened[0].Id);
     }
 
     [Fact]
     public async Task PrintAsync_UsesTheCacheAndDoesNotDiscoverAgain()
     {
-        var printer = FakePrinters.Network("192.168.1.50", 9100, DiscoverySource.Mdns);
+        var printer = FakePrinters.Raw("192.168.1.50", DiscoverySource.Mdns);
         FakeMdnsDiscovery mdns = new([printer]);
         PrinterManager manager = new(mdns, new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), new FakePrinterFactory(), NoMonitor());
 
@@ -62,21 +69,25 @@ public class PrinterManagerPrintTests
         FakeMdnsDiscovery mdns = new([]);
         PrinterManager manager = new(mdns, new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), new FakePrinterFactory(), NoMonitor());
 
+        var ghost = PrinterId.ForDeviceUuid(PrinterScheme.Ipp, Uuid);
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => manager.PrintAsync(
-            PrinterId.FromSpooler("ghost"), Zpl(), null, TestContext.Current.CancellationToken));
+            ghost, Zpl(), null, TestContext.Current.CancellationToken));
 
-        Assert.Contains("ghost", error.Message, StringComparison.Ordinal);
+        Assert.Contains(Uuid.ToString("D"), error.Message, StringComparison.Ordinal);
         Assert.Equal(1, mdns.Calls);
     }
 
     [Fact]
-    public async Task PrintAsync_NetworkMiss_ReportsTheFactoryFailure()
+    public async Task PrintAsync_AnAddressFormReachesTheTransportAndReportsItsFailure()
     {
+        // A host that answers nothing is no longer an addressing problem the manager can
+        // report: the identifier names the channel, so the transport error is the answer.
         FakeMdnsDiscovery mdns = new([]);
-        PrinterManager manager = new(mdns, new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), new FakePrinterFactory(), NoMonitor());
+        FakePrinterFactory factory = new() { FailOpen = true };
+        PrinterManager manager = new(mdns, new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor());
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => manager.PrintAsync(
-            PrinterId.FromNetwork("10.0.0.9"), Zpl(), null, TestContext.Current.CancellationToken));
+            PrinterId.ForRaw("10.0.0.9"), Zpl(), null, TestContext.Current.CancellationToken));
 
         Assert.Contains("10.0.0.9", error.Message, StringComparison.Ordinal);
         Assert.Equal(0, mdns.Calls);
@@ -85,10 +96,10 @@ public class PrinterManagerPrintTests
     [Fact]
     public async Task PrintAsync_ConcurrentMissesCauseOneDiscovery()
     {
-        var printer = FakePrinters.Spooler("lobby");
+        var printer = FakePrinters.Identity("192.168.1.50", Uuid, DiscoverySource.Mdns);
         TaskCompletionSource release = new();
-        FakeMdnsDiscovery mdns = new([]) { Gate = () => release.Task };
-        PrinterManager manager = new(mdns, new FakeSpoolerDiscovery([printer]), new FakeNetworkProbe([]), new FakePrinterFactory(), NoMonitor());
+        FakeMdnsDiscovery mdns = new([printer]) { Gate = () => release.Task };
+        PrinterManager manager = new(mdns, new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), new FakePrinterFactory(), NoMonitor());
 
         List<Task<PrintJobInfo>> prints = [];
         for (var i = 0; i < 10; i++)
@@ -106,7 +117,7 @@ public class PrinterManagerPrintTests
     [Fact]
     public async Task GetStatusAsync_UsesTheCacheAndDoesNotDiscoverAgain()
     {
-        var printer = FakePrinters.Network("192.168.1.50", 9100, DiscoverySource.Mdns);
+        var printer = FakePrinters.Raw("192.168.1.50", DiscoverySource.Mdns);
         FakeMdnsDiscovery mdns = new([printer]);
         PrinterManager manager = new(mdns, new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), new FakePrinterFactory(), NoMonitor());
 
@@ -123,17 +134,18 @@ public class PrinterManagerPrintTests
         FakeMdnsDiscovery mdns = new([]);
         PrinterManager manager = new(mdns, new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), new FakePrinterFactory(), NoMonitor());
 
+        var ghost = PrinterId.ForDeviceUuid(PrinterScheme.Ipp, Uuid);
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => manager.GetStatusAsync(
-            PrinterId.FromSpooler("ghost"), TestContext.Current.CancellationToken));
+            ghost, TestContext.Current.CancellationToken));
 
-        Assert.Contains("ghost", error.Message, StringComparison.Ordinal);
+        Assert.Contains(Uuid.ToString("D"), error.Message, StringComparison.Ordinal);
         Assert.Equal(1, mdns.Calls);
     }
 
     [Fact]
     public async Task GetStatusAsync_OpensThePrinterItWasAskedAbout()
     {
-        var printer = FakePrinters.Network("192.168.1.50", 9100, DiscoverySource.Mdns);
+        var printer = FakePrinters.Raw("192.168.1.50", DiscoverySource.Mdns);
         FakePrinterFactory factory = new();
         PrinterManager manager = new(
             new FakeMdnsDiscovery([printer]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor());
@@ -144,33 +156,10 @@ public class PrinterManagerPrintTests
         Assert.Equal(printer.Id, Assert.Single(factory.Opened).Id);
     }
 
-    [Theory]
-    // A raw network channel always sends the bytes through unchanged.
-    [InlineData(9100, false, true)]
-    [InlineData(9100, true, true)]
-    // Port 631 is the IPP channel, which may filter or rasterise.
-    [InlineData(631, false, false)]
-    [InlineData(631, true, false)]
-    public void GivesPassthrough_ReadsTheNetworkPort(int port, bool isWindows, bool expected) =>
-        Assert.Equal(expected, PrinterManager.GivesPassthrough(new NetworkPrinterEndpoint("printer.local", port), isWindows));
-
-    [Theory]
-    // The Windows spooler sends RAW through. CUPS does not give the promise: submitting a
-    // printer language as application/vnd.cups-raw stops the text filters, but a queue
-    // with a driver, and a driverless queue, still convert the job for the device.
-    [InlineData(true, true)]
-    [InlineData(false, false)]
-    public void GivesPassthrough_ReadsThePlatformForASpoolerQueue(bool isWindows, bool expected) =>
-        Assert.Equal(expected, PrinterManager.GivesPassthrough(new SpoolerPrinterEndpoint("lobby"), isWindows));
-
-    [Fact]
-    public void GivesPassthrough_IsFalseForUsb() =>
-        Assert.False(PrinterManager.GivesPassthrough(new UsbPrinterEndpoint(0x04B8, 0x0202), true));
-
     [Fact]
     public async Task PrintAsync_PassthroughPrintsToARawNetworkChannel()
     {
-        var printer = FakePrinters.Network("192.168.1.50", 9100, DiscoverySource.Mdns);
+        var printer = FakePrinters.Raw("192.168.1.50", DiscoverySource.Mdns);
         FakePrinterFactory factory = new();
         PrinterManager manager = new(
             new FakeMdnsDiscovery([printer]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor());
@@ -184,29 +173,67 @@ public class PrinterManagerPrintTests
     }
 
     [Fact]
-    public async Task PrintAsync_OneIdentifierWithTwoEndpoints_PicksTheChannelTheJobNeeds()
+    public async Task DiscoverAsync_OneHostOnTwoChannels_IsOneDeviceWithTwoChannels()
     {
-        // The same host advertises IPP and answers the raw probe: one identifier, two endpoints.
-        var ipp = FakePrinters.Network("192.168.1.50", 631, DiscoverySource.Mdns);
-        var raw = FakePrinters.Network("192.168.1.50", 9100, DiscoverySource.NetworkProbe);
+        // The same host advertises IPP and answers the raw probe. That is one printer
+        // reachable two ways, not two printers.
+        var ipp = FakePrinters.Ipp("192.168.1.50", DiscoverySource.Mdns);
+        var raw = FakePrinters.Raw("192.168.1.50", DiscoverySource.NetworkProbe);
+        PrinterManager manager = new(
+            new FakeMdnsDiscovery([ipp]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([raw]), new FakePrinterFactory(), NoMonitor());
+
+        var found = await manager.DiscoverAsync(new PrinterManagerOptions { Probe = new() { Hosts = ["192.168.1.50"] } }, TestContext.Current.CancellationToken);
+
+        var device = Assert.Single(found);
+        Assert.Equal(2, device.Channels.Count);
+        Assert.NotEqual(ipp.Id, raw.Id);
+        Assert.Equal(ipp.Id.DeviceKey, device.Key);
+        Assert.Single(device.ChannelsByTransport[PrinterScheme.Ipp]);
+        Assert.Single(device.ChannelsByTransport[PrinterScheme.Raw]);
+        Assert.True(device.HasJobQueue);
+        Assert.True(device.GivesPassthrough);
+    }
+
+    [Fact]
+    public async Task PrintAsync_PicksTheChannelTheJobNeedsFromTheWholeDevice()
+    {
+        var ipp = FakePrinters.Ipp("192.168.1.50", DiscoverySource.Mdns);
+        var raw = FakePrinters.Raw("192.168.1.50", DiscoverySource.NetworkProbe);
         FakePrinterFactory factory = new();
         PrinterManager manager = new(
             new FakeMdnsDiscovery([ipp]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([raw]), factory, NoMonitor());
 
-        var found = await manager.DiscoverAsync(new PrinterManagerOptions { Probe = new() { Hosts = ["192.168.1.50"] } }, TestContext.Current.CancellationToken);
+        _ = await manager.DiscoverAsync(new PrinterManagerOptions { Probe = new() { Hosts = ["192.168.1.50"] } }, TestContext.Current.CancellationToken);
         _ = await manager.PrintAsync(ipp.Id, Zpl(), null, TestContext.Current.CancellationToken);
         _ = await manager.PrintAsync(ipp.Id, Zpl(), new PrintOptions { RequirePassthrough = true }, TestContext.Current.CancellationToken);
 
-        // A plain print takes the queue channel, a passthrough print the raw one.
-        Assert.Equal(2, found.Count);
+        // A plain print takes the queue channel. A passthrough print crosses to the raw
+        // channel of the same device, even though the caller named the IPP one.
         Assert.Equal(631, Assert.IsType<NetworkPrinterEndpoint>(factory.Opened[0].Endpoint).Port);
         Assert.Equal(9100, Assert.IsType<NetworkPrinterEndpoint>(factory.Opened[1].Endpoint).Port);
     }
 
     [Fact]
+    public async Task PrintAsync_CrossesFromASpoolerQueueToTheRawChannelOfTheSameDevice()
+    {
+        // The queue vouched for the host through its device URI, so the two are one
+        // device and a passthrough job can take the channel that keeps its bytes.
+        var raw = FakePrinters.Raw("192.168.1.50", DiscoverySource.NetworkProbe);
+        var queue = FakePrinters.Queue("EPSON_L6270", PrinterDeviceKey.ForHost("192.168.1.50"));
+        FakePrinterFactory factory = new();
+        PrinterManager manager = new(
+            new FakeMdnsDiscovery([]), new FakeSpoolerDiscovery([queue]), new FakeNetworkProbe([raw]), factory, NoMonitor());
+
+        _ = await manager.DiscoverAsync(new PrinterManagerOptions { Probe = new() { Hosts = ["192.168.1.50"] } }, TestContext.Current.CancellationToken);
+        _ = await manager.PrintAsync(queue.Id, Zpl(), new PrintOptions { RequirePassthrough = true }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(PrinterScheme.Raw, Assert.Single(factory.Opened).Endpoint.Scheme);
+    }
+
+    [Fact]
     public async Task PrintAsync_PassthroughRefusesAnIppOnlyPrinter()
     {
-        var printer = FakePrinters.Network("192.168.1.50", 631, DiscoverySource.Mdns);
+        var printer = FakePrinters.Ipp("192.168.1.50", DiscoverySource.Mdns);
         FakePrinterFactory factory = new();
         PrinterManager manager = new(
             new FakeMdnsDiscovery([printer]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor());
@@ -219,26 +246,10 @@ public class PrinterManagerPrintTests
         Assert.Empty(factory.Opened);
     }
 
-    [Theory]
-    // The third port pins the rule to "631 only" rather than "not 9100".
-    [InlineData(631, true)]
-    [InlineData(9100, false)]
-    [InlineData(515, false)]
-    public void HasJobQueue_ReadsTheNetworkPort(int port, bool expected) =>
-        Assert.Equal(expected, PrinterManager.HasJobQueue(new NetworkPrinterEndpoint("printer.local", port)));
-
-    [Fact]
-    public void HasJobQueue_IsTrueForASpoolerQueue() =>
-        Assert.True(PrinterManager.HasJobQueue(new SpoolerPrinterEndpoint("lobby")));
-
-    [Fact]
-    public void HasJobQueue_IsFalseForUsb() =>
-        Assert.False(PrinterManager.HasJobQueue(new UsbPrinterEndpoint(0x04B8, 0x0202)));
-
     [Fact]
     public async Task WatchJobAsync_RefusesARawNetworkChannel()
     {
-        var printer = FakePrinters.Network("192.168.1.50", 9100, DiscoverySource.Mdns);
+        var printer = FakePrinters.Raw("192.168.1.50", DiscoverySource.Mdns);
         PrinterManager manager = new(
             new FakeMdnsDiscovery([printer]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), new FakePrinterFactory(), NoMonitor());
 
@@ -260,7 +271,7 @@ public class PrinterManagerPrintTests
     [Fact]
     public async Task WatchJobAsync_DelegatesToTheMonitorForAnIppPrinter()
     {
-        var printer = FakePrinters.Network("192.168.1.50", 631, DiscoverySource.Mdns);
+        var printer = FakePrinters.Ipp("192.168.1.50", DiscoverySource.Mdns);
         var readings = new List<PrintJobInfo>
         {
             new("42", printer.Id, PrintJobState.Printing),
@@ -288,7 +299,8 @@ public class PrinterManagerPrintTests
         FakeMdnsDiscovery mdns = new([]);
         PrinterManager manager = new(mdns, new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), new FakePrinterFactory(), NoMonitor());
 
-        var watch = manager.WatchJobAsync(PrinterId.FromSpooler("ghost"), "1", new PrintJobMonitorOptions(), TestContext.Current.CancellationToken);
+        var ghost = PrinterId.ForDeviceUuid(PrinterScheme.Ipp, Uuid);
+        var watch = manager.WatchJobAsync(ghost, "1", new PrintJobMonitorOptions(), TestContext.Current.CancellationToken);
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
@@ -298,7 +310,7 @@ public class PrinterManagerPrintTests
             }
         });
 
-        Assert.Contains("ghost", error.Message, StringComparison.Ordinal);
+        Assert.Contains(Uuid.ToString("D"), error.Message, StringComparison.Ordinal);
         Assert.Equal(1, mdns.Calls);
     }
 }

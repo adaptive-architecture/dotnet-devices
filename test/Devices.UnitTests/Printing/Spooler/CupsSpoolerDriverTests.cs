@@ -20,8 +20,8 @@ public class CupsSpoolerDriverTests
         var printers = await driver.EnumeratePrintersAsync(TestContext.Current.CancellationToken);
 
         var printer = Assert.Single(printers);
-        Assert.Equal(PrinterIdKind.Spooler, printer.Id.Kind);
-        Assert.Equal("lobby", printer.Id.Value);
+        Assert.Equal(PrinterScheme.Spooler, printer.Id.Scheme);
+        Assert.Equal("lobby", printer.Id.Authority);
         Assert.Equal(DiscoverySource.Spooler, printer.Source);
         var endpoint = Assert.IsType<SpoolerPrinterEndpoint>(printer.Endpoint);
         Assert.Equal("lobby", endpoint.Name);
@@ -129,7 +129,7 @@ public class CupsSpoolerDriverTests
 
         var status = await driver.GetStatusAsync("lobby", TestContext.Current.CancellationToken);
 
-        Assert.Equal(PrinterIdKind.Spooler, status.PrinterId.Kind);
+        Assert.Equal(PrinterScheme.Spooler, status.PrinterId.Scheme);
         Assert.Equal(PrinterStatusState.Processing, status.State);
         Assert.Equal("media-empty", status.Detail);
         Assert.Equal("/printers/lobby", Assert.Single(handler.Requests).RequestUri!.AbsolutePath);
