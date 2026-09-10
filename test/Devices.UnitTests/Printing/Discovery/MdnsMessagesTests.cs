@@ -4,9 +4,7 @@ using Xunit;
 
 namespace AdaptArch.Devices.UnitTests.Printing.Discovery;
 
-// Covers only the thin layer over the DNS library: the unicast-response bit, the two
-// sections that must be read, and the translation of a decode failure. The wire format
-// itself is the library's responsibility and is not re-tested here.
+// Covers only the thin layer over the DNS library, not the wire format itself.
 public class MdnsMessagesTests
 {
     [Fact]
@@ -30,8 +28,7 @@ public class MdnsMessagesTests
     public void CreatePtrQuery_BlankServiceType_Throws(string serviceType) =>
         Assert.ThrowsAny<ArgumentException>(() => MdnsMessages.CreatePtrQuery(serviceType));
 
-    // A responder puts the SRV, TXT and address records in the additional section, so a
-    // reader that took only the answer section would lose the port and the address.
+    // A reader of the answer section alone would lose the port and the address.
     [Fact]
     public void ReadRecords_ReturnsAnswerAndAdditionalSections()
     {
@@ -60,9 +57,7 @@ public class MdnsMessagesTests
         Assert.Throws<InvalidDataException>(() => MdnsMessages.ReadRecords(payload[..(payload.Length - 4)]));
     }
 
-    // The codec reports a compression pointer to a name it has not read yet with an
-    // exception type that no list of "parse" exceptions would guess. Every failure of the
-    // codec must still come out as InvalidDataException, so the browse can skip the packet.
+    // Every codec failure must come out as InvalidDataException, whatever it threw.
     [Fact]
     public void ReadRecords_SelfPointingName_ThrowsInvalidData() =>
         Assert.Throws<InvalidDataException>(() => MdnsMessages.ReadRecords(MdnsResponses.SelfPointingName()));

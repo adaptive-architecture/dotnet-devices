@@ -94,8 +94,7 @@ public class PrinterManagerDiscoveryTests
     [Fact]
     public async Task DiscoverAsync_DoesNotThrowWhenOneSourceFailsAndAnotherSucceedsEmpty()
     {
-        // A quiet link finding nothing is an answer, not a failure. This is the case that
-        // separates "count the successes" from "look at the found list".
+        // A quiet link finding nothing is an answer, not a failure.
         FakeMdnsDiscovery mdns = new([]);
         FakeSpoolerDiscovery spooler = new(null);
         PrinterManager manager = new(mdns, spooler, new FakeNetworkProbe([]), new FakePrinterFactory(), new FakePrintJobMonitor([]));
@@ -121,8 +120,7 @@ public class PrinterManagerDiscoveryTests
     [Fact]
     public async Task DiscoverAsync_TreatsACancellationFromASourceAsThatSourceFailingWhenTheCallerDidNotCancel()
     {
-        // An HttpClient timeout surfaces as OperationCanceledException without the caller
-        // cancelling. It must not hide what the other sources found.
+        // An HttpClient timeout arrives uncancelled, and must not hide the other sources.
         FakeMdnsDiscovery mdns = new([]) { Gate = () => throw new OperationCanceledException() };
         FakeSpoolerDiscovery spooler = new([FakePrinters.Spooler("lobby")]);
         PrinterManager manager = new(mdns, spooler, new FakeNetworkProbe([]), new FakePrinterFactory(), new FakePrintJobMonitor([]));

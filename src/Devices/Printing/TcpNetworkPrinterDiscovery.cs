@@ -27,7 +27,6 @@ public sealed class TcpNetworkPrinterDiscovery : INetworkPrinterDiscovery
             MaxDegreeOfParallelism = options.MaxDegreeOfParallelism,
         };
 
-        // A host that is listed two times is probed one time and reported one time.
         var hosts = options.Hosts.Distinct(StringComparer.OrdinalIgnoreCase);
         await Parallel.ForEachAsync(hosts, parallelOptions, async (host, hostCancellationToken) =>
         {

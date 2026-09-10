@@ -2,9 +2,7 @@
 
 namespace AdaptArch.Devices.UnitTests.Printing.Discovery;
 
-// One datagram that the fake agent sends back. The answer is built from the request the
-// client actually sent, so it can echo the request identifier the way a real agent does, or
-// act on the identifiers and the repetition count of a GetBulkRequest.
+// One datagram the fake agent sends back, built from the request the client sent.
 internal sealed class FakeSnmpAnswer
 {
     public FakeSnmpAnswer(Func<byte[], byte[]> answer, IPAddress sender = null)

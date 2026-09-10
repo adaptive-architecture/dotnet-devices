@@ -24,8 +24,7 @@ public sealed class IppPrinterStatusClient : IDisposable
     private readonly HttpClient _httpClient;
     private readonly IppTransportOptions _options;
     private readonly bool _ownsClient;
-    // One resolver per printer, so a repeated status read costs one round trip, not a probe
-    // plus a read. The key ignores the case of the host name.
+    // One resolver per printer, so a repeated status read needs no second probe.
     private readonly ConcurrentDictionary<string, IppEndpointResolver> _resolvers = new(StringComparer.OrdinalIgnoreCase);
     private bool _disposed;
 

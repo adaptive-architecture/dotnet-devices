@@ -5,14 +5,10 @@ using SharpIpp.Protocol.Models;
 
 namespace AdaptArch.Devices.Printing.Ipp;
 
-// The IPP operations, in one place. Every caller differs in only two ways: how it gets
-// the printer URI, and which PrinterId it reports. Both arrive here as parameters, so a
-// network printer that resolves its endpoint and a CUPS queue at a fixed daemon path run
-// the same code. Keeping one copy is what stops the two paths drifting apart.
+// The IPP operations, in one place. A caller differs only in the printer URI and the
+// PrinterId it reports, so the network path and the CUPS path cannot drift apart.
 internal static class IppRequests
 {
-    // The caller supplies the options it already validated and the list it dropped, so
-    // one submit path fills DroppedOptions for every caller.
     public static async Task<PrintJobInfo> SubmitAsync(
         HttpClient httpClient,
         Uri uri,
@@ -22,7 +18,6 @@ internal static class IppRequests
         IReadOnlyList<string> dropped,
         CancellationToken cancellationToken)
     {
-        // The payload is wrapped, not copied, when its memory is a plain array.
         await using var document = MemoryMarshal.TryGetArray(payload.Data, out var segment)
             ? new MemoryStream(segment.Array!, segment.Offset, segment.Count, false)
             : new MemoryStream(payload.Data.ToArray(), false);
@@ -74,8 +69,7 @@ internal static class IppRequests
         IppOperations operations = new(httpClient);
         GetJobsRequest request = new()
         {
-            // OperationAttributes.WhichJobs is left unset, so the printer reports its own
-            // default set instead of a caller-chosen subset.
+            // WhichJobs stays unset, so the printer reports its own default set.
             OperationAttributes = new() { PrinterUri = uri },
         };
         var response = await operations.SendAsync(
@@ -97,8 +91,7 @@ internal static class IppRequests
         return jobs;
     }
 
-    // Returns null when the identifier is not a number, because the caller may hold an
-    // identifier that came from a spooler rather than from IPP.
+    // Returns null for a non-numeric identifier: the caller may hold a spooler one.
     public static async Task<PrintJobInfo?> GetJobAsync(HttpClient httpClient, Uri uri, PrinterId printerId, string jobId, CancellationToken cancellationToken)
     {
         if (!Int32.TryParse(jobId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
@@ -124,11 +117,7 @@ internal static class IppRequests
         }
         catch (InvalidOperationException) when (IppFailureMapping.StatusCodeOf(operations.LastRawResponse) == IppStatusCode.ClientErrorNotFound)
         {
-            // Only client-error-not-found means "unknown job". Every other IPP error (a
-            // transient server error, a rejected request, and so on) propagates instead of
-            // reading as "unknown job" too: a caller such as the polling job monitor
-            // must not mistake a printer hiccup for the job having left the queue. The
-            // filter not matching lets the exception continue on its own, unchanged.
+            // Only not-found means "unknown job". A printer hiccup must not read as one.
             return null;
         }
     }
@@ -157,7 +146,7 @@ internal static class IppRequests
         }
         catch (InvalidOperationException) when (IppFailureMapping.StatusCodeOf(operations.LastRawResponse) == IppStatusCode.ClientErrorNotFound)
         {
-            // Same not-found narrowing as GetJobAsync: see the comment there.
+            // Same not-found narrowing as GetJobAsync.
             return false;
         }
     }

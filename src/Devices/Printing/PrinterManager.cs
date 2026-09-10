@@ -82,15 +82,13 @@ public sealed class PrinterManager : IPrinterManager
             }
         }
 
-        // Count successes, not results: a source that answered with an empty list has
-        // answered. An empty local link is a normal result, not a failure.
+        // An empty list is an answer, so only an all-source failure throws.
         if (failures.Count > 0 && failures.Count == results.Length)
         {
             throw new PrinterDiscoveryException(failures);
         }
 
-        // Two sources can report one endpoint, so the list is de-duplicated by identifier
-        // and endpoint. Every distinct endpoint of an identifier is kept.
+        // Two sources can report one endpoint, but every distinct endpoint is kept.
         var distinct = found.DistinctBy(static printer => (printer.Id, printer.Endpoint)).ToList();
         foreach (var group in distinct.GroupBy(static printer => printer.Id))
         {
@@ -153,13 +151,12 @@ public sealed class PrinterManager : IPrinterManager
         }
     }
 
-    // IPP, IPPS and CUPS can filter or rasterise a document; a raw channel and the Windows
-    // spooler cannot. The platform is a parameter so a test on Linux can prove both branches.
+    // IPP, IPPS and CUPS can filter or rasterise a document; a raw channel and the
+    // Windows spooler cannot. The platform is a parameter so both branches are testable.
     internal static bool GivesPassthrough(PrinterEndpoint endpoint, bool isWindows)
     {
         if (endpoint is NetworkPrinterEndpoint network)
         {
-            // The factory makes a RawPrinter for exactly these ports.
             return network.Port != IppPrinterStatusClient.DefaultPort;
         }
 
@@ -171,8 +168,7 @@ public sealed class PrinterManager : IPrinterManager
         return false;
     }
 
-    // A raw channel gives back no job identifier and has no queue to poll. Unlike
-    // GivesPassthrough this needs no platform: both spooler drivers expose a job queue.
+    // A raw channel gives back no job identifier. Both spooler drivers have a queue.
     internal static bool HasJobQueue(PrinterEndpoint endpoint)
     {
         if (endpoint is NetworkPrinterEndpoint network)
@@ -196,9 +192,7 @@ public sealed class PrinterManager : IPrinterManager
         return WatchJobAsyncCore(id, jobId, options, cancellationToken);
     }
 
-    // Guards must throw as soon as WatchJobAsync is called, not on first enumeration. An
-    // iterator body only starts running when the caller enumerates it, so the guards live in
-    // the public method above and this private iterator holds the rest of the work.
+    // The guards live in the public method, so they throw before the first enumeration.
     private async IAsyncEnumerable<PrintJobInfo> WatchJobAsyncCore(
         PrinterId id,
         string jobId,
@@ -223,9 +217,8 @@ public sealed class PrinterManager : IPrinterManager
     private static DiscoveredPrinter Prefer(IReadOnlyList<DiscoveredPrinter> entries, Func<PrinterEndpoint, bool> preferred) =>
         entries.FirstOrDefault(entry => preferred(entry.Endpoint)) ?? entries[0];
 
-    // A failed print does NOT refresh: most print failures are not addressing problems.
-    // A network identifier names its host, so a miss opens that host through the factory
-    // instead of a browse of the whole link. Every other kind runs one fresh discovery.
+    // A network identifier names its host, so a miss opens that host directly instead
+    // of browsing the whole link. Every other kind runs one fresh discovery.
     private async Task<IReadOnlyList<DiscoveredPrinter>> ResolveAsync(PrinterId id, CancellationToken cancellationToken)
     {
         if (_cache.TryGetValue(id, out var cached))
@@ -236,8 +229,7 @@ public sealed class PrinterManager : IPrinterManager
         await _refresh.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            // Another caller may have filled the cache while this one waited. Without this
-            // second look the semaphore serialises the browses instead of preventing them.
+            // Another caller may have filled the cache while this one waited.
             if (_cache.TryGetValue(id, out cached))
             {
                 return cached;
@@ -263,10 +255,8 @@ public sealed class PrinterManager : IPrinterManager
             : throw new InvalidOperationException($"No printer with the identifier '{id}' was found, and a fresh discovery did not find one either.");
     }
 
-    // The failure travels in the result, not a field, so one call cannot see another's error.
-    // Only the caller's own cancellation fails the whole call: CupsSpoolerDriver reaches CUPS
-    // over HttpClient, whose timeout surfaces as TaskCanceledException, and a hung daemon must
-    // not hide the printers the other sources found.
+    // Only the caller's own cancellation fails the whole call: an HttpClient timeout also
+    // arrives as TaskCanceledException, and must not hide what the other sources found.
     private static async Task<(DiscoverySource Source, IReadOnlyList<DiscoveredPrinter> Printers, Exception? Error)> RunAsync(
         DiscoverySource source, Func<Task<IReadOnlyList<DiscoveredPrinter>>> discover, CancellationToken cancellationToken)
     {

@@ -7,20 +7,19 @@ using SharpIpp.Protocol.Models;
 
 namespace AdaptArch.Devices.UnitTests.Printing.Ipp;
 
-// Builds IPP response bytes by hand, so a test states exactly which attributes the
-// printer sends back. The typed model of SharpIppNext cannot express a malformed or
-// partial answer, which several tests need.
+// Builds IPP response bytes by hand: the typed SharpIppNext model cannot express the
+// malformed or partial answers several tests need.
 internal static class IppMessages
 {
     public static HttpResponseMessage Ok(byte[] payload) =>
         new(HttpStatusCode.OK) { Content = new ByteArrayContent(payload) };
 
-    // 0x04 is the printer-attributes-tag, which is what every printer-attribute test needs.
+    // 0x04 is the printer-attributes-tag.
     public static byte[] Response(ushort status, params (byte Tag, string Name, object Value)[] attributes) =>
         Response(status, 0x04, attributes);
 
-    // A job response needs its job-id and job-state inside the job-attributes-tag (0x02),
-    // not the printer-attributes-tag, or SharpIppNext leaves PrintJobResponse.JobAttributes null.
+    // A job response needs job-id and job-state inside the job-attributes-tag (0x02), or
+    // SharpIppNext leaves PrintJobResponse.JobAttributes null.
     public static byte[] Response(ushort status, byte groupTag, params (byte Tag, string Name, object Value)[] attributes)
     {
         using MemoryStream buffer = new();
@@ -37,13 +36,8 @@ internal static class IppMessages
         {
             if (name is null && value is null)
             {
-                // A bare tag with no name and no value is a new attribute-group boundary
-                // (for example another 0x02 job-attributes-tag), not a 1setOf continuation
-                // value (name is null, value is not, elsewhere in this file). SharpIppNext
-                // groups a GetJobsResponse into one job per group tag: a repeated attribute
-                // name inside a single group does not start a new job, it just gets
-                // dropped, so a multi-job answer needs one of these between each job's
-                // attributes.
+                // A bare tag starts a new attribute group. SharpIppNext makes one job per
+                // group, so a multi-job answer needs one of these between the jobs.
                 buffer.WriteByte(tag);
                 continue;
             }
@@ -63,8 +57,7 @@ internal static class IppMessages
             }
             else if (value is byte[] raw)
             {
-                // A resolution value is pre-encoded by the caller: width, height (4 bytes
-                // each, big-endian) and a 1-byte unit, per RFC 8010.
+                // The caller pre-encoded the resolution.
                 valueBytes = raw;
             }
             else

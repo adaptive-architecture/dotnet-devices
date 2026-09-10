@@ -55,8 +55,7 @@ public sealed class TcpPrinterTransport : IPrinterTransport
             throw new TimeoutException($"Timed out connecting to printer '{network}'.", exception);
         }
 
-        // The write gets its own full time budget. A printer that stops reading, for
-        // example one that is out of paper, would otherwise block the caller for ever.
+        // Its own budget: a printer that stops reading must not block the caller for ever.
         timeoutSource.CancelAfter(_timeout);
         await using var stream = client.GetStream();
         try
@@ -69,15 +68,14 @@ public sealed class TcpPrinterTransport : IPrinterTransport
             throw new TimeoutException($"Timed out writing to printer '{network}'.", exception);
         }
 
-        // Tell the printer that the job is complete. Some printers wait for this before
-        // they print the last page.
+        // Some printers wait for this before they print the last page.
         try
         {
             client.Client.Shutdown(SocketShutdown.Send);
         }
         catch (Exception exception) when (exception is SocketException or ObjectDisposedException)
         {
-            // The payload is already delivered. A failure to close one direction is not a failure to print.
+            // The payload is already delivered, so a failed close is not a failed print.
         }
     }
 }

@@ -13,7 +13,7 @@ public class IppPrinterTests
     [Fact]
     public async Task PrintAsync_ReturnsTheJobIdentifierThePrinterAssigned()
     {
-        // 0x21 is integer; 0x23 is enum. Job state 3 is pending. 0x02 is the job-attributes group.
+        // 0x21 integer, 0x23 enum, 0x02 job-attributes group. Job state 3 is pending.
         var job = IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 42), (0x23, "job-state", 3));
         IppMessages.StubHandler handler = new(_ => IppMessages.Ok(job));
         using IppPrinter printer = new(Endpoint, new HttpClient(handler));
@@ -57,9 +57,7 @@ public class IppPrinterTests
             null,
             TestContext.Current.CancellationToken);
 
-        // The print submission is the last captured request. The body is read inside the
-        // handler, while the request's document stream is still open, because a real
-        // transport reads it during the send and IppPrinter disposes it right after.
+        // The handler reads the body while the document stream is still open.
         var text = Encoding.Latin1.GetString(handler.RequestBodies[^1]);
         Assert.Contains(PrinterContentTypes.Pdf, text, StringComparison.Ordinal);
     }
@@ -77,8 +75,7 @@ public class IppPrinterTests
         IppMessages.StubHandler handler = new(_ =>
         {
             requestCount++;
-            // Request 1 is the resolver probe, request 2 is the configuration read, both
-            // against printer attributes. Request 3 is the print submission.
+            // 1 is the resolver probe, 2 the configuration read, 3 the print submission.
             return requestCount <= 2 ? IppMessages.Ok(attributes) : IppMessages.Ok(job);
         });
         using IppPrinter printer = new(Endpoint, new HttpClient(handler));
@@ -124,9 +121,8 @@ public class IppPrinterTests
         Assert.Equal("media-empty", status.Detail);
     }
 
-    // IppMessages.StubHandler never reads a request's content, which is fine for every other
-    // test here because none of them need it. This one does, and it must read it before
-    // returning, because IppPrinter disposes the document stream right after the send.
+    // Unlike IppMessages.StubHandler this reads the content, which it must do before it
+    // returns: IppPrinter disposes the document stream right after the send.
     private sealed class CapturingHandler : HttpMessageHandler
     {
         private readonly byte[] _responseBody;

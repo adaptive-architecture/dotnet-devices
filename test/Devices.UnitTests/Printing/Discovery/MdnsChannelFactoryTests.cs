@@ -4,7 +4,6 @@ using Xunit;
 
 namespace AdaptArch.Devices.UnitTests.Printing.Discovery;
 
-// The real factory opens sockets on the adapters of the test host. It sends nothing.
 public class MdnsChannelFactoryTests
 {
     [Fact]
@@ -17,8 +16,7 @@ public class MdnsChannelFactoryTests
         Assert.Empty(channels);
     }
 
-    // A second address of the same family is on the same link, so it must not get a
-    // second channel: that channel would send the same query to the same printers again.
+    // A second address of the same family is on the same link, so it gets no channel.
     [Fact]
     public void Create_OpensAtMostOneChannelPerAdapterAndAddressFamily()
     {

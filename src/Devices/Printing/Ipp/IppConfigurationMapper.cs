@@ -3,8 +3,6 @@ using SharpIpp.Protocol.Models;
 
 namespace AdaptArch.Devices.Printing.Ipp;
 
-// Turns the IPP printer attributes into the library model. An absent attribute means the
-// printer did not report the capability, which the model shows as an empty list or false.
 internal static class IppConfigurationMapper
 {
     public static readonly string[] RequestedAttributes =
@@ -23,7 +21,7 @@ internal static class IppConfigurationMapper
             return new PrinterConfiguration(id);
         }
 
-        // An attribute the printer did not send stays null: "not reported" is not "not supported".
+        // An unsent attribute stays null: "not reported" is not "not supported".
         return new PrinterConfiguration(id)
         {
             SupportsColor = attributes.ColorSupported,
@@ -54,8 +52,7 @@ internal static class IppConfigurationMapper
         return names;
     }
 
-    // The Printer MIB and IPP both allow dots per centimetre. The model holds dots per
-    // inch only, so an entry in another unit is not reported.
+    // The model holds dots per inch only, so an entry in another unit is dropped.
     private static List<int> ReadResolutions(Resolution[]? resolutions)
     {
         if (resolutions is null || resolutions.Length == 0)

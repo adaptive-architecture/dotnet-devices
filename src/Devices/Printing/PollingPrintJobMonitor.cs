@@ -53,19 +53,15 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
         return WatchJobAsyncCore(printerId, jobId, options, cancellationToken);
     }
 
-    // Guards must throw as soon as WatchJobAsync is called, not on first enumeration. An
-    // iterator body only starts running when the caller enumerates it, so the guards live in
-    // the public method above and this private iterator holds the rest of the work.
+    // The guards live in the public method, so they throw before the first enumeration.
     private async IAsyncEnumerable<PrintJobInfo> WatchJobAsyncCore(
         PrinterId printerId,
         string jobId,
         PrintJobMonitorOptions options,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        // A timeout ends the watch quietly. Only the caller's token throws. The delay
-        // still has to watch both tokens, or the deadline would not be noticed until the
-        // running delay ends on its own, so the wait uses a linked token; the "which one
-        // fired" check right after the wait is what keeps the two outcomes apart.
+        // A timeout ends the watch quietly; only the caller's token throws. The delay waits
+        // on both, and the check after it keeps the two outcomes apart.
         using var deadline = options.Timeout is TimeSpan limit
             ? new CancellationTokenSource(limit, _timeProvider)
             : new CancellationTokenSource();
@@ -79,8 +75,7 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
             var reading = await _queue.GetJobAsync(printerId, jobId, cancellationToken).ConfigureAwait(false);
             if (reading is null)
             {
-                // Both CUPS and the Windows spooler drop a finished job from the queue, so
-                // a job that is gone has finished.
+                // Both spoolers drop a finished job, so a job that is gone has finished.
                 var now = _timeProvider.GetUtcNow();
                 var done = new PrintJobInfo(jobId, printerId, PrintJobState.Completed)
                 {
@@ -109,8 +104,7 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                // The deadline fired, not the caller. The while condition below ends the
-                // loop quietly, with no exception, on the next check.
+                // The deadline fired, not the caller: the loop condition ends the watch.
             }
         }
     }

@@ -1,14 +1,7 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿namespace AdaptArch.Devices.Printing.Spooler;
 
-namespace AdaptArch.Devices.Printing.Spooler;
-
-// Turns the WINSPOOL status bit fields into the library's own state enums. Pure and
-// P/Invoke-free on purpose, so every branch runs as a real test on any platform: the
-// bit constants below are the only part that cannot be checked against a live Windows
-// header from here, but they are the widely published PRINTER_STATUS_* and
-// JOB_STATUS_* values (Microsoft Learn "Printer Status Values" / "Job Status Values"),
-// unchanged since Windows 2000. IppJobStateMapper does not fit here: it maps IPP job
-// state keywords, not WINSPOOL bit flags, so this is a separate, purpose-built mapping.
+// Turns the WINSPOOL status bit fields into the library state enums. P/Invoke-free on
+// purpose, so every branch is testable on any platform.
 internal static class WindowsSpoolerStatusMapper
 {
     private const uint PrinterStatusPaused = 0x00000001;
@@ -25,9 +18,8 @@ internal static class WindowsSpoolerStatusMapper
     private const uint PrinterStatusUserIntervention = 0x00100000;
     private const uint PrinterStatusDoorOpen = 0x00400000;
 
-    // PRINTER_ATTRIBUTE_WORK_OFFLINE: the user set "Use Printer Offline" on the queue.
-    // The spooler then holds every job and reports no PRINTER_STATUS_OFFLINE bit, so the
-    // attribute is the only sign that nothing prints.
+    // PRINTER_ATTRIBUTE_WORK_OFFLINE: with "Use Printer Offline" set the spooler holds
+    // every job and reports no PRINTER_STATUS_OFFLINE bit, so this is the only sign.
     private const uint PrinterAttributeWorkOffline = 0x00000400;
 
     private const uint ErrorBits = PrinterStatusError | PrinterStatusPendingDeletion | PrinterStatusPaperJam | PrinterStatusPaperOut
@@ -35,12 +27,7 @@ internal static class WindowsSpoolerStatusMapper
 
     private const uint OfflineBits = PrinterStatusOffline | PrinterStatusNotAvailable;
 
-    // A printer can report several bits at once (for example paused and offline).
-    // Error conditions are checked first because they need the most attention, then
-    // offline (a status bit, or the WORK_OFFLINE attribute), then paused, then
-    // activity; zero, or any other unrecognised bit alone, falls through to idle.
-    // PENDING_DELETION is grouped with the error bits: a queue being torn down is not
-    // "ready" in any sense a caller should act on as idle.
+    // Several bits can be set at once, so the most serious one is checked first.
     internal static PrinterStatusState MapPrinterStatus(uint status, uint attributes)
     {
         if ((status & ErrorBits) != 0)
@@ -66,11 +53,7 @@ internal static class WindowsSpoolerStatusMapper
         return PrinterStatusState.Idle;
     }
 
-    // Named for the same PRINTER_STATUS_* bits MapPrinterStatus reads, so
-    // PrinterStatus.Detail carries the bits behind the mapped state instead of nothing,
-    // the same way DescribeJobStatus below fills PrintJobInfo.Detail. Unlike
-    // DescribeJobStatus, this spells out the full Win32 macro name, so a person can
-    // compare the output directly against Windows documentation.
+    // Full Win32 macro names, so PrinterStatus.Detail compares against the Windows docs.
     internal static string? DescribePrinterStatus(uint status, uint attributes)
     {
         List<string> named = [];
@@ -92,9 +75,7 @@ internal static class WindowsSpoolerStatusMapper
         return named.Count == 0 ? null : String.Join("; ", named);
     }
 
-    // Mirrors the bit groups MapPrinterStatus treats as Error, Offline or Paused: a
-    // queue reporting any of them does not take a new job right now, the same way the
-    // IPP path reports PrinterIsAcceptingJobs as false for those states.
+    // The same bit groups MapPrinterStatus treats as Error, Offline or Paused.
     internal static bool IsAcceptingJobs(uint status, uint attributes) =>
         (status & (ErrorBits | OfflineBits | PrinterStatusPaused)) == 0 && !IsWorkOffline(attributes);
 
@@ -108,13 +89,7 @@ internal static class WindowsSpoolerStatusMapper
     private const uint JobStatusDeleted = 0x00000100;
     private const uint JobStatusComplete = 0x00001000;
 
-    // Same reasoning as above: deletion is the most terminal outcome so it is checked
-    // first, then error, then paused, then the two "done" bits, then active printing;
-    // spooling, blocked, restarted, retained or no bit at all all mean "still queued".
-    [SuppressMessage(
-        "Major Code Smell",
-        "S125:Sections of code should not be commented out",
-        Justification = "The comment above is explanatory prose about the bit-check order, not commented-out code.")]
+    // Checked most terminal first. Any unlisted bit means the job is still queued.
     internal static PrintJobState MapJobStatus(uint status)
     {
         if ((status & (JobStatusDeleted | JobStatusDeleting)) != 0)
@@ -145,9 +120,6 @@ internal static class WindowsSpoolerStatusMapper
         return PrintJobState.Queued;
     }
 
-    // Named for the same JOB_STATUS_* bits MapJobStatus reads, so PrintJobInfo.Detail
-    // carries the bits behind the mapped state instead of nothing, the way the IPP
-    // path joins job-state-reasons for the same field.
     internal static string? DescribeJobStatus(uint status)
     {
         List<string> named = [];

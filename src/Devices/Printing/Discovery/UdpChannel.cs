@@ -58,14 +58,12 @@ internal sealed class UdpChannel : IUdpChannel
         {
             _socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, multicastTimeToLive);
 
-            // Name the outgoing interface, so a host with several interfaces queries the
-            // network of this address and not only the network of the default route.
+            // Name the outgoing interface, or only the default route is queried.
             _socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, bindAddress.GetAddressBytes());
             return;
         }
 
-        // IPv6 names the outgoing interface by index. The scope identifier of the address
-        // is not a substitute: it is zero for every address that is not link-local.
+        // IPv6 names the interface by index: the scope identifier is zero unless link-local.
         _socket.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.MulticastTimeToLive, multicastTimeToLive);
         _socket.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.MulticastInterface, interfaceIndex);
     }

@@ -3,8 +3,7 @@ using AdaptArch.Devices.Printing;
 
 namespace AdaptArch.Devices.UnitTests.Printing;
 
-// Counts its calls, so a test can prove how often the manager ran a discovery. A null
-// answer makes the source throw.
+// Counts its calls. A null answer makes the source throw.
 internal sealed class FakeMdnsDiscovery : IMdnsPrinterDiscovery
 {
     private readonly IReadOnlyList<DiscoveredPrinter> _answer;
@@ -59,15 +58,13 @@ internal sealed class FakeNetworkProbe : INetworkPrinterDiscovery
     }
 }
 
-// Records what it was asked to print, so a test can prove the channel choice.
 internal sealed class FakePrinterFactory : IPrinterFactory
 {
     public List<DiscoveredPrinter> Opened { get; } = [];
 
     public List<PrinterId> OpenedById { get; } = [];
 
-    // The answer for a network identifier the cache does not hold. Null makes the open fail,
-    // the way an unreachable host would.
+    // The answer for a network identifier the cache misses. Null makes the open fail.
     public Func<PrinterId, DiscoveredPrinter> OpenById { get; set; }
 
     public IPrinter Open(DiscoveredPrinter printer)
@@ -107,8 +104,7 @@ internal sealed class FakePrinter : IPrinter
         Task.FromResult(new PrinterConfiguration(Id));
 }
 
-// Records what it was asked to watch and yields a scripted sequence, so a test can prove
-// the manager delegated rather than invented the readings.
+// Yields a scripted sequence, so a test can prove the manager delegated the readings.
 internal sealed class FakePrintJobMonitor : IPrintJobMonitor
 {
     private readonly IReadOnlyList<PrintJobInfo> _readings;

@@ -59,8 +59,7 @@ public class TcpPrinterTransportTests
             transport.WriteAsync(new NetworkPrinterEndpoint("127.0.0.1", 9100), payload, canceledSource.Token));
     }
 
-    // The listener accepts the connection and then never reads. The payload is larger
-    // than the socket buffers on both sides, so the write cannot complete.
+    // The listener never reads, and the payload is larger than both socket buffers.
     [Fact]
     public async Task WriteAsync_PrinterStopsReading_ThrowsTimeout()
     {

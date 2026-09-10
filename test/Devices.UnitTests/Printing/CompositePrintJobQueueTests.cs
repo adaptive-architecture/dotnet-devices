@@ -33,10 +33,8 @@ public class CompositePrintJobQueueTests
     [Fact]
     public async Task GetJobsAsync_ReusesOneQueueForTheSameNetworkHost()
     {
-        // Every answer reports one job, so both the resolver probe and the job read
-        // succeed. A fresh queue per call would re-run the probe, so the request count
-        // tells apart "one queue reused" (probe once, then one job read each) from "one
-        // queue built per call" (a probe before every job read).
+        // A fresh queue per call would re-run the resolver probe, so the request count
+        // tells a reused queue apart from one built per call.
         var body = IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 1), (0x23, "job-state", 3));
         IppMessages.StubHandler handler = new(_ => IppMessages.Ok(body));
         FakeSpoolerDriver driver = new(new PrinterConfiguration(PrinterId.FromSpooler("lobby")));

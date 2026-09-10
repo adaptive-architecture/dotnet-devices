@@ -57,9 +57,8 @@ internal sealed class MdnsChannelFactory : IMdnsChannelFactory
                 continue;
             }
 
-            // One channel for each address family of the adapter. A second address of the
-            // same family is on the same link, so a second channel there sends the same
-            // query to the same printers a second time.
+            // One channel per address family: a second address of the same family is on
+            // the same link, so it would query the same printers again.
             var properties = adapter.GetIPProperties();
             var v4 = FirstAddress(properties, AddressFamily.InterNetwork);
             if (v4 is not null)

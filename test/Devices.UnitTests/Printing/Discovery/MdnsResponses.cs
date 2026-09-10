@@ -3,10 +3,8 @@ using Makaretu.Dns;
 
 namespace AdaptArch.Devices.UnitTests.Printing.Discovery;
 
-// Builds mDNS responses in the shape a real responder sends: the PTR record in the answer
-// section, and the SRV, TXT and address records in the additional section, with the
-// cache-flush bit set on every record. The library writes the wire format, including the
-// name compression that a real responder uses.
+// Builds mDNS responses in the shape a real responder sends: PTR in the answer section,
+// SRV, TXT and address records in the additional section, all with the cache-flush bit.
 internal static class MdnsResponses
 {
     // Multicast DNS uses the top bit of the class field as the cache-flush bit.
@@ -56,9 +54,8 @@ internal static class MdnsResponses
         return response.ToByteArray();
     }
 
-    // A response with one answer whose name is a compression pointer to itself: the header
-    // is twelve bytes, and the name at offset twelve is "C0 0C", a pointer to offset twelve.
-    // No reader can finish such a name, so the packet is malformed.
+    // One answer whose name is "C0 0C", a compression pointer to itself: no reader can
+    // finish it, so the packet is malformed.
     public static byte[] SelfPointingName() =>
     [
         0x00, 0x00, // ID

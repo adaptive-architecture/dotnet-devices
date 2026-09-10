@@ -3,9 +3,7 @@ using SharpIpp.Protocol.Models;
 
 namespace AdaptArch.Devices.Printing.Ipp;
 
-// Turns IPP printer attributes into the library status model. Shared by
-// IppPrinterStatusClient and IppPrinter, so the state map, the state-reason join and the
-// marker read live in one place.
+// Turns IPP printer attributes into the library status model.
 internal static class IppStatusMapper
 {
     public static readonly string[] RequestedAttributes =
@@ -74,8 +72,8 @@ internal static class IppStatusMapper
             return PrinterStatusState.Processing;
         }
 
-        // IPP reports a printer that has halted as "stopped". A reason with the "-error"
-        // severity suffix (RFC 8011 section 5.4.12) says the halt is a fault, not a pause.
+        // IPP reports a halted printer as "stopped". An "-error" reason suffix
+        // (RFC 8011 §5.4.12) says the halt is a fault, not a pause.
         if (state == PrinterState.Stopped)
         {
             return HasErrorReason(reasons) ? PrinterStatusState.Error : PrinterStatusState.Paused;

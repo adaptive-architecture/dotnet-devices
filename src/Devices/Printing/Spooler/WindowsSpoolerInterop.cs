@@ -3,11 +3,7 @@ using System.Runtime.Versioning;
 
 namespace AdaptArch.Devices.Printing.Spooler;
 
-// The Windows print spooler API. Only the entry points this library calls are declared.
-// LibraryImport is a source generator, so no reflection reaches the trimmed output; that
-// is also why every struct here uses only fields the driver reads (see each struct's
-// comment for the header layout it was matched against), keeping every preceding field
-// so the byte offsets line up with the real, wider native structure.
+// Only the entry points this library calls are declared.
 [SupportedOSPlatform("windows")]
 internal static partial class WindowsSpoolerInterop
 {
@@ -66,21 +62,16 @@ internal static partial class WindowsSpoolerInterop
     // PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS
     internal const int PrinterEnumLocalAndConnections = 0x00000006;
 
-    // PRINTER_ACCESS_USE. Enough to open, submit, read status and control a job;
-    // this driver never changes queue configuration, so it never asks for more.
+    // PRINTER_ACCESS_USE: enough to open, submit, read status and control a job.
     internal const uint PrinterAccessUse = 0x00000008;
 
-    // WORD (unsigned) in wingdi.h; a signed short would misrepresent any DC_* constant
-    // above 0x7FFF.
+    // WORD (unsigned) in wingdi.h: a signed short would misrepresent DC_* above 0x7FFF.
     internal const ushort DcPaperNames = 16;
     internal const ushort DcDuplex = 7;
     internal const ushort DcColorDevice = 32;
     internal const ushort DcEnumResolutions = 13;
 
-    // Matched against wingdi.h / winspool.h PRINTER_DEFAULTSW. Three fields, stable
-    // since Windows 2000: a data type string, an optional DEVMODE pointer, and the
-    // access mask requested on OpenPrinter. High confidence: this structure has not
-    // changed shape across any documented Windows version.
+    // winspool.h PRINTER_DEFAULTSW.
     [StructLayout(LayoutKind.Sequential)]
     internal struct PrinterDefaults
     {
@@ -89,9 +80,7 @@ internal static partial class WindowsSpoolerInterop
         internal uint DesiredAccess;
     }
 
-    // Matched against winspool.h DOC_INFO_1W: pDocName, pOutputFile, pDatatype, in that
-    // order. High confidence: unchanged since Windows 2000. All three fields are
-    // pointers, built and freed by the caller around the StartDocPrinter call.
+    // winspool.h DOC_INFO_1W. The caller builds and frees all three pointers.
     [StructLayout(LayoutKind.Sequential)]
     internal struct DocInfo1
     {
@@ -100,9 +89,7 @@ internal static partial class WindowsSpoolerInterop
         internal nint DataType;
     }
 
-    // Matched against winspool.h PRINTER_INFO_4W: pPrinterName, pServerName, Attributes.
-    // High confidence: this is the smallest, most stable printer-enumeration level,
-    // documented specifically as not requiring a printer handle.
+    // winspool.h PRINTER_INFO_4W.
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     internal struct PrinterInfo4
     {
@@ -111,12 +98,8 @@ internal static partial class WindowsSpoolerInterop
         internal uint Attributes;
     }
 
-    // Matched against winspool.h PRINTER_INFO_2W. Declared up to and including Status,
-    // the last field this driver reads; cJobs and AveragePPM (which follow Status) are
-    // omitted, which is safe only because they come after everything this driver reads,
-    // not before. High confidence for the field order and types up to Status; the two
-    // omitted trailing fields are not exercised so their exact width is not re-verified
-    // here (their sizes do not affect any offset this driver depends on).
+    // winspool.h PRINTER_INFO_2W, declared up to Status, the last field read here.
+    // The trailing cJobs and AveragePPM are omitted: they affect no offset used.
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     internal struct PrinterInfo2
     {
@@ -141,13 +124,8 @@ internal static partial class WindowsSpoolerInterop
         internal uint Status;
     }
 
-    // Matched against winspool.h JOB_INFO_2W, declared in full (through PagesPrinted)
-    // because EnumJobs returns an array of these back-to-back: a truncated struct would
-    // misalign every entry after the first. Moderate-to-high confidence: this is the
-    // widely reproduced JOB_INFO_2 shape (pinvoke.net and Microsoft Learn agree on it
-    // from memory), but it was not checked against a live header for this task, so
-    // treat the exact byte width of SystemTime (embedded below) as the one field this
-    // driver does not itself read but must still get right for later entries to line up.
+    // winspool.h JOB_INFO_2W, declared in full: EnumJobs returns an array of these
+    // back-to-back, so a truncated struct would misalign every entry after the first.
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     internal struct JobInfo2
     {
@@ -176,9 +154,7 @@ internal static partial class WindowsSpoolerInterop
         internal uint PagesPrinted;
     }
 
-    // Matched against the Win32 SYSTEMTIME structure (minwinbase.h / winbase.h): eight
-    // WORD fields, unchanged since Windows 3.1. High confidence. Only present here to
-    // keep JobInfo2's trailing offsets correct; this driver never reads its fields.
+    // SYSTEMTIME. Present only to keep the JobInfo2 offsets after it correct.
     [StructLayout(LayoutKind.Sequential)]
     internal struct SystemTime
     {

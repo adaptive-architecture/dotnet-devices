@@ -105,7 +105,7 @@ public sealed class SnmpPrinterStatusClient
         List<Variable> collected = [];
         var maxRepetitions = MaxRepetitions;
 
-        // Each slot is one column of the table and the row that the walk has reached in it.
+        // One slot per table column, holding the row the walk has reached in it.
         List<(string Column, string Cursor)> slots = [];
         foreach (var column in PrinterMibOids.SupplyColumns)
         {
@@ -129,10 +129,9 @@ public sealed class SnmpPrinterStatusClient
                     ?? throw new SnmpTooBigException();
             }
 
-            // RFC 3416 §4.2.3: the agent returns the rows in order, one repetition at a time,
-            // and inside a repetition one variable for each requested identifier. So variable
-            // i belongs to slot i modulo the slot count. A row that passed the end of its
-            // column spills over into the next column, and the prefix test catches that.
+            // RFC 3416 §4.2.3: one variable per requested identifier per repetition, in
+            // order, so variable i belongs to slot i modulo the slot count. A walk past the
+            // end of a column spills into the next one, which the prefix test catches.
             var advanced = new bool[slots.Count];
             var stopped = new bool[slots.Count];
             var variables = reply.Variables;
@@ -157,7 +156,7 @@ public sealed class SnmpPrinterStatusClient
                 advanced[slot] = true;
             }
 
-            // A slot that got no row in this reply has nothing more to give.
+            // A slot that got no row has nothing more to give.
             for (var slot = slots.Count - 1; slot >= 0; slot--)
             {
                 if (stopped[slot] || !advanced[slot])
@@ -245,7 +244,6 @@ public sealed class SnmpPrinterStatusClient
                 var result = await channel.ReceiveAsync(timeoutSource.Token).ConfigureAwait(false);
                 if (!IsFrom(result.RemoteEndPoint, destination))
                 {
-                    // A datagram from another host is not an answer to this request.
                     continue;
                 }
 
@@ -256,7 +254,7 @@ public sealed class SnmpPrinterStatusClient
                 }
                 catch (InvalidDataException)
                 {
-                    // One malformed datagram must not end the attempt. The next one can be good.
+                    // One malformed datagram must not end the attempt.
                     continue;
                 }
 
@@ -269,7 +267,7 @@ public sealed class SnmpPrinterStatusClient
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            // The attempt timed out. The caller decides whether to try again.
+            // The attempt timed out; the caller decides whether to try again.
             return null;
         }
     }

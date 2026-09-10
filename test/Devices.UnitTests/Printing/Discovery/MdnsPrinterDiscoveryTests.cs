@@ -90,9 +90,8 @@ public class MdnsPrinterDiscoveryTests
         Assert.Equal("Shared Printer", Assert.Single(printers).Info.Name);
     }
 
-    // The Bonjour Printing Specification requires one service name for every protocol a
-    // printer supports. The browse must therefore report one printer, and it must choose
-    // the raw channel, because that is the only endpoint TcpPrinterTransport can print to.
+    // One service name covers every protocol, so the browse reports one printer, on the
+    // raw channel: the only endpoint TcpPrinterTransport can print to.
     [Fact]
     public async Task DiscoverAsync_InstanceOnAllServiceTypes_ReturnsOnePrinterOnRawPort()
     {
@@ -211,8 +210,7 @@ public class MdnsPrinterDiscoveryTests
         Assert.Equal("First", Assert.Single(printers).Info.Name);
     }
 
-    // One printer answer holds four records. With a cap of four, the second answer is
-    // never read.
+    // One printer answer holds four records, so a cap of four stops after the first.
     [Fact]
     public async Task DiscoverAsync_MaxRecordsReached_StopsReading()
     {

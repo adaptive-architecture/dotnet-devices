@@ -195,8 +195,7 @@ public class PrinterManagerPrintTests
         _ = await manager.PrintAsync(ipp.Id, Zpl(), null, TestContext.Current.CancellationToken);
         _ = await manager.PrintAsync(ipp.Id, Zpl(), new PrintOptions { RequirePassthrough = true }, TestContext.Current.CancellationToken);
 
-        // Both entries stay in the result. A plain print takes the channel with a job queue,
-        // and a passthrough print takes the raw channel.
+        // A plain print takes the queue channel, a passthrough print the raw one.
         Assert.Equal(2, found.Count);
         Assert.Equal(631, Assert.IsType<NetworkPrinterEndpoint>(factory.Opened[0].Endpoint).Port);
         Assert.Equal(9100, Assert.IsType<NetworkPrinterEndpoint>(factory.Opened[1].Endpoint).Port);
@@ -215,7 +214,6 @@ public class PrinterManagerPrintTests
             printer.Id, Zpl(), new PrintOptions { RequirePassthrough = true }, TestContext.Current.CancellationToken));
 
         Assert.Contains("192.168.1.50", error.Message, StringComparison.Ordinal);
-        // It refused before it opened anything.
         Assert.Empty(factory.Opened);
     }
 
@@ -245,7 +243,7 @@ public class PrinterManagerPrintTests
         _ = await manager.DiscoverAsync(null, TestContext.Current.CancellationToken);
         var watch = manager.WatchJobAsync(printer.Id, "1", new PrintJobMonitorOptions(), TestContext.Current.CancellationToken);
 
-        // An async iterator body does not run until enumeration starts, so this must enumerate.
+        // An iterator body does not run until enumeration starts.
         var error = await Assert.ThrowsAsync<NotSupportedException>(async () =>
         {
             await foreach (var reading in watch)

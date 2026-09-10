@@ -12,8 +12,7 @@
 /// </remarks>
 public sealed class RawPrinter : IPrinter
 {
-    // One client for every RawPrinter built through a public constructor. IPrinter is not
-    // IDisposable, so a client per instance would have no owner to dispose it.
+    // IPrinter is not IDisposable, so a client per instance would have no owner.
     private static readonly Lazy<IppPrinterStatusClient> SharedIppClient = new(static () => new IppPrinterStatusClient());
 
     private readonly TcpPrinterTransport _transport;
@@ -107,7 +106,7 @@ public sealed class RawPrinter : IPrinter
         }
         catch (InvalidOperationException)
         {
-            // SNMP did not answer. Try IPP next.
+            // SNMP did not answer, so try IPP.
         }
 
         try

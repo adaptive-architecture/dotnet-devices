@@ -2,7 +2,6 @@
 
 namespace AdaptArch.Devices.Printing.Ipp;
 
-// Shared by IppPrinter and the job queue, so both map the same wire values the same way.
 internal static class IppJobStateMapper
 {
     public static PrintJobState Map(JobState? state)
@@ -42,7 +41,7 @@ internal static class IppJobStateMapper
             return PrintJobState.Failed;
         }
 
-        // No job-state attribute at all: the job was just accepted, so it is queued.
+        // No job-state attribute: the job was just accepted.
         return PrintJobState.Queued;
     }
 }

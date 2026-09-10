@@ -28,8 +28,7 @@ public sealed class NetworkPrinterEndpoint : PrinterEndpoint, IEquatable<Network
     /// <inheritdoc />
     public override PrinterIdKind Kind => PrinterIdKind.Network;
 
-    // A host goes into a URI and a socket connect. A value with a path, a query or user
-    // information would change the target, so only a DNS name or an IP literal passes.
+    // A path, a query or user information in the value would change the target.
     internal static void ThrowIfNotAHost(string host)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(host);

@@ -5,32 +5,18 @@ using System.Runtime.Versioning;
 
 namespace AdaptArch.Devices.Printing.Spooler;
 
-// Reaches the Windows print spooler through winspool.drv. Windows has no local IPP
-// server the way CUPS does, so this is the one driver that needs native interop; see
-// WindowsSpoolerInterop for the P/Invoke declarations and struct layouts, and
-// WindowsSpoolerStatusMapper / WindowsSpoolerCapabilityParser for the pure, testable
-// logic this driver calls into once a native buffer has been read.
-//
-// Every public method starts with an OperatingSystem.IsWindows() check, both so the
-// platform compatibility analyzer accepts the calls into WindowsSpoolerInterop below
-// it, and so a caller on Linux or macOS gets a clear PlatformNotSupportedException
-// instead of a native load failure.
-//
 // The spooler RPC runs on the caller thread and cannot be interrupted, so each method
 // checks the cancellation token on entry only.
 [SupportedOSPlatform("windows")]
 internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 {
-    // A large, but finite, upper bound on how many jobs EnumJobs can enumerate in one
-    // call. The API takes this as a plain limit, not an allocation size.
+    // EnumJobs takes this as a plain limit, not an allocation size.
     private const int JobEnumerationLimit = Int32.MaxValue;
 
-    // ERROR_INVALID_PARAMETER: what SetJob reports for a job identifier that is no
-    // longer in the queue.
+    // ERROR_INVALID_PARAMETER: SetJob reports this for a job that left the queue.
     private const int ErrorInvalidParameter = 87;
 
-    // ERROR_INSUFFICIENT_BUFFER: the expected answer of a size query made with an empty
-    // buffer. Any other failure of that query is a real error.
+    // ERROR_INSUFFICIENT_BUFFER: the expected answer of a size query with an empty buffer.
     private const int ErrorInsufficientBuffer = 122;
 
     private const string WindowsOnlyMessage = "The Windows spooler driver needs Windows.";
@@ -89,24 +75,9 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         return new DiscoveredPrinter(id, new SpoolerPrinterEndpoint(name), new PrinterInfo(id, name)) { Source = DiscoverySource.Spooler };
     }
 
-    // Submission uses data type RAW: this library sends printer languages such as ZPL
-    // and ESC/POS straight through, unmodified, in the order OpenPrinter,
-    // StartDocPrinter, StartPagePrinter, WritePrinter, EndPagePrinter, EndDocPrinter,
-    // ClosePrinter. The returned job identifier is whatever StartDocPrinter hands back.
-    //
-    // PrintOptions beyond JobName (Copies, Duplex, ColorMode, Orientation, MediaSource,
-    // MediaSize, ResolutionDpi) are NOT mapped into a DEVMODE by this driver. Copies,
-    // Duplex, ColorMode and Orientation live at fixed, stable offsets in DEVMODE, but
-    // MediaSource and MediaSize are driver-specific numeric indices that would need a
-    // second round trip (matching DC_BINNAMES / DC_PAPERNAMES) to resolve correctly,
-    // and none of it can be exercised on this platform. This is a documented gap, not
-    // a silent one: every set option except JobName is reported in
-    // PrintJobInfo.DroppedOptions, and even a fully mapped DEVMODE only ever changes
-    // the result when the queue's driver chooses to read it, since a RAW job reaches
-    // the device unchanged either way.
-    //
-    // A failure after StartDocPrinter deletes the job before EndDocPrinter, so the
-    // spooler never commits a truncated document.
+    // Data type RAW: printer languages such as ZPL pass through unchanged. No option
+    // except JobName is mapped into a DEVMODE; the rest go to DroppedOptions.
+    // A failure after StartDocPrinter deletes the job, so no truncated document commits.
     public Task<PrintJobInfo> SubmitAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsWindows())
@@ -138,8 +109,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
             if (!WindowsSpoolerInterop.OpenPrinter(queueName, out printerHandle, in defaults))
             {
-                // OpenPrinter leaves the out handle undefined on failure, not
-                // guaranteed zero, so the finally block below must not trust it.
+                // OpenPrinter leaves the out handle undefined on failure.
                 printerHandle = IntPtr.Zero;
                 ThrowLastError(nameof(WindowsSpoolerInterop.OpenPrinter));
             }
@@ -199,8 +169,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         }
     }
 
-    // WritePrinter can write fewer bytes than asked, so it is called until every byte
-    // is out. The payload is pinned in place instead of copied into a native buffer.
+    // WritePrinter can write fewer bytes than asked.
     private static unsafe void WriteAll(nint printerHandle, ReadOnlyMemory<byte> data)
     {
         using var pin = data.Pin();
@@ -224,8 +193,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         }
     }
 
-    // Every option this driver does not map into a DEVMODE, named as PrintOptionValidator
-    // names them, so PrintJobInfo.DroppedOptions tells the caller what did not apply.
+    // Every option this driver does not map into a DEVMODE.
     internal static IReadOnlyList<string> UnappliedOptions(PrintOptions? options)
     {
         if (options is null)
@@ -294,11 +262,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         }
     }
 
-    // DeviceCapabilitiesW needs no printer handle: it is called with the queue name
-    // directly. Each buffer-returning capability is called twice, once with a null
-    // buffer to learn the count and once with a buffer of that size; DC_DUPLEX and
-    // DC_COLORDEVICE return 1 or 0 directly and need no buffer at all. A negative
-    // return is an error, for example a queue name that does not exist.
+    // A buffer-returning capability is queried twice: once for the count, once for the data.
     public Task<PrinterConfiguration> GetConfigurationAsync(string queueName, CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsWindows())
@@ -349,9 +313,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 return [];
             }
 
-            // The queue can report more entries on the second call than the first, if
-            // its driver changes state in between. Clamp to what was actually
-            // allocated, or the copy below reads past the buffer.
+            // The second call can report more entries than the first; clamp to the allocation.
             written = Math.Min(written, count);
             var pairs = new int[written * 2];
             Marshal.Copy(buffer, pairs, 0, pairs.Length);
@@ -460,9 +422,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         };
     }
 
-    // EnumJobs addresses jobs by their position in the queue, not by job identifier,
-    // and there is no separate single-job lookup declared in WindowsSpoolerInterop, so
-    // this reuses the same enumeration GetJobsAsync uses and filters by identifier.
+    // EnumJobs addresses jobs by queue position, so there is no single-job lookup.
     public async Task<PrintJobInfo?> GetJobAsync(string queueName, string jobId, CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsWindows())
@@ -532,9 +492,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
         if (!WindowsSpoolerInterop.OpenPrinter(queueName, out printerHandle, in defaults))
         {
-            // OpenPrinter leaves the out handle undefined on failure, not guaranteed
-            // zero, so every finally block that guards cleanup on this handle must
-            // not trust a garbage value here.
+            // OpenPrinter leaves the out handle undefined on failure.
             printerHandle = IntPtr.Zero;
             ThrowLastError(nameof(WindowsSpoolerInterop.OpenPrinter));
         }

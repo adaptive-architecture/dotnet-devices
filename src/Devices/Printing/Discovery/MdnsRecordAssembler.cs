@@ -41,10 +41,8 @@ internal static class MdnsRecordAssembler
         List<PTRRecord> pointers = [];
         Index(records, services, texts, addresses, pointers);
 
-        // A printer advertises every protocol that it supports under one service name, so
-        // the service name is the key. A key of host and port would report the same printer
-        // one time for each protocol. DNS-SD requires a service name to be unique on the
-        // link, so the name alone identifies the printer.
+        // One printer advertises every protocol under one service name, which DNS-SD
+        // keeps unique on the link, so that name alone identifies the printer.
         Dictionary<string, ServiceCandidate> best = new(StringComparer.OrdinalIgnoreCase);
         foreach (var pointer in pointers)
         {
@@ -94,8 +92,7 @@ internal static class MdnsRecordAssembler
         }
     }
 
-    // A responder can advertise an address that no other host can connect to. Such an
-    // address must not replace the target name, which the caller can still resolve.
+    // An address no other host can connect to must not replace the resolvable name.
     private static bool IsReachable(IPAddress? address) =>
         address is not null &&
         !IPAddress.IsLoopback(address) &&
@@ -121,14 +118,12 @@ internal static class MdnsRecordAssembler
             return;
         }
 
-        // Use the resolved address when the responder sent one. The endpoint then works
-        // even if the caller cannot resolve ".local" names.
+        // The resolved address also works for a caller that cannot resolve ".local".
         var host = addresses.TryGetValue(Key(service.Target), out var address)
             ? address.ToString()
             : service.Target.ToString();
 
-        // The first label of the instance name is the service name, and the first label of
-        // the pointer's own name is the service type, for example "_ipp".
+        // First label of the instance is the service name, of the pointer the type ("_ipp").
         var serviceName = FirstLabel(instance);
         ServiceCandidate candidate = new(
             Key(instance), serviceName, host, service.Port, GetRank(FirstLabel(pointer.Name)));
@@ -153,8 +148,7 @@ internal static class MdnsRecordAssembler
         return new DiscoveredPrinter(id, endpoint, info) { Source = DiscoverySource.Mdns };
     }
 
-    // A TXT record holds a list of strings, each one a "key=value" pair. A string with no
-    // "=" is a key that has no value.
+    // Each TXT string is "key=value". A string with no "=" is a key with no value.
     private static Dictionary<string, string> ReadAttributes(TXTRecord? text)
     {
         Dictionary<string, string> attributes = new(StringComparer.OrdinalIgnoreCase);
@@ -192,10 +186,8 @@ internal static class MdnsRecordAssembler
     private static string? GetAttribute(IReadOnlyDictionary<string, string> attributes, string key) =>
         attributes.TryGetValue(key, out var value) && !String.IsNullOrWhiteSpace(value) ? value : null;
 
-    // A printer that offers a raw channel must be reported with that channel, because the
-    // raw channel is the only one that TcpPrinterTransport can print to. IPP comes next,
-    // because IppPrinterStatusClient can query it. LPD is last, because no transport here
-    // writes the LPD message format.
+    // Raw first: it is the only channel TcpPrinterTransport can print to. Then IPP,
+    // which can at least be queried. LPD last: no transport here writes its format.
     private static int GetRank(string serviceTypeLabel)
     {
         if (String.Equals(serviceTypeLabel, "_pdl-datastream", StringComparison.OrdinalIgnoreCase))
@@ -249,8 +241,7 @@ internal static class MdnsRecordAssembler
 
         public int Rank { get; }
 
-        // Ranks decide first. The host and the port break a tie, so that two answers for
-        // one instance always give the same result.
+        // The host and the port break a tie, so the result is stable.
         public bool IsBetterThan(ServiceCandidate other)
         {
             if (Rank != other.Rank)

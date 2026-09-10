@@ -93,8 +93,7 @@ public class IppPrinterStatusClientTests
         var details = await client.GetDetailsAsync("printer.local", CancellationToken.None);
 
         Assert.Equal(PrinterStatusState.Idle, details.Status.State);
-        // The first three requests are the resolver's probe, falling back from https to
-        // http; the fourth is the actual attribute read.
+        // Three resolver probes falling back from https to http, then the attribute read.
         Assert.Equal(4, handler.Requests.Count);
         Assert.Equal("https", handler.Requests[0].RequestUri.Scheme);
         Assert.Equal("https", handler.Requests[1].RequestUri.Scheme);
@@ -116,8 +115,7 @@ public class IppPrinterStatusClientTests
         Assert.Equal("/ipp/port1", handler.Requests[1].RequestUri.AbsolutePath);
     }
 
-    // A DNS-SD browse reports the resource path in the "rp" TXT attribute. Trying it first
-    // reaches a printer that serves IPP on neither well-known path.
+    // The "rp" TXT path is tried first, for a printer on neither well-known path.
     [Fact]
     public async Task GetDetailsAsync_ResourcePathFromDiscovery_IsTriedFirst()
     {

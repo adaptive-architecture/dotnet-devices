@@ -8,10 +8,8 @@ using SharpIpp.Protocol.Models;
 
 namespace AdaptArch.Devices.Printing.Ipp;
 
-// Finds the printer URI one time. A printer serves IPP at a path that differs between
-// makers, so the probe tries the caller path first, then the two well-known paths, over
-// TLS and then plain. The answer is kept, because every later operation needs the same URI.
-// A transport failure of a later operation clears the answer, so the next call probes again.
+// The IPP path differs between makers, so the probe tries the caller path, then the
+// well-known paths, over TLS and then plain. The answer is kept until a transport failure.
 internal sealed class IppEndpointResolver
 {
     private static readonly string[] WellKnownPaths = ["/ipp/print", "/ipp/port1"];
@@ -38,8 +36,7 @@ internal sealed class IppEndpointResolver
         _options = options;
     }
 
-    // Concurrent first calls can each run the probe. The first answer wins and the
-    // others are equal, so this costs round trips but never gives a wrong URI.
+    // Concurrent first calls each probe. The first answer wins and the others are equal.
     public async Task<Uri> ResolveAsync(CancellationToken cancellationToken)
     {
         var resolved = Volatile.Read(ref _resolved);
@@ -69,8 +66,7 @@ internal sealed class IppEndpointResolver
         throw new InvalidOperationException($"Printer '{_host}:{_port}' did not answer IPP over {over}.", lastFailure);
     }
 
-    // Runs one operation against the resolved URI. A transport failure clears the URI, so
-    // a printer that moved between IPPS and IPP is found again on the next call.
+    // A transport failure clears the URI, so a printer that moved is found again.
     public async Task<T> RunAsync<T>(Func<Uri, CancellationToken, Task<T>> operation, CancellationToken cancellationToken)
     {
         var uri = await ResolveAsync(cancellationToken).ConfigureAwait(false);
@@ -85,8 +81,7 @@ internal sealed class IppEndpointResolver
         }
     }
 
-    // Returns null when the endpoint answered, and the reason when it is not there. Every
-    // other outcome is a hard failure and throws.
+    // Returns null when the endpoint answered, the reason when it is not there.
     private async Task<Exception?> ProbeAsync(Uri uri, CancellationToken cancellationToken)
     {
         CapturingIppProtocol capture = new(new IppProtocol());
@@ -107,19 +102,16 @@ internal sealed class IppEndpointResolver
         }
         catch (OperationCanceledException exception)
         {
-            // The client timed out. The endpoint did not answer in time.
             return new TimeoutException($"IPP probe of '{uri}' timed out.", exception);
         }
         catch (HttpRequestException exception) when (_options.StrictTls && IsTlsFailure(exception))
         {
-            // The caller validates certificates. A plain IPP attempt now would send the
-            // document in clear text to a host the caller could not trust.
+            // A plain IPP retry would send the document in clear text to an untrusted host.
             throw new AuthenticationException($"The TLS handshake with '{uri}' failed, and plain IPP is not used for a validating client.", exception);
         }
         catch (HttpRequestException exception)
         {
-            // A refused connection, an unknown host, or a port that speaks plain IPP only
-            // (the TLS handshake fails there) means this endpoint is not there.
+            // A refused connection, an unknown host or a plain-IPP-only port: not there.
             if (exception.StatusCode is null || exception.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
                 return exception;
@@ -129,20 +121,17 @@ internal sealed class IppEndpointResolver
         }
         catch (IppResponseException exception) when (exception.InnerException is HttpRequestException http)
         {
-            // The printer answered with an HTTP error and an IPP body, for example 401 when
-            // it needs authentication. That is an answer, not a malformed response.
+            // An HTTP error with an IPP body, for example 401: an answer, not a malformed one.
             throw new InvalidOperationException($"IPP query to '{uri}' failed with HTTP {http.StatusCode:d}.", exception);
         }
         catch (IppResponseException exception) when (exception.InnerException is not null)
         {
-            // The protocol reader failed before it could read a status, so this response
-            // is malformed rather than a printer-reported IPP error.
+            // No status was read, so the response is malformed, not an IPP error.
             throw IppFailureMapping.ToMalformedResponse(uri, exception);
         }
         catch (IppResponseException exception) when (IppFailureMapping.StatusCodeOf(capture.Response) == IppStatusCode.ClientErrorNotFound)
         {
-            // CUPS answers an unknown resource path with HTTP 200 and this IPP status, so
-            // the path is not there and the next candidate is tried.
+            // CUPS answers an unknown path with HTTP 200 and this IPP status.
             return exception;
         }
         catch (IppResponseException exception)
@@ -155,8 +144,7 @@ internal sealed class IppEndpointResolver
         }
     }
 
-    // .NET wraps a handshake failure as HttpRequestException with an AuthenticationException
-    // somewhere in the inner chain, so the whole chain is searched.
+    // A handshake failure hides an AuthenticationException anywhere in the inner chain.
     private static bool IsTlsFailure(Exception exception)
     {
         for (var inner = exception.InnerException; inner is not null; inner = inner.InnerException)
@@ -170,8 +158,7 @@ internal sealed class IppEndpointResolver
         return false;
     }
 
-    // A path from a DNS-SD "rp" attribute has no leading slash, and it may repeat one of
-    // the well-known paths, so it is normalized and then de-duplicated.
+    // A DNS-SD "rp" path has no leading slash and may repeat a well-known path.
     private static IReadOnlyList<string> GetPaths(string? resourcePath)
     {
         if (String.IsNullOrWhiteSpace(resourcePath))

@@ -4,8 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace AdaptArch.Devices.Samples;
 
-// Everything here goes through IPrinterManager: one entry point for discovery, printing,
-// and job progress. This is the recommended path for a caller that just wants to print.
+// The recommended path: IPrinterManager covers discovery, printing and job progress.
 internal static class PrinterManagerScenario
 {
     internal static async Task DiscoverAsync(ServiceProvider provider)
@@ -13,7 +12,7 @@ internal static class PrinterManagerScenario
         var printers = await BrowseAsync(provider).ConfigureAwait(false);
         if (printers.Count == 0)
         {
-            // No printer advertises itself, so fall back to a probe of every local address.
+            // Nothing advertised itself, so probe every local address.
             printers = await ProbeAsync(provider).ConfigureAwait(false);
         }
 
@@ -33,8 +32,6 @@ internal static class PrinterManagerScenario
 
     internal static async Task<IReadOnlyList<DiscoveredPrinter>> BrowseAsync(ServiceProvider provider)
     {
-        // The manager also checks the operating system print spooler alongside the mDNS
-        // browse, so a queue can appear below even when nothing answers on the network.
         Console.WriteLine("Asking the local network for printers over mDNS, and checking the print spooler...");
         var manager = provider.GetRequiredService<IPrinterManager>();
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(30));
@@ -57,9 +54,7 @@ internal static class PrinterManagerScenario
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromMinutes(2));
         PrinterManagerOptions options = new()
         {
-            // The browse and the spooler enumeration already ran, and found nothing, in
-            // the caller that falls back here. Running them again would repeat work that
-            // just came back empty.
+            // The caller that falls back here already browsed and found nothing.
             IncludeMdns = false,
             IncludeSpooler = false,
             Probe = new NetworkPrinterDiscoveryOptions
@@ -91,12 +86,9 @@ internal static class PrinterManagerScenario
             return;
         }
 
-        // The manager opens the printer, prints, and disposes it, so this call owns
-        // nothing and needs no disposal here.
+        // The manager opens, prints and disposes, so nothing here needs disposal.
         var manager = provider.GetRequiredService<IPrinterManager>();
         var printerId = SampleHelpers.ParsePrinterId(identifierText);
-        // A network identifier that the cache does not hold is opened by host, so no browse
-        // runs. A spooler identifier runs one discovery. Either way the manager resolves it.
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromMinutes(2));
         var bytes = await File.ReadAllBytesAsync(path, timeoutSource.Token).ConfigureAwait(false);
 
@@ -128,13 +120,10 @@ internal static class PrinterManagerScenario
             return;
         }
 
-        // The manager opens the printer, prints, and disposes it, so this call owns
-        // nothing and needs no disposal here.
+        // The manager opens, prints and disposes, so nothing here needs disposal.
         var manager = provider.GetRequiredService<IPrinterManager>();
         var monitor = provider.GetRequiredService<IPrintJobMonitor>();
         var printerId = SampleHelpers.ParsePrinterId(identifierText);
-        // A network identifier that the cache does not hold is opened by host, so no browse
-        // runs. A spooler identifier runs one discovery. Either way the manager resolves it.
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromMinutes(2));
         var bytes = await File.ReadAllBytesAsync(path, timeoutSource.Token).ConfigureAwait(false);
 
@@ -155,9 +144,7 @@ internal static class PrinterManagerScenario
 
         Console.WriteLine($"Job {submitted.JobId} submitted.");
 
-        // A network identifier without an IPP answer opens as a RawPrinter: the raw
-        // channel has no job queue, so PrintAsync already reports the job Completed and
-        // there is nothing left to watch.
+        // A raw channel has no job queue, so the job is already reported complete.
         if (submitted.State is PrintJobState.Completed or PrintJobState.Failed or PrintJobState.Canceled)
         {
             Console.WriteLine($"  {submitted.State}");
@@ -171,8 +158,7 @@ internal static class PrinterManagerScenario
         }
     }
 
-    // RequirePassthrough tells the manager the bytes must reach the device unchanged. A
-    // printer with only a filtering channel cannot promise that, so the manager throws.
+    // RequirePassthrough: the bytes must reach the device unchanged, or the manager throws.
     internal static async Task SendZplAsync(ServiceProvider provider, string identifierText)
     {
         var manager = provider.GetRequiredService<IPrinterManager>();
@@ -191,7 +177,7 @@ internal static class PrinterManagerScenario
         }
         catch (NotSupportedException exception)
         {
-            // The refusal is the guarantee working, not a failure. The console text says so.
+            // The refusal is the guarantee working, not a failure.
             Console.WriteLine("The printer refused the job. This is the correct result.");
             Console.WriteLine("The printer has no channel that sends the bytes unchanged.");
             Console.WriteLine("A filtering channel could rasterise the ZPL and print the wrong output.");
@@ -204,9 +190,7 @@ internal static class PrinterManagerScenario
         }
     }
 
-    // The status comes from IPrinterManager itself, the same entry point used to print, not
-    // from a network-only client. A printer that fails to report status must not break the
-    // rest of the listing, so the failure is caught and the entry stands without one.
+    // A printer that cannot report status must not break the rest of the listing.
     private static async Task PrintManagerStatusAsync(IPrinterManager manager, PrinterId id)
     {
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(10));

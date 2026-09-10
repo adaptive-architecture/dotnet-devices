@@ -28,8 +28,7 @@ public static class IppHttpClientFactory
         SocketsHttpHandler handler = new()
         {
             ConnectTimeout = options.ConnectTimeout,
-            // Every IPP operation is a POST that carries the document. A redirect from a
-            // printer would re-post that document to another host.
+            // A redirect would re-post the document to another host.
             AllowAutoRedirect = false,
         };
         handler.SslOptions.RemoteCertificateValidationCallback =

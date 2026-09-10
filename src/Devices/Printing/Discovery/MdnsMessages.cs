@@ -60,9 +60,7 @@ internal static class MdnsMessages
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            // The codec has no single failure type. A compression pointer to an offset that
-            // is not read yet, for example, surfaces as KeyNotFoundException. Every failure
-            // of the codec means the same thing: the packet is malformed.
+            // The codec has no single failure type, but every failure means the same thing.
             throw new InvalidDataException("The multicast DNS response is malformed.", exception);
         }
 

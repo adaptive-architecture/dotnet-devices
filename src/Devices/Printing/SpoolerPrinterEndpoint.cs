@@ -27,9 +27,8 @@ public sealed class SpoolerPrinterEndpoint : PrinterEndpoint, IEquatable<Spooler
         Name = name;
     }
 
-    // The CUPS limit is 127 characters. The rejected characters would end the URI path
-    // segment the CUPS driver builds from the name. A backslash stays allowed: a Windows
-    // printer connection is named \\server\queue.
+    // 127 is the CUPS limit, and the rejected characters would end the URI path segment.
+    // A backslash stays allowed: a Windows printer connection is named \\server\queue.
     private static bool IsValidName(string name) =>
         name.Length <= 127 && !name.Any(static c => Char.IsControl(c) || c is '/' or '?' or '#');
 

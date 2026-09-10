@@ -5,8 +5,7 @@ using AdaptArch.Devices.Printing.Spooler;
 
 namespace AdaptArch.Devices.UnitTests.Printing.Spooler;
 
-// Records what the printer asked for and returns scripted answers, so a test never needs
-// a real spooler.
+// Records what the printer asked for and returns scripted answers.
 internal sealed class FakeSpoolerDriver : ISpoolerDriver
 {
     private readonly PrinterConfiguration _configuration;
@@ -19,7 +18,7 @@ internal sealed class FakeSpoolerDriver : ISpoolerDriver
 
     public int ConfigurationReads { get; private set; }
 
-    // The options the scripted driver reports as not applied, as the Windows driver does.
+    // The options the scripted driver reports as not applied.
     public IReadOnlyList<string> DroppedOptions { get; set; } = [];
 
     public Task<PrintJobInfo> SubmitAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)

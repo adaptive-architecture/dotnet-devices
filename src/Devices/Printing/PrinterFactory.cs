@@ -144,7 +144,7 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
         }
         catch (Exception exception) when (exception is InvalidOperationException or InvalidDataException)
         {
-            // No IPP answer, or a service on port 631 that is not IPP at all.
+            // No IPP answer, or a service on port 631 that is not IPP.
             return OpenRaw(new NetworkPrinterEndpoint(id.Value, NetworkPrinterEndpoint.DefaultPort));
         }
     }

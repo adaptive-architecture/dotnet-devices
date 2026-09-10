@@ -28,8 +28,7 @@ public class WindowsSpoolerStatusMapperTests
     [Fact]
     public void MapPrinterStatus_WorkOfflineAttributeIsOffline()
     {
-        // No status bit, but PRINTER_ATTRIBUTE_WORK_OFFLINE (0x400) is set: the user put
-        // the queue in "Use Printer Offline" mode.
+        // No status bit, but PRINTER_ATTRIBUTE_WORK_OFFLINE (0x400) is set.
         var status = WindowsSpoolerStatusMapper.MapPrinterStatus(0x00000000u, 0x00000400u);
 
         Assert.Equal(PrinterStatusState.Offline, status);
@@ -40,8 +39,7 @@ public class WindowsSpoolerStatusMapperTests
     [Fact]
     public void MapPrinterStatus_OtherAttributesDoNotChangeTheState()
     {
-        // PRINTER_ATTRIBUTE_LOCAL (0x40) and PRINTER_ATTRIBUTE_SHARED (0x8) are not
-        // WORK_OFFLINE, so an idle queue stays idle.
+        // LOCAL (0x40) and SHARED (0x8) are not WORK_OFFLINE, so the queue stays idle.
         var status = WindowsSpoolerStatusMapper.MapPrinterStatus(0x00000000u, 0x00000048u);
 
         Assert.Equal(PrinterStatusState.Idle, status);
@@ -69,8 +67,7 @@ public class WindowsSpoolerStatusMapperTests
     [Fact]
     public void MapPrinterStatus_PendingDeletionTakesPrecedenceOverOffline()
     {
-        // PENDING_DELETION (0x4) and OFFLINE (0x80) both set: a queue being torn down
-        // is not the same "actionable, might come back" state offline alone reports.
+        // PENDING_DELETION (0x4) and OFFLINE (0x80) both set: deletion is not recoverable.
         var status = WindowsSpoolerStatusMapper.MapPrinterStatus(0x00000084u, 0u);
 
         Assert.Equal(PrinterStatusState.Error, status);

@@ -4,8 +4,7 @@ using IppOrientation = SharpIpp.Protocol.Models.Orientation;
 
 namespace AdaptArch.Devices.Printing.Ipp;
 
-// Turns the library options into IPP job template attributes. An option the caller did not
-// set stays unset, so the printer applies its own default.
+// An option the caller did not set stays unset, so the printer applies its own default.
 internal static class IppJobTemplateMapper
 {
     public static JobTemplateAttributes Map(PrintOptions? options)

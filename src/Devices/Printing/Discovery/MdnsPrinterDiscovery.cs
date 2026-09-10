@@ -92,7 +92,7 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            // The browse window ended while a query was still being sent.
+            // The browse window ended mid-query.
         }
         catch (SocketException)
         {
@@ -112,7 +112,7 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
         List<ResourceRecord> records = [];
         try
         {
-            // The cap keeps a flood of answers from taking unbounded memory.
+            // The cap bounds the memory a flood of answers can take.
             while (records.Count < maxRecords)
             {
                 var result = await channel.ReceiveAsync(windowToken).ConfigureAwait(false);
@@ -128,7 +128,7 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            // The end of the browse window is the normal way to finish.
+            // The end of the browse window is the normal finish.
         }
         catch (SocketException)
         {
@@ -146,8 +146,7 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
     {
         var rounds = options.QueryRetries + 1;
 
-        // Spread the rounds over the browse window. Two queries sent together do not
-        // protect against a lost datagram, but two queries sent apart do.
+        // The rounds are spread out: only queries sent apart survive a lost datagram.
         var delay = options.BrowseTimeout / rounds;
         for (var round = 0; round < rounds; round++)
         {

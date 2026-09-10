@@ -234,9 +234,7 @@ public class SnmpPrinterStatusClientTests
         Assert.Equal("black", marker.Color);
     }
 
-    // -2 means "some amount remains, unknown". LevelPercent cannot express that, but
-    // LevelRaw still carries the reported value, so a caller can tell it apart from a
-    // marker that reported nothing at all.
+    // LevelPercent cannot express -2, but LevelRaw still carries it.
     [Fact]
     public async Task GetDetailsAsync_UnknownAmountRemainingLevel_ReportsRawValueWithNullPercent()
     {
@@ -394,8 +392,7 @@ public class SnmpPrinterStatusClientTests
     [Fact]
     public async Task GetDetailsAsync_AnswerWithWrongRequestId_IsDiscarded()
     {
-        // The first datagram carries an identifier the client never sent, so the client
-        // must keep waiting and accept only the second one.
+        // The first datagram carries an identifier the client never sent.
         FakeSnmpChannelFactory factory = new(
             [
                 Reply(_ => SnmpResponses.Response(1, SnmpResponses.Text(PrinterMibOids.PrinterName, "Stale"))),
@@ -427,8 +424,7 @@ public class SnmpPrinterStatusClientTests
         Assert.Equal("Real", details.Info.Name);
     }
 
-    // A socket with two address families reports an IPv4 sender as an IPv4-mapped IPv6
-    // address. That is still the printer.
+    // An IPv4-mapped IPv6 sender is still the printer.
     [Fact]
     public async Task GetDetailsAsync_AnswerFromMappedAddress_IsAccepted()
     {
@@ -471,8 +467,7 @@ public class SnmpPrinterStatusClientTests
             () => NewClient(factory).GetDetailsAsync(Host, TestContext.Current.CancellationToken));
     }
 
-    // A malformed datagram is not an answer, so an agent that sends only malformed
-    // datagrams is an agent that never answers.
+    // A malformed datagram is not an answer.
     [Fact]
     public async Task GetDetailsAsync_OnlyMalformedAnswers_ThrowsInvalidOperationAfterEveryAttempt()
     {
@@ -520,9 +515,8 @@ public class SnmpPrinterStatusClientTests
         Assert.All(factory.AddressFamilies, family => Assert.Equal(AddressFamily.InterNetworkV6, family));
     }
 
-    // A real agent answers the five columns interleaved, one row of each per repetition,
-    // and a column that runs out spills over into the next one. The client must read all
-    // four supplies from that one answer and must not ask again.
+    // The columns come back interleaved, one row of each per repetition, and a column
+    // that runs out spills into the next. One answer must give all four supplies.
     [Fact]
     public async Task GetDetailsAsync_FourSupplies_FinishTheWalkInOneRoundTrip()
     {

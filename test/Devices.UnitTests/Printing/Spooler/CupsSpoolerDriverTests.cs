@@ -29,8 +29,7 @@ public class CupsSpoolerDriverTests
     [Fact]
     public async Task SubmitAsync_SendsToTheQueueUriOnTheLocalDaemon()
     {
-        // 0x02 is the job-attributes group. A job-shaped answer only populates from this
-        // group tag, not the printer-attributes-tag (0x04) the default overload uses.
+        // 0x02 is the job-attributes group: a job answer populates from no other tag.
         var body = IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 7), (0x23, "job-state", 3));
         IppMessages.StubHandler handler = new(_ => IppMessages.Ok(body));
         CupsSpoolerDriver driver = new(new HttpClient(handler));
@@ -134,8 +133,7 @@ public class CupsSpoolerDriverTests
     [Fact]
     public async Task GetJobAsync_ReturnsNullWhenThePrinterDoesNotKnowTheJob()
     {
-        // 0x0406 is client-error-not-found. Unlike IppPrintJobQueue, there is no resolver
-        // probe here: the daemon URI is fixed, so this is the only request the call sends.
+        // 0x0406 is client-error-not-found. The daemon URI is fixed, so there is no probe.
         var notFound = IppMessages.Response(0x0406, 0x02);
         CupsSpoolerDriver driver = new(new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(notFound))));
 
@@ -147,8 +145,7 @@ public class CupsSpoolerDriverTests
     [Fact]
     public async Task GetJobAsync_ThrowsForAnIppErrorThatIsNotNotFound()
     {
-        // 0x0501 is server-error-operation-not-supported: a real IPP error, but not
-        // client-error-not-found, so it must propagate rather than read as "unknown job".
+        // 0x0501 is a real IPP error, so it must propagate, not read as "unknown job".
         var error = IppMessages.Response(0x0501, 0x02);
         CupsSpoolerDriver driver = new(new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(error))));
 
@@ -171,8 +168,7 @@ public class CupsSpoolerDriverTests
     [Fact]
     public async Task CancelJobAsync_ThrowsForAnIppErrorThatIsNotNotFound()
     {
-        // 0x0501 is server-error-operation-not-supported: see the equivalent GetJobAsync
-        // test for why this must throw rather than report false.
+        // 0x0501 is a real IPP error: it must throw, as in the GetJobAsync test.
         var error = IppMessages.Response(0x0501, 0x02);
         CupsSpoolerDriver driver = new(new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(error))));
 

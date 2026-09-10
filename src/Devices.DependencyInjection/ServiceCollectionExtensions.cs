@@ -42,10 +42,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<SnmpPrinterStatusClient>();
         services.TryAddSingleton(TimeProvider.System);
 
-        // One client for every network printer the container serves, so the printers the
-        // factory opens, the status reads, and the job reads that go through the composite
-        // queue share one connection pool and one certificate policy. The holder owns the
-        // client and the container disposes the holder at shutdown.
+        // One client for every network printer, so they share a connection pool and a
+        // certificate policy.
         services.TryAddSingleton(_ =>
         {
             IppTransportOptions options = new();
@@ -70,8 +68,8 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    // Owns the shared HttpClient, so the container disposes it at shutdown. HttpClient is
-    // not registered directly, because an application may register its own.
+    // Owns the shared HttpClient. It is not registered directly, because an application
+    // may register its own.
     internal sealed class IppHttpClientHolder : IDisposable
     {
         public IppHttpClientHolder(HttpClient client)

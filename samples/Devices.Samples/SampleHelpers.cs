@@ -7,14 +7,11 @@ using AdaptArch.Devices.Printing;
 
 namespace AdaptArch.Devices.Samples;
 
-// Helpers shared by more than one scenario: file listing and content-type lookup for
-// PrintFiles, the print confirmation gate, job-reading formatting, and the local subnet
-// sweep used when nothing answers mDNS.
 internal static class SampleHelpers
 {
     private const int MaxProbeHosts = 4096;
 
-    // Printing costs paper and ink, so the sample never transmits without an explicit "yes".
+    // Printing costs paper and ink, so the sample always asks first.
     internal static bool Confirm(string question)
     {
         Console.Write($"{question} [y/N]: ");
@@ -22,9 +19,7 @@ internal static class SampleHelpers
         return answer is not null && answer.Trim().Equals("y", StringComparison.OrdinalIgnoreCase);
     }
 
-    // "discover" prints the exact token this reads back, for example "Spooler:LOBBY". The
-    // split is on the first colon only, because an IPv6 literal such as "::1" has more.
-    // A value with no recognised prefix is a bare host, kept working as a network printer.
+    // Splits on the first colon only: an IPv6 literal such as "::1" has more.
     internal static PrinterId ParsePrinterId(string value)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value);

@@ -92,8 +92,7 @@ public class IppEndpointResolverTests
     [Fact]
     public async Task ResolveAsync_DefaultPolicy_FallsBackToPlainIppAfterATlsFailure()
     {
-        // A port that speaks plain IPP only fails the TLS handshake with the same exception
-        // type as a bad certificate, so the default policy must move on to plain IPP.
+        // A plain-IPP-only port fails the handshake like a bad certificate does.
         var body = IppMessages.Response(0x0000, (0x23, "printer-state", 3));
         IppMessages.StubHandler handler = new(request =>
             request.RequestUri.Scheme == "https"

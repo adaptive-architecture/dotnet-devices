@@ -82,8 +82,7 @@ public class PrinterFactoryTests
     [Fact]
     public async Task OpenAsync_FallsBackToARawPrinterWhenIppDoesNotAnswer()
     {
-        // 127.0.0.2 is a loopback address that nothing binds to in this test environment,
-        // so the connection to port 631 is refused at once: no DNS lookup, no real network.
+        // Nothing binds 127.0.0.2, so port 631 is refused at once: no DNS, no network.
         PrinterFactory factory = new();
 
         var printer = await factory.OpenAsync(PrinterId.FromNetwork("127.0.0.2"), TestContext.Current.CancellationToken);

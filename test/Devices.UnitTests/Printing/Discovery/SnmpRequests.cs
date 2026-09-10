@@ -7,8 +7,7 @@ using Lextm.SharpSnmpLib.Security;
 
 namespace AdaptArch.Devices.UnitTests.Printing.Discovery;
 
-// Reads a request that the client produced, so a test can assert the wire fields and so
-// the fake channel can echo the request identifier the way a real agent does.
+// Reads a request the client produced, so a test can assert the wire fields.
 internal static class SnmpRequests
 {
     public static ISnmpMessage Parse(byte[] payload) =>
@@ -32,8 +31,7 @@ internal static class SnmpRequests
         return oids;
     }
 
-    // In version 13 a GetBulkRequest keeps these two as named properties of its own
-    // protocol data unit, rather than in the error fields that older versions reused.
+    // Version 13 keeps these as named properties, not in the reused error fields.
     public static int ReadMaxRepetitions(byte[] payload) => BulkPdu(payload).MaxRepetitions;
 
     public static int ReadNonRepeaters(byte[] payload) => BulkPdu(payload).NonRepeaters;

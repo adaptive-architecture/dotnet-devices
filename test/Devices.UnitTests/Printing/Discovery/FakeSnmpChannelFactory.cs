@@ -4,10 +4,8 @@ using AdaptArch.Devices.Printing;
 
 namespace AdaptArch.Devices.UnitTests.Printing.Discovery;
 
-// Hands out one channel for each attempt the client makes. An attempt with no answers
-// makes the client time out, so a test can drive the retry path. Each answer is built from
-// the request the client actually sent, and by default it comes from the address the
-// request went to, the way a real agent answers.
+// One channel per attempt. An attempt with no answers makes the client time out, so a
+// test can drive the retry path.
 internal sealed class FakeSnmpChannelFactory
 {
     private readonly Queue<FakeSnmpAnswer[]> _attempts;
@@ -21,7 +19,7 @@ internal sealed class FakeSnmpChannelFactory
 
     public int AttemptCount => AddressFamilies.Count;
 
-    // When set, every send fails with this error, the way a socket without a route does.
+    // When set, every send fails with this error.
     public SocketException SendFailure { get; set; }
 
     public IUdpChannel Create(AddressFamily addressFamily)

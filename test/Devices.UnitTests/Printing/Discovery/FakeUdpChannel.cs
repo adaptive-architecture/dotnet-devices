@@ -4,8 +4,7 @@ using AdaptArch.Devices.Printing;
 
 namespace AdaptArch.Devices.UnitTests.Printing.Discovery;
 
-// Replays a queue of datagrams, then blocks until the caller's token is cancelled, the
-// same way a real socket waits for the next answer until the browse window ends.
+// Replays a queue of datagrams, then blocks until the caller's token is cancelled.
 internal sealed class FakeUdpChannel : IUdpChannel
 {
     private readonly Queue<byte[]> _answers;
