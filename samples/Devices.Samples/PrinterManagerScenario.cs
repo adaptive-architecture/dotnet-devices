@@ -155,7 +155,7 @@ internal static class PrinterManagerScenario
 
     internal static async Task<IReadOnlyList<PrinterDevice>> ProbeAsync(ServiceProvider provider)
     {
-        var hosts = SampleHelpers.GetLocalSubnetHosts();
+        var hosts = NetworkPrinterDiscoveryOptions.LocalSubnetHosts();
         Console.WriteLine($"No printer answered. Probing {hosts.Count} local hosts on TCP port 9100...");
         var manager = provider.GetRequiredService<IPrinterManager>();
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromMinutes(2));
@@ -197,7 +197,7 @@ internal static class PrinterManagerScenario
 
         // The manager opens, prints and disposes, so nothing here needs disposal.
         var manager = provider.GetRequiredService<IPrinterManager>();
-        var printerId = SampleHelpers.ParsePrinterId(identifierText);
+        var printerId = PrinterId.ParseOrRaw(identifierText);
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromMinutes(2));
         var bytes = await File.ReadAllBytesAsync(path, timeoutSource.Token).ConfigureAwait(false);
 
@@ -232,7 +232,7 @@ internal static class PrinterManagerScenario
         // The manager opens, prints and disposes, so nothing here needs disposal.
         var manager = provider.GetRequiredService<IPrinterManager>();
         var monitor = provider.GetRequiredService<IPrintJobMonitor>();
-        var printerId = SampleHelpers.ParsePrinterId(identifierText);
+        var printerId = PrinterId.ParseOrRaw(identifierText);
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromMinutes(2));
         var bytes = await File.ReadAllBytesAsync(path, timeoutSource.Token).ConfigureAwait(false);
 
@@ -271,7 +271,7 @@ internal static class PrinterManagerScenario
     internal static async Task SendZplAsync(ServiceProvider provider, string identifierText)
     {
         var manager = provider.GetRequiredService<IPrinterManager>();
-        var printerId = SampleHelpers.ParsePrinterId(identifierText);
+        var printerId = PrinterId.ParseOrRaw(identifierText);
         var payload = PrinterPayload.FromString("^XA^FO50,50^ADN,36,20^FDHello^FS^XZ", PrinterContentTypes.Zpl);
 
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(15));

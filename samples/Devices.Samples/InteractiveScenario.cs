@@ -379,48 +379,84 @@ internal static class InteractiveScenario
         }
     }
 
-    // One JPEG to every channel that can take it unchanged, so the raw path is compared
-    // across the printers in one step.
+    // The raw files the test sequence offers. A label language belongs here beside the
+    // image, because the raw path is what a label printer needs.
+    private static readonly string[] RawFiles = ["photo.jpeg", "label.zpl", "label.epl"];
+
+    // Every raw file to every channel that can take it unchanged, so the raw path is
+    // compared across the printers in one step. A channel that cannot read a format is
+    // not sent it: a raw send is not converted, so the paper would only be wasted.
     private static async Task RunRawJobsAsync(ServiceProvider provider, IReadOnlyList<PrinterDevice> devices, string directory)
     {
-        const string FileName = "photo.jpeg";
         var channels = Collect(
             devices,
             static channel => channel.GivesPassthrough || channel.Endpoint.Scheme == PrinterScheme.Spooler);
-        if (channels.Count == 0 || !File.Exists(Path.Combine(directory, FileName)))
+        List<string> files = [];
+        foreach (var name in RawFiles)
+        {
+            if (File.Exists(Path.Combine(directory, name)))
+            {
+                files.Add(name);
+            }
+        }
+
+        if (channels.Count == 0 || files.Count == 0)
         {
             Console.WriteLine();
-            Console.WriteLine($"No raw-capable channel, or no '{FileName}', so the raw jobs are skipped.");
+            Console.WriteLine("No raw-capable channel, or none of the raw files, so the raw jobs are skipped.");
             return;
         }
 
         Console.WriteLine();
         Console.WriteLine("== Raw jobs ==");
-        Console.WriteLine($"'{FileName}' goes to each of these channels, unchanged:");
+        Console.WriteLine($"Each of {String.Join(", ", files)} goes unchanged to each of these channels,");
+        Console.WriteLine("and is skipped where the channel does not read that format:");
         foreach (var label in Label(channels))
         {
             Console.WriteLine($"  {label}");
         }
 
-        if (!SampleHelpers.Confirm($"Send '{FileName}' raw to all {channels.Count}?"))
+        if (!SampleHelpers.Confirm($"Send the raw jobs to all {channels.Count} channel(s)?"))
         {
             Console.WriteLine("Cancelled; nothing was sent.");
             return;
         }
 
-        var contentType = SampleHelpers.GetContentType(FileName);
         foreach (var channel in channels)
         {
             Console.WriteLine();
             Console.WriteLine($"-- {channel.Printer.Id}");
-            var accepts = SampleHelpers.Accepts(channel.Device, channel.Printer, contentType);
-            if (accepts == false)
+            foreach (var fileName in files)
             {
-                Console.WriteLine($"   note: this printer did not report {contentType}. It is sent anyway.");
+                await TryRawAsync(provider, channel, directory, fileName).ConfigureAwait(false);
             }
-
-            await SendRawAsync(provider, channel, directory, FileName, contentType).ConfigureAwait(false);
         }
+    }
+
+    // A format the channel reports it does not read is skipped, not sent. A channel that
+    // reports nothing has denied nothing, so that job is still sent, with a warning.
+    private static async Task TryRawAsync(ServiceProvider provider, Channel channel, string directory, string fileName)
+    {
+        var contentType = SampleHelpers.GetContentType(fileName);
+        var accepts = channel.Device.Accepts(channel.Printer, contentType);
+        if (accepts == false)
+        {
+            SampleHelpers.WriteWarning($"   skipped {fileName}: this channel does not read {contentType}.");
+            WriteAdvertised(channel.Printer, "   ");
+            return;
+        }
+
+        if (accepts is null)
+        {
+            SampleHelpers.WriteWarning(
+                $"   {fileName}: this channel reports no format, so it is not known whether it reads {contentType}.");
+        }
+        else
+        {
+            Console.WriteLine($"   {fileName}: this channel reads {contentType}.");
+        }
+
+        await SendRawAsync(provider, channel, directory, fileName, contentType).ConfigureAwait(false);
     }
 
     // One job of the test sequence. The options are built once and used once.
@@ -490,20 +526,20 @@ internal static class InteractiveScenario
     // The printer reads the bytes itself, so ask it first whether it knows the format.
     private static bool ConfirmRaw(Channel target, string fileName, string contentType)
     {
-        var accepts = SampleHelpers.Accepts(target.Device, target.Printer, contentType);
+        var accepts = target.Device.Accepts(target.Printer, contentType);
         if (accepts is null)
         {
-            Console.WriteLine($"{target.Printer.Id} reports no format and no command set, so it is");
-            Console.WriteLine($"not known whether it reads {contentType}. A printer that reads nothing prints nothing.");
+            SampleHelpers.WriteWarning($"{target.Printer.Id} reports no format and no command set, so it is");
+            SampleHelpers.WriteWarning($"not known whether it reads {contentType}. A printer that reads nothing prints nothing.");
             return SampleHelpers.Confirm($"Send '{fileName}' anyway?");
         }
 
         if (accepts == false)
         {
-            Console.WriteLine($"{target.Printer.Id} does not report {contentType}. A raw send is not");
-            Console.WriteLine("converted, so the printer will probably print nothing, or print the source as text.");
-            Console.WriteLine("A PDF needs a PDF interpreter in the firmware; a label needs the label language.");
-            WriteAdvertised(target.Printer);
+            SampleHelpers.WriteWarning($"{target.Printer.Id} does not report {contentType}. A raw send is not");
+            SampleHelpers.WriteWarning("converted, so the printer will probably print nothing, or print the source as text.");
+            SampleHelpers.WriteWarning("A PDF needs a PDF interpreter in the firmware; a label needs the label language.");
+            WriteAdvertised(target.Printer, String.Empty);
             return SampleHelpers.Confirm($"Send '{fileName}' anyway, to see what the printer does?");
         }
 
@@ -513,14 +549,14 @@ internal static class InteractiveScenario
 
     // The list the channel does read is the useful next step, so it is printed with the
     // refusal instead of leaving the operator to go and look it up.
-    private static void WriteAdvertised(DiscoveredPrinter channel)
+    private static void WriteAdvertised(DiscoveredPrinter channel, string indent)
     {
         var advertised = String.IsNullOrWhiteSpace(channel.Info.DriverName)
             ? String.Join(", ", channel.Configuration?.SupportedDocumentFormats ?? [])
             : channel.Info.DriverName;
         if (!String.IsNullOrWhiteSpace(advertised))
         {
-            Console.WriteLine($"This channel reads: {advertised}");
+            Console.WriteLine($"{indent}This channel reads: {advertised}");
         }
     }
 

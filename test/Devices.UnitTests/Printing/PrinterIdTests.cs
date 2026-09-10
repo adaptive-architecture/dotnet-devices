@@ -230,4 +230,27 @@ public class PrinterIdTests
     [InlineData("urn:uuid:00000000-0000-0000-0000-000000000000")]
     public void TryParseDeviceUuid_RefusesWhatIdentifiesNoDevice(string value) =>
         Assert.False(PrinterId.TryParseDeviceUuid(value, out _));
+
+    [Fact]
+    public void ParseOrRaw_ReadsAnIdentifier()
+    {
+        var id = PrinterId.ParseOrRaw("spooler://EPSON_L6270");
+
+        Assert.Equal(PrinterScheme.Spooler, id.Scheme);
+        Assert.Equal("EPSON_L6270", id.Authority);
+    }
+
+    // Typing a bare address is convenient, so it is read as the raw channel of that host.
+    [Theory]
+    [InlineData("192.168.1.5", "raw://192.168.1.5")]
+    [InlineData("printer.local", "raw://printer.local")]
+    public void ParseOrRaw_ReadsABareAddressAsTheRawChannel(string value, string expected) =>
+        Assert.Equal(expected, PrinterId.ParseOrRaw(value).ToString());
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void ParseOrRaw_RefusesAnEmptyText(string value) =>
+        Assert.ThrowsAny<ArgumentException>(() => PrinterId.ParseOrRaw(value));
 }

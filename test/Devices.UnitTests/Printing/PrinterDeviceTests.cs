@@ -35,6 +35,11 @@ public class PrinterDeviceTests
         public string Model { get; set; }
 
         public string SerialNumber { get; set; }
+
+        // The library keeps the mDNS "pdl" record in DriverName.
+        public string Pdl { get; set; }
+
+        public IReadOnlyList<string> CommandSets { get; set; } = [];
     }
 
     private static PrinterInfo Build(PrinterId id, string fallback, Action<PrinterInfoBuilder> configure)
@@ -46,8 +51,18 @@ public class PrinterDeviceTests
             Location = builder.Location,
             Model = builder.Model,
             SerialNumber = builder.SerialNumber,
+            DriverName = builder.Pdl,
+            CommandSets = builder.CommandSets,
         };
     }
+
+    // A channel that answered a capability read with a document format list.
+    private static DiscoveredPrinter WithFormats(DiscoveredPrinter channel, params string[] formats) =>
+        new(channel.Id, channel.Endpoint, channel.Info)
+        {
+            Source = channel.Source,
+            Configuration = new PrinterConfiguration(channel.Id) { SupportedDocumentFormats = formats },
+        };
 
     [Fact]
     public void Constructor_RefusesADeviceWithNoChannel() =>
@@ -134,5 +149,95 @@ public class PrinterDeviceTests
         PrinterDevice both = new(PrinterDeviceKey.ForHost("192.168.1.7"), [Raw("192.168.1.7"), Ipp("192.168.1.7")]);
         Assert.True(both.HasJobQueue);
         Assert.True(both.GivesPassthrough);
+    }
+
+    [Fact]
+    public void Accepts_ReadsThePdlRecordBeforeTheReportedFormats()
+    {
+        var channel = WithFormats(
+            Raw("192.168.1.5", static info => info.Pdl = PrinterContentTypes.Zpl),
+            PrinterContentTypes.Pdf);
+        PrinterDevice device = new(PrinterDeviceKey.ForHost("192.168.1.5"), [channel]);
+
+        Assert.True(device.Accepts(channel, PrinterContentTypes.Zpl));
+        Assert.False(device.Accepts(channel, PrinterContentTypes.Pdf));
+    }
+
+    [Fact]
+    public void Accepts_ReadsTheReportedFormatsBeforeTheCommandSets()
+    {
+        var channel = WithFormats(
+            Ipp("192.168.1.5", static info => info.CommandSets = ["ZPL"]),
+            PrinterContentTypes.Pdf);
+        PrinterDevice device = new(PrinterDeviceKey.ForHost("192.168.1.5"), [channel]);
+
+        Assert.True(device.Accepts(channel, PrinterContentTypes.Pdf));
+        Assert.False(device.Accepts(channel, PrinterContentTypes.Zpl));
+    }
+
+    [Fact]
+    public void Accepts_ReadsAQueueThatCarriesTheCupsRawFormat()
+    {
+        var channel = WithFormats(Queue("Lobby"), "application/vnd.cups-raw", PrinterContentTypes.Pdf);
+        PrinterDevice device = new(PrinterDeviceKey.ForQueue("Lobby"), [channel]);
+
+        Assert.True(device.Accepts(channel, PrinterContentTypes.Zpl));
+        Assert.True(device.Accepts(channel, PrinterContentTypes.Pdf));
+        Assert.False(device.Accepts(channel, PrinterContentTypes.Png));
+    }
+
+    // Nearly every channel lists octet-stream, and CUPS re-types such a job as text/plain.
+    [Fact]
+    public void Accepts_DoesNotReadOctetStreamAsAnAnswer()
+    {
+        var channel = WithFormats(Raw("192.168.1.5"), PrinterContentTypes.OctetStream);
+        PrinterDevice device = new(PrinterDeviceKey.ForHost("192.168.1.5"), [channel]);
+
+        Assert.False(device.Accepts(channel, PrinterContentTypes.Zpl));
+    }
+
+    [Fact]
+    public void Accepts_FallsBackToTheCommandSetsOfTheDevice()
+    {
+        var raw = Raw("192.168.1.5");
+        var ipp = Ipp("192.168.1.5", static info => info.CommandSets = ["ZPL", "EPL", "JPEG"]);
+        PrinterDevice device = new(PrinterDeviceKey.ForHost("192.168.1.5"), [raw, ipp]);
+
+        Assert.True(device.Accepts(raw, PrinterContentTypes.Zpl));
+        Assert.True(device.Accepts(raw, PrinterContentTypes.Jpeg));
+        Assert.False(device.Accepts(raw, PrinterContentTypes.Pdf));
+    }
+
+    // A channel that reported nothing did not refuse.
+    [Fact]
+    public void Accepts_SaysNothingWhenNoSourceAnswered()
+    {
+        var channel = Raw("192.168.1.5");
+        PrinterDevice device = new(PrinterDeviceKey.ForHost("192.168.1.5"), [channel]);
+
+        Assert.Null(device.Accepts(channel, PrinterContentTypes.Pdf));
+    }
+
+    // An EPSON L6270: the IPP service takes a JPEG, TCP port 9100 takes ESC/P-R only.
+    [Fact]
+    public void Accepts_AnswersPerChannelAndNotPerDevice()
+    {
+        var ipp = Ipp("192.168.1.5", static info =>
+            info.Pdl = "application/octet-stream, image/jpeg, application/vnd.epson.escpr");
+        var raw = Raw("192.168.1.5", static info => info.Pdl = "application/vnd.epson.escpr");
+        PrinterDevice device = new(PrinterDeviceKey.ForHost("192.168.1.5"), [ipp, raw]);
+
+        Assert.True(device.Accepts(ipp, PrinterContentTypes.Jpeg));
+        Assert.False(device.Accepts(raw, PrinterContentTypes.Jpeg));
+    }
+
+    [Fact]
+    public void Accepts_RefusesAMissingChannelOrContentType()
+    {
+        var channel = Raw("192.168.1.5");
+        PrinterDevice device = new(PrinterDeviceKey.ForHost("192.168.1.5"), [channel]);
+
+        Assert.Throws<ArgumentNullException>(() => device.Accepts(null, PrinterContentTypes.Pdf));
+        Assert.Throws<ArgumentException>(() => device.Accepts(channel, " "));
     }
 }

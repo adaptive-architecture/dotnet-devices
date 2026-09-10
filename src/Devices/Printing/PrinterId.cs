@@ -218,6 +218,25 @@ public readonly struct PrinterId : IEquatable<PrinterId>
     }
 
     /// <summary>
+    /// Reads an identifier, and reads a text that is not a URI as the raw channel of
+    /// that host.
+    /// </summary>
+    /// <param name="value">The identifier text, or a bare host name or address.</param>
+    /// <returns>The identifier that was read.</returns>
+    /// <remarks>
+    /// This is for a command line or another place where a person types the value, and
+    /// where typing <c>192.168.1.5</c> instead of <c>raw://192.168.1.5</c> is convenient.
+    /// Use <see cref="Parse"/> or <see cref="TryParse"/> everywhere else, because they
+    /// name the channel and never guess it.
+    /// </remarks>
+    /// <exception cref="ArgumentException">Thrown when the text is empty or white space.</exception>
+    public static PrinterId ParseOrRaw(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        return TryParse(value, out var id) ? id : ForRaw(value);
+    }
+
+    /// <summary>
     /// Reads an identifier, reporting failure instead of throwing.
     /// </summary>
     /// <param name="value">The identifier text.</param>

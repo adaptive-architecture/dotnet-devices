@@ -130,6 +130,70 @@ public sealed class PrinterDevice
         }
     }
 
+    /// <summary>
+    /// Says whether a channel of this device reads a content type.
+    /// </summary>
+    /// <param name="channel">The channel the job would be sent over.</param>
+    /// <param name="contentType">The content type of the payload, from <see cref="PrinterContentTypes"/>.</param>
+    /// <returns>
+    /// <c>true</c> when the channel reports the content type, <c>false</c> when it
+    /// reports other content types only, and <c>null</c> when nothing was reported.
+    /// </returns>
+    /// <remarks>
+    /// A channel that reports nothing did not refuse, so <c>null</c> is not a "no".
+    /// <para>
+    /// The judgement is per channel, never per device. The channels of one printer read
+    /// different content types: an IPP service can take a JPEG that the raw port, which
+    /// feeds the bytes straight to the page description language interpreter, cannot.
+    /// </para>
+    /// <para>
+    /// Three sources answer, in this order: the <c>pdl</c> record of the advertisement,
+    /// which the library keeps in <see cref="PrinterInfo.DriverName"/> and which names
+    /// what this channel itself reads; then
+    /// <see cref="PrinterConfiguration.SupportedDocumentFormats"/>, which comes from IPP
+    /// <c>document-format-supported</c>; then <see cref="PrinterDeviceDetails.CommandSets"/>,
+    /// which comes from the IEEE 1284 <c>CMD</c> field and belongs to the whole device.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="channel"/> is <c>null</c>.</exception>
+    public bool? Accepts(DiscoveredPrinter channel, string contentType)
+    {
+        ArgumentNullException.ThrowIfNull(channel);
+        ArgumentException.ThrowIfNullOrWhiteSpace(contentType);
+
+        // The "pdl" record names what this channel itself reads, so it answers before
+        // anything the device says about itself as a whole.
+        var advertised = PrinterDocumentFormats.Split(channel.Info.DriverName);
+        if (advertised.Count > 0)
+        {
+            return PrinterDocumentFormats.Carries(advertised, contentType);
+        }
+
+        var formats = channel.Configuration?.SupportedDocumentFormats ?? [];
+        if (formats.Count > 0)
+        {
+            return PrinterDocumentFormats.Carries(formats, contentType);
+        }
+
+        // IEEE 1284 names the languages the firmware reads. It belongs to the device, not
+        // to one channel, so it is the last word and not the first.
+        if (Details.CommandSets.Count == 0)
+        {
+            return null;
+        }
+
+        var commandSet = PrinterDocumentFormats.CommandSetFor(contentType);
+        foreach (var command in Details.CommandSets)
+        {
+            if (command.Contains(commandSet, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <inheritdoc />
     public override string ToString() => $"{Details.Name} ({Key})";
 

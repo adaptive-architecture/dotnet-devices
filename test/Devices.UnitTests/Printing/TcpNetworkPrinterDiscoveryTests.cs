@@ -116,4 +116,23 @@ public class TcpNetworkPrinterDiscoveryTests
         listener.Stop();
         return port;
     }
+
+    // The result depends on the adapters of the machine, so only the shape is asserted.
+    [Fact]
+    public void LocalSubnetHosts_GivesASortedListWithoutADuplicate()
+    {
+        var hosts = NetworkPrinterDiscoveryOptions.LocalSubnetHosts();
+
+        Assert.Equal(hosts.Distinct(StringComparer.Ordinal).Count(), hosts.Count);
+        Assert.Equal(hosts.Order(StringComparer.Ordinal), hosts);
+        Assert.All(hosts, static host => Assert.True(IPAddress.TryParse(host, out _)));
+    }
+
+    [Fact]
+    public void LocalSubnetHosts_StopsAtTheMaximum() =>
+        Assert.True(NetworkPrinterDiscoveryOptions.LocalSubnetHosts(4).Count <= 4);
+
+    [Fact]
+    public void LocalSubnetHosts_RefusesAMaximumThatIsNotPositive() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() => NetworkPrinterDiscoveryOptions.LocalSubnetHosts(0));
 }

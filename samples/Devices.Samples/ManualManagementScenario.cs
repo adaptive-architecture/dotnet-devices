@@ -27,7 +27,7 @@ internal static class ManualManagementScenario
 
         if (printers.Count == 0)
         {
-            var hosts = SampleHelpers.GetLocalSubnetHosts();
+            var hosts = NetworkPrinterDiscoveryOptions.LocalSubnetHosts();
             Console.WriteLine($"No printer answered mDNS. Probing {hosts.Count} local hosts on TCP port 9100...");
             var network = provider.GetRequiredService<INetworkPrinterDiscovery>();
             NetworkPrinterDiscoveryOptions options = new()
@@ -70,7 +70,7 @@ internal static class ManualManagementScenario
 
     internal static async Task StatusAsync(ServiceProvider provider, string identifierText)
     {
-        var id = SampleHelpers.ParsePrinterId(identifierText);
+        var id = PrinterId.ParseOrRaw(identifierText);
         if (!id.TryGetHost(out var host))
         {
             Console.WriteLine("IPP and SNMP status need a network host; a spooler printer cannot answer this way.");
@@ -86,7 +86,7 @@ internal static class ManualManagementScenario
 
     internal static async Task SendAsync(ServiceProvider provider, string directory, string identifierText, string fileName)
     {
-        var id = SampleHelpers.ParsePrinterId(identifierText);
+        var id = PrinterId.ParseOrRaw(identifierText);
         if (!id.TryGetHost(out var host))
         {
             Console.WriteLine("This scenario sends over raw TCP and cannot reach a spooler queue. Use print-manager send instead.");

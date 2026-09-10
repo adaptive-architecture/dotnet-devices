@@ -73,7 +73,8 @@ There is no USB endpoint and no `usb` scheme; see [USB printers](#usb-printers).
 - `DiscoveredPrinter` is one **channel**, with the capabilities (`null` when not read), the
   print options the channel applies, the devices a source vouched it belongs to, and
   `HasJobQueue` / `GivesPassthrough`.
-- `PrinterDevice` is one **physical printer**, with `Channels` and `ChannelsByTransport`.
+- `PrinterDevice` is one **physical printer**, with `Channels`, `ChannelsByTransport` and
+  `Accepts`, which says whether one of its channels reads a content type.
   `IPrinterManager.DiscoverAsync` returns these.
 - `PrinterDeviceDetails` merges what every channel reported, plus which discoveries found
   the device and which read-only protocols answered.
@@ -288,6 +289,19 @@ NetworkPrinterDiscoveryOptions options = new()
 IReadOnlyList<DiscoveredPrinter> printers =
     await discovery.DiscoverAsync(options, cancellationToken).ConfigureAwait(false);
 ```
+
+To sweep the subnet the machine is already on, `NetworkPrinterDiscoveryOptions.LocalSubnetHosts`
+builds the list. It reads the network adapters only, and opens no connection:
+
+```csharp
+NetworkPrinterDiscoveryOptions options = new() { Hosts = NetworkPrinterDiscoveryOptions.LocalSubnetHosts() };
+```
+
+An adapter counts only when it is up, has an IPv4 gateway, and has a prefix length from 16
+to 30. A loopback address and a link-local address are skipped, and the list stops at
+`maxHosts`, which is 4096 by default. A prefix shorter than 16 holds too many addresses to
+probe, and IPv6 is not listed because a subnet there is too large to walk. The probe stays
+opt-in: the method gives you the list, and you decide to use it.
 
 ### Discovery over mDNS
 
@@ -648,7 +662,9 @@ services.AddPrinters(options => options.AllowPlainIpp = false);
   capabilities and the status of every printer, then sends five jobs through one spooler
   queue: a PDF with the defaults, a PNG in colour at its own size, a PNG in grayscale
   rotated 90 degrees, a JPEG rotated 180 degrees, and a JPEG in grayscale filling the media.
-  It then asks again, and sends one JPEG raw to every raw-capable channel. The jobs never
+  It then asks again, and sends a JPEG, a ZPL label and an EPL label raw to every
+  raw-capable channel. A format the channel says it does not read is skipped with a yellow
+  warning, because a raw send is not converted and would only waste paper. The jobs never
   change, so two runs can be compared. An option the printer did not report is still sent,
   and the run says so first.
 - `print-manager` — `IPrinterManager` for discovery, status, sending, watching and ZPL. This
@@ -685,13 +701,29 @@ raw channel  pdl = application/vnd.epson.escpr
 The IPP service takes a JPEG; TCP port 9100 takes ESC/P-R and nothing else. Judging that
 printer by its device-wide format list would promise a raw JPEG print that cannot work.
 
-Three sources answer the question before you send, in this order:
-`PrinterInfo.DriverName` for the channel, then
+`PrinterDevice.Accepts` answers the question before you send:
+
+```csharp
+var accepts = device.Accepts(channel, PrinterContentTypes.Pdf);
+// true   the channel reports the content type
+// false  the channel reports other content types only
+// null   nothing was reported, which is not a refusal
+```
+
+It reads three sources in order, and stops at the first one that answered:
+`PrinterInfo.DriverName` for the channel, which holds the `pdl` record; then
 `PrinterConfiguration.SupportedDocumentFormats`, which comes from IPP
-`document-format-supported`, then `PrinterDeviceDetails.CommandSets`, which comes from the
-IEEE 1284 `CMD` field and belongs to the whole device. The `interactive` scenario reads both and warns when the printer
-reports neither `application/pdf` nor a `PDF` command set. A printer that reports nothing did
-not refuse; it only did not answer.
+`document-format-supported`; then `PrinterDeviceDetails.CommandSets`, which comes from the
+IEEE 1284 `CMD` field and belongs to the whole device.
+
+Two rules are built in. A CUPS queue names no printer language of its own and takes one as
+`application/vnd.cups-raw`, so a queue that lists that format carries a ZPL or an EPL
+label. And `application/octet-stream` is not read as an answer: nearly every channel lists
+it, and CUPS re-types such a job as `text/plain`, which prints the command source instead
+of the label.
+
+The `interactive` scenario calls it and warns before it wastes paper. A printer that
+reports nothing did not refuse; it only did not answer.
 
 To print a PDF on a printer that has no PDF interpreter, send it through the spooler queue
 instead. The queue driver rasterises the document.
