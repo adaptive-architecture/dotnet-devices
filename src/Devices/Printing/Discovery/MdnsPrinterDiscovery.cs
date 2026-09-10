@@ -28,13 +28,14 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
     internal MdnsPrinterDiscovery(IMdnsChannelFactory channelFactory) => _channelFactory = channelFactory;
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<DiscoveredPrinter>> DiscoverPrintersAsync(MdnsPrinterDiscoveryOptions options, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<DiscoveredPrinter>> DiscoverAsync(MdnsPrinterDiscoveryOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(options.ServiceTypes);
         ArgumentNullException.ThrowIfNull(options.NetworkInterfaceIndexes);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.BrowseTimeout, TimeSpan.Zero);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.QueryRetries, 0);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.MaxRecords, 0);
 
         if (options.ServiceTypes.Count == 0)
         {
@@ -83,7 +84,7 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
         windowSource.CancelAfter(options.BrowseTimeout);
 
         var sender = SendQueriesAsync(channel, destination, options, windowSource.Token);
-        var records = await ReceiveAsync(channel, cancellationToken, windowSource.Token).ConfigureAwait(false);
+        var records = await ReceiveAsync(channel, options.MaxRecords, cancellationToken, windowSource.Token).ConfigureAwait(false);
 
         try
         {
@@ -91,7 +92,7 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            // The browse window ended while a query was still being sent.
+            // The browse window ended mid-query.
         }
         catch (SocketException)
         {
@@ -104,13 +105,15 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
 
     private static async Task<List<ResourceRecord>> ReceiveAsync(
         IUdpChannel channel,
+        int maxRecords,
         CancellationToken cancellationToken,
         CancellationToken windowToken)
     {
         List<ResourceRecord> records = [];
         try
         {
-            while (true)
+            // The cap bounds the memory a flood of answers can take.
+            while (records.Count < maxRecords)
             {
                 var result = await channel.ReceiveAsync(windowToken).ConfigureAwait(false);
                 try
@@ -125,7 +128,7 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            // The end of the browse window is the normal way to finish.
+            // The end of the browse window is the normal finish.
         }
         catch (SocketException)
         {
@@ -143,8 +146,7 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
     {
         var rounds = options.QueryRetries + 1;
 
-        // Spread the rounds over the browse window. Two queries sent together do not
-        // protect against a lost datagram, but two queries sent apart do.
+        // The rounds are spread out: only queries sent apart survive a lost datagram.
         var delay = options.BrowseTimeout / rounds;
         for (var round = 0; round < rounds; round++)
         {

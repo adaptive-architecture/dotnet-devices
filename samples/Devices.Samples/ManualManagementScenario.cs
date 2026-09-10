@@ -4,10 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace AdaptArch.Devices.Samples;
 
-// Everything here bypasses IPrinterManager and calls the seams it sits on: a transport
-// resolved by hand, and the mDNS and TCP discovery sources run one at a time. This is not
-// duplication of PrinterManagerScenario; it is the point of the scenario, because it shows
-// the layer the manager is built on.
+// Bypasses IPrinterManager and calls the seams it sits on, to show that layer.
 internal static class ManualManagementScenario
 {
     internal static async Task DiscoverAsync(ServiceProvider provider)
@@ -19,7 +16,7 @@ internal static class ManualManagementScenario
         {
             try
             {
-                printers = await mdns.DiscoverPrintersAsync(new MdnsPrinterDiscoveryOptions(), mdnsTimeout.Token).ConfigureAwait(false);
+                printers = await mdns.DiscoverAsync(new MdnsPrinterDiscoveryOptions(), mdnsTimeout.Token).ConfigureAwait(false);
             }
             catch (Exception exception)
             {
@@ -43,7 +40,7 @@ internal static class ManualManagementScenario
             using CancellationTokenSource probeTimeout = new(TimeSpan.FromMinutes(2));
             try
             {
-                printers = await network.DiscoverNetworkPrintersAsync(options, probeTimeout.Token).ConfigureAwait(false);
+                printers = await network.DiscoverAsync(options, probeTimeout.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -157,8 +154,7 @@ internal static class ManualManagementScenario
         }
     }
 
-    // SNMP reaches printers that supply the Printer MIB but do not answer IPP, and it reports
-    // the serial number and the page count, which IPP does not carry.
+    // SNMP reaches printers that do not answer IPP, and adds the serial and page count.
     private static async Task PrintSnmpDetailsAsync(SnmpPrinterStatusClient client, NetworkPrinterEndpoint endpoint)
     {
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(10));

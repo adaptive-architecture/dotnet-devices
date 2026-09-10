@@ -8,8 +8,7 @@ public class IppConfigurationMapperTests
 {
     private static readonly PrinterId Id = PrinterId.FromNetwork("printer.local");
 
-    // A resolution value is 9 octets: width and height as 4-byte big-endian integers,
-    // followed by a 1-byte unit (3 = dots per inch, 4 = dots per centimetre, RFC 8010).
+    // RFC 8010: width and height as 4-byte integers, then a 1-byte unit (3 = dpi, 4 = dpcm).
     private static byte[] Resolution(int width, int height, byte units) =>
     [
         (byte)(width >> 24), (byte)(width >> 16), (byte)(width >> 8), (byte)width,
@@ -63,7 +62,8 @@ public class IppConfigurationMapperTests
 
         Assert.Empty(configuration.MediaSizes);
         Assert.Empty(configuration.SupportedResolutionsDpi);
-        Assert.False(configuration.SupportsDuplex);
+        Assert.Null(configuration.SupportsDuplex);
+        Assert.Null(configuration.SupportsColor);
         Assert.Null(configuration.DefaultMediaSize);
     }
 }

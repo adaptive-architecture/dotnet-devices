@@ -1,7 +1,6 @@
 ﻿namespace AdaptArch.Devices.Printing;
 
-// Compares the options against what the printer says it can do. A printer that reported
-// nothing cannot judge anything, so the options pass unchanged.
+// A printer that reported nothing cannot judge anything, so the options pass unchanged.
 internal static class PrintOptionValidator
 {
     public static PrintOptions? Apply(PrintOptions? options, PrinterConfiguration configuration, out IReadOnlyList<string> dropped)
@@ -13,12 +12,12 @@ internal static class PrintOptionValidator
         }
 
         List<string> unsupported = [];
-        if (options.Duplex is not null && options.Duplex != DuplexMode.Simplex && !configuration.SupportsDuplex)
+        if (options.Duplex is not null && options.Duplex != DuplexMode.Simplex && configuration.SupportsDuplex == false)
         {
             unsupported.Add(nameof(PrintOptions.Duplex));
         }
 
-        if (options.ColorMode == PrintColorMode.Color && !configuration.SupportsColor)
+        if (options.ColorMode == PrintColorMode.Color && configuration.SupportsColor == false)
         {
             unsupported.Add(nameof(PrintOptions.ColorMode));
         }
@@ -52,14 +51,13 @@ internal static class PrintOptionValidator
         return Without(options, unsupported);
     }
 
-    // A printer that reported no capability at all cannot say what it does not support.
+    // A reported "false" is a capability statement, so it is not an empty configuration.
     private static bool IsEmpty(PrinterConfiguration configuration) =>
-        !configuration.SupportsDuplex
-        && !configuration.SupportsColor
+        configuration.SupportsDuplex is null
+        && configuration.SupportsColor is null
         && configuration.MediaSizes.Count == 0
         && configuration.SupportedResolutionsDpi.Count == 0;
 
-    // The caller keeps its own instance, so the removal happens on a copy.
     private static PrintOptions Without(PrintOptions options, List<string> unsupported)
     {
         var copy = new PrintOptions
@@ -72,7 +70,9 @@ internal static class PrintOptionValidator
             MediaSize = options.MediaSize,
             ResolutionDpi = options.ResolutionDpi,
             JobName = options.JobName,
+            RequestingUserName = options.RequestingUserName,
             OnUnsupported = options.OnUnsupported,
+            RequirePassthrough = options.RequirePassthrough,
         };
 
         foreach (var name in unsupported)

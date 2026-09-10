@@ -62,4 +62,18 @@ public class PrinterIdTests
     {
         Assert.ThrowsAny<ArgumentException>(() => new PrinterId(PrinterIdKind.Spooler, value));
     }
+
+    [Theory]
+    [InlineData("printer.example:80/ipp/print#")]
+    [InlineData("user@printer.local")]
+    [InlineData("printer local")]
+    public void FromNetwork_RejectsAValueThatIsNotAHost(string value) =>
+        Assert.ThrowsAny<ArgumentException>(() => PrinterId.FromNetwork(value));
+
+    [Theory]
+    [InlineData("printer.local")]
+    [InlineData("192.168.1.50")]
+    [InlineData("fe80::1")]
+    public void FromNetwork_AcceptsAHostNameOrAddress(string value) =>
+        Assert.Equal(value, PrinterId.FromNetwork(value).Value);
 }

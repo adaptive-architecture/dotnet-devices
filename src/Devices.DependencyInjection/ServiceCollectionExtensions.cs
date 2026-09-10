@@ -1,5 +1,5 @@
-﻿using System.Diagnostics.CodeAnalysis;
-using AdaptArch.Devices.Printing;
+﻿using AdaptArch.Devices.Printing;
+using AdaptArch.Devices.Printing.Ipp;
 using AdaptArch.Devices.Printing.Spooler;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -16,56 +16,69 @@ public static class ServiceCollectionExtensions
     /// Registers all device services, including printers.
     /// </summary>
     /// <param name="services">The service collection.</param>
+    /// <param name="configure">An optional callback that sets the IPP transport policy: the certificate trust, the plain IPP fallback, and the connect timeout.</param>
     /// <returns>The service collection for chaining.</returns>
-    public static IServiceCollection AddDevices(this IServiceCollection services)
+    public static IServiceCollection AddDevices(this IServiceCollection services, Action<IppTransportOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
-        return services.AddPrinters();
+        return services.AddPrinters(configure);
     }
 
     /// <summary>
-    /// Registers printer services: transports, network discovery, and the status clients.
+    /// Registers printer services: transports, network discovery, the status clients, the
+    /// printer factory, the job queue, the job monitor, and the printer manager. Every
+    /// registration uses <c>TryAdd</c>, so a second call, or a registration the application
+    /// made first, is left in place.
     /// </summary>
     /// <param name="services">The service collection.</param>
+    /// <param name="configure">An optional callback that sets the IPP transport policy: the certificate trust, the plain IPP fallback, and the connect timeout.</param>
     /// <returns>The service collection for chaining.</returns>
-    public static IServiceCollection AddPrinters(this IServiceCollection services)
+    public static IServiceCollection AddPrinters(this IServiceCollection services, Action<IppTransportOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
-        services.AddSingleton<IPrinterTransport, TcpPrinterTransport>();
-        services.AddSingleton<INetworkPrinterDiscovery, TcpNetworkPrinterDiscovery>();
-        services.AddSingleton<IMdnsPrinterDiscovery, MdnsPrinterDiscovery>();
-        services.AddSingleton<IppPrinterStatusClient>();
-        services.AddSingleton<SnmpPrinterStatusClient>();
+        services.TryAddSingleton<IPrinterTransport, TcpPrinterTransport>();
+        services.TryAddSingleton<INetworkPrinterDiscovery, TcpNetworkPrinterDiscovery>();
+        services.TryAddSingleton<IMdnsPrinterDiscovery, MdnsPrinterDiscovery>();
+        services.TryAddSingleton<SnmpPrinterStatusClient>();
         services.TryAddSingleton(TimeProvider.System);
 
-        // One client for every network printer the container serves, so the printers the
-        // factory opens and the job reads that go through the composite queue share one
-        // connection pool and one certificate policy. Neither type disposes the client:
-        // it lives as long as the process, which is the usual pattern for HttpClient and
-        // avoids closing a client at shutdown that the other type still uses.
-        var printerClient = CreatePermissiveHttpClient();
-        services.AddSingleton<IPrinterFactory>(_ => new PrinterFactory(printerClient));
-        services.AddSingleton<IPrinterDiscovery, SpoolerPrinterDiscovery>();
-        services.AddSingleton<SpoolerPrintJobQueue>();
-        services.AddSingleton<IPrintJobQueue>(provider => new CompositePrintJobQueue(
+        // One client for every network printer, so they share a connection pool and a
+        // certificate policy.
+        services.TryAddSingleton(_ =>
+        {
+            IppTransportOptions options = new();
+            configure?.Invoke(options);
+            return options;
+        });
+        services.TryAddSingleton(provider => new IppHttpClientHolder(IppHttpClientFactory.Create(provider.GetRequiredService<IppTransportOptions>())));
+        services.TryAddSingleton(provider => new IppPrinterStatusClient(
+            provider.GetRequiredService<IppHttpClientHolder>().Client,
+            provider.GetRequiredService<IppTransportOptions>()));
+        services.TryAddSingleton<IPrinterFactory>(provider => new PrinterFactory(
+            provider.GetRequiredService<IppHttpClientHolder>().Client,
+            provider.GetRequiredService<IppTransportOptions>()));
+        services.TryAddSingleton<IPrinterDiscovery, SpoolerPrinterDiscovery>();
+        services.TryAddSingleton<SpoolerPrintJobQueue>();
+        services.TryAddSingleton<IPrintJobQueue>(provider => new CompositePrintJobQueue(
             provider.GetRequiredService<SpoolerPrintJobQueue>(),
-            printerClient));
-        services.AddSingleton<IPrintJobMonitor, PollingPrintJobMonitor>();
-        services.AddSingleton<IPrinterManager, PrinterManager>();
+            provider.GetRequiredService<IppHttpClientHolder>().Client,
+            provider.GetRequiredService<IppTransportOptions>()));
+        services.TryAddSingleton<IPrintJobMonitor, PollingPrintJobMonitor>();
+        services.TryAddSingleton<IPrinterManager, PrinterManager>();
         return services;
     }
 
-    // Matches the certificate policy IppPrinter and PrinterFactory already apply:
-    // without this, a printer reachable over IPPS for printing would answer only
-    // plain IPP for a job read through CompositePrintJobQueue.
-    [SuppressMessage(
-        "Critical Vulnerability",
-        "S4830:Server certificates should be verified during SSL/TLS connections",
-        Justification = "Network printers overwhelmingly use self-signed certificates, so a validating client would reject nearly all of them over IPPS. A caller that needs validation re-registers IPrinterFactory and IPrintJobQueue, built from its own HttpClient, after calling AddPrinters(); see docs/printers.md.")]
-    private static HttpClient CreatePermissiveHttpClient()
+    // Owns the shared HttpClient. It is not registered directly, because an application
+    // may register its own.
+    internal sealed class IppHttpClientHolder : IDisposable
     {
-        SocketsHttpHandler handler = new();
-        handler.SslOptions.RemoteCertificateValidationCallback = static (_, _, _, _) => true;
-        return new HttpClient(handler, true);
+        public IppHttpClientHolder(HttpClient client)
+        {
+            Client = client;
+        }
+
+        public HttpClient Client { get; }
+
+        public void Dispose() => Client.Dispose();
     }
 }

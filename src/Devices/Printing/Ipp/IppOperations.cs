@@ -4,8 +4,8 @@ using SharpIpp.Protocol;
 
 namespace AdaptArch.Devices.Printing.Ipp;
 
-// Sends one IPP operation and gives every failure the same shape. A fresh protocol and a
-// fresh client belong to each call, so the captured raw response belongs to that call only.
+// Sends one IPP operation and gives every failure the same shape. Each call gets a fresh
+// protocol and client, so the captured raw response belongs to that call only.
 internal sealed class IppOperations
 {
     private readonly HttpClient _httpClient;
@@ -32,28 +32,32 @@ internal sealed class IppOperations
         {
             throw;
         }
+        catch (OperationCanceledException exception)
+        {
+            throw new TimeoutException($"IPP request to '{uri}' timed out.", exception);
+        }
         catch (HttpRequestException exception)
         {
-            // A null status code means the request never got an HTTP response at all,
-            // most often because nothing is listening (on Linux, no CUPS daemon at
-            // localhost:631). Name that case instead of formatting it as nothing.
+            // A null status code means no HTTP response at all: name that case.
             var message = exception.StatusCode is System.Net.HttpStatusCode status
                 ? $"IPP request to '{uri}' failed with HTTP {status:d}."
                 : $"IPP request to '{uri}' failed: no HTTP response was received. Confirm the printer or IPP daemon is reachable and listening.";
             throw new InvalidOperationException(message, exception);
         }
+        catch (IppResponseException exception) when (exception.InnerException is HttpRequestException http)
+        {
+            // An HTTP error with an IPP body, for example 401: an answer, not a malformed one.
+            LastRawResponse = capture.Response;
+            throw new InvalidOperationException($"IPP request to '{uri}' failed with HTTP {http.StatusCode:d}.", exception);
+        }
         catch (IppResponseException exception) when (exception.InnerException is not null)
         {
-            // The protocol reader failed before it could read a status, so this response
-            // is malformed rather than a printer-reported IPP error.
+            // No status was read, so the response is malformed, not an IPP error.
             throw IppFailureMapping.ToMalformedResponse(uri, exception);
         }
         catch (IppResponseException exception)
         {
-            // The response parsed fully before SharpIppNext decided its status code was an
-            // error and threw, so the capture already holds it. Keep it on LastRawResponse
-            // even though this call is about to throw, so a caller that needs the status
-            // code (see IppFailureMapping.StatusCodeOf) can still read it.
+            // The response parsed, so keep it: a caller may need the IPP status code.
             LastRawResponse = capture.Response;
             throw IppFailureMapping.ToIppError(uri, exception);
         }

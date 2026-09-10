@@ -58,10 +58,9 @@ internal static class MdnsMessages
         {
             message = (Message)new Message().Read(payload);
         }
-        catch (Exception exception) when (
-            exception is EndOfStreamException or IOException or FormatException or
-                         ArgumentException or IndexOutOfRangeException or OverflowException)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            // The codec has no single failure type, but every failure means the same thing.
             throw new InvalidDataException("The multicast DNS response is malformed.", exception);
         }
 

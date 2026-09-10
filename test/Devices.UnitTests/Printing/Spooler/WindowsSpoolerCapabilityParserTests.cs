@@ -15,8 +15,7 @@ public class WindowsSpoolerCapabilityParserTests
         return block;
     }
 
-    // Fills every character of the block, leaving no null terminator: the parser must
-    // fall back to the full block length instead of reading past it.
+    // No null terminator: the parser must fall back to the full block length.
     private static char[] FullBlockWithNoTerminator()
     {
         var block = new char[BlockLength];

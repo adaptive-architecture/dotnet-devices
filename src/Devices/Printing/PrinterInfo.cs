@@ -28,22 +28,22 @@ public sealed class PrinterInfo
     public string Name { get; }
 
     /// <summary>
-    /// Gets or sets the physical location of the printer, when known.
+    /// Gets the physical location of the printer, when known.
     /// </summary>
-    public string? Location { get; set; }
+    public string? Location { get; init; }
 
     /// <summary>
-    /// Gets or sets the driver name, when known.
+    /// Gets the driver name, when known.
     /// </summary>
-    public string? DriverName { get; set; }
+    public string? DriverName { get; init; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether this is the default printer.
+    /// Gets a value indicating whether this is the default printer.
     /// </summary>
-    public bool IsDefault { get; set; }
+    public bool IsDefault { get; init; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether the printer is shared.
+    /// Gets a value indicating whether the printer is shared.
     /// </summary>
-    public bool IsShared { get; set; }
+    public bool IsShared { get; init; }
 }

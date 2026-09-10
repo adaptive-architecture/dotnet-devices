@@ -111,7 +111,6 @@ internal static class SnmpPrinterMapper
                 continue;
             }
 
-            // Every set bit is reported, so that a warning stays visible to the caller.
             reasons.Add(ErrorBitNames[bit]);
             if (bit == OfflineBit)
             {
@@ -219,7 +218,6 @@ internal static class SnmpPrinterMapper
         }
     }
 
-    // Split out of CollectSupplyValue to keep its cognitive complexity within the repository limit.
     private static bool CollectDescription(Variable variable, string oid, List<string> order, Dictionary<string, string> descriptions)
     {
         var row = GetRow(oid, PrinterMibOids.SuppliesDescription);
@@ -270,8 +268,7 @@ internal static class SnmpPrinterMapper
             marker.LevelPercent = GetLevelPercent(level, capacity);
         }
 
-        // prtMarkerSuppliesColorantIndex names the colorant row. The device index is the
-        // first sub-identifier of the supply row, and the colorant index replaces the second.
+        // The colorant row keeps the device index of the supply row and replaces the second.
         if (colorantIndexes.TryGetValue(row, out var colorantIndex))
         {
             var separator = row.IndexOf('.', StringComparison.Ordinal);
@@ -285,9 +282,7 @@ internal static class SnmpPrinterMapper
         return marker;
     }
 
-    // The Printer MIB uses negative levels to say that a number is not available:
-    // -1 places no restriction, -2 is unknown, and -3 means some supply remains but the
-    // amount is indeterminate. None of them is a quantity.
+    // A negative Printer MIB level (-1, -2, -3) is a marker, not a quantity.
     private static int? GetLevelPercent(long level, long capacity)
     {
         if (level < 0 || capacity <= 0)
@@ -306,7 +301,7 @@ internal static class SnmpPrinterMapper
             return PrinterStatusState.Idle;
         }
 
-        // A printer that is printing and a printer that is warming up are both busy.
+        // Printing and warming up are both busy.
         if (state == 4 || state == 5)
         {
             return PrinterStatusState.Processing;

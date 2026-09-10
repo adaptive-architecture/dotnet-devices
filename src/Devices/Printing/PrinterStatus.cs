@@ -28,37 +28,37 @@ public sealed class PrinterStatus
     public PrinterStatusState State { get; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether the printer currently accepts jobs.
+    /// Gets a value indicating whether the printer currently accepts jobs.
     /// </summary>
-    public bool IsAcceptingJobs { get; set; } = true;
+    public bool IsAcceptingJobs { get; init; } = true;
 
     /// <summary>
-    /// Gets or sets the human-readable detail, such as the reason for an error state.
+    /// Gets the human-readable detail, such as the reason for an error state.
     /// </summary>
-    public string? Detail { get; set; }
+    public string? Detail { get; init; }
 
     /// <summary>
-    /// Gets or sets the supply markers (ink, toner) reported by the printer. Defaults to empty.
+    /// Gets the supply markers (ink, toner) reported by the printer. Defaults to empty.
     /// </summary>
-    public IReadOnlyList<PrinterMarker> Markers { get; set; } = [];
+    public IReadOnlyList<PrinterMarker> Markers { get; init; } = [];
 
     /// <summary>
-    /// Gets or sets the time at which the status was observed.
+    /// Gets the time at which the status was observed.
     /// </summary>
-    public DateTimeOffset Timestamp { get; set; }
+    public DateTimeOffset Timestamp { get; init; }
 
     /// <summary>
-    /// Gets or sets the serial number of the printer, or <c>null</c> when the printer did
+    /// Gets the serial number of the printer, or <c>null</c> when the printer did
     /// not report one. Only SNMP fills this today; IPP and the operating system spooler do
     /// not report a serial number yet, but a future path for either could set it.
     /// </summary>
-    public string? SerialNumber { get; set; }
+    public string? SerialNumber { get; init; }
 
     /// <summary>
-    /// Gets or sets the number of pages that the printer has marked over its life, or
+    /// Gets the number of pages that the printer has marked over its life, or
     /// <c>null</c> when the printer did not report one. Only SNMP fills this today; IPP and
     /// the operating system spooler do not report a lifetime page count yet, but a future
     /// path for either could set it.
     /// </summary>
-    public long? LifetimePageCount { get; set; }
+    public long? LifetimePageCount { get; init; }
 }

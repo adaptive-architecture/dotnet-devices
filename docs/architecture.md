@@ -1,4 +1,4 @@
-# Architecture
+﻿# Architecture
 
 ## Repository Layout
 
@@ -23,6 +23,25 @@ dotnet-devices/
 `dotnet-devices` targets Windows, Linux, and macOS. The core `AdaptArch.Devices` library contains shared device abstractions; platform-specific behavior is selected at runtime via `System.RuntimeInformation`/OS checks, or via compile-time target frameworks where that is not possible.
 
 Prefer single-library + runtime OS checks over many platform-specific projects to keep the package surface small and simple. Only split out platform projects when a platform cannot be expressed in-process.
+
+## Printing Layer
+
+The printing code lives in `src/Devices/Printing`. It has four layers. [Printers](printers.md)
+describes each one in full.
+
+- **Models**: `PrinterId`, `PrinterEndpoint`, `PrinterPayload`, `PrintOptions`,
+  `PrinterStatus`, `PrinterConfiguration`, `PrintJobInfo`. Pure data, read-only after
+  construction.
+- **Printers and transports**: `IPrinter` is the seam. `IppPrinter`, `RawPrinter` and
+  `SpoolerPrinter` implement it for IPP, the raw TCP channel and the operating system
+  spooler. `PrinterFactory` picks one for an endpoint.
+- **Discovery**: mDNS, the network probe and the spooler each report `DiscoveredPrinter`
+  entries. `PrinterManager` runs them together, keeps a cache, and resolves an
+  identifier to an endpoint per call.
+- **Transport policy**: every IPP connection follows one `IppTransportOptions`. One
+  `HttpClient`, built by `IppHttpClientFactory`, is shared by the factory, the status
+  client and the job queue. The dependency injection package builds that client and
+  disposes it with the container.
 
 ## Naming Convention
 

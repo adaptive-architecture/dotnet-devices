@@ -1,8 +1,7 @@
 ﻿namespace AdaptArch.Devices.Printing.Spooler;
 
-// One shape for the two platform spooler drivers: CupsSpoolerDriver (Linux and macOS, over
-// CUPS) and WindowsSpoolerDriver (Windows, over the Win32 print spooler). SpoolerPrinter and
-// SpoolerPrintJobQueue consume this interface, not the concrete drivers.
+// One shape for the CUPS and Windows spooler drivers. The callers consume this
+// interface, not the concrete drivers.
 internal interface ISpoolerDriver
 {
     Task<IReadOnlyList<DiscoveredPrinter>> EnumeratePrintersAsync(CancellationToken cancellationToken);

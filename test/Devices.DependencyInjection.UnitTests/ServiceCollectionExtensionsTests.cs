@@ -75,6 +75,43 @@ public class ServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddPrinters_CalledTwice_RegistersEveryServiceOnce()
+    {
+        ServiceCollection services = new();
+
+        _ = services.AddPrinters();
+        _ = services.AddDevices();
+
+        Assert.Single(services, descriptor => descriptor.ServiceType == typeof(IPrinterFactory));
+        Assert.Single(services, descriptor => descriptor.ServiceType == typeof(IPrintJobQueue));
+        Assert.Single(services, descriptor => descriptor.ServiceType == typeof(IppPrinterStatusClient));
+    }
+
+    [Fact]
+    public void AddPrinters_PassesTheConfiguredTransportOptionsToTheContainer()
+    {
+        ServiceCollection services = new();
+
+        _ = services.AddPrinters(options => options.AllowPlainIpp = false);
+
+        using var provider = services.BuildServiceProvider();
+        Assert.False(provider.GetRequiredService<IppTransportOptions>().AllowPlainIpp);
+    }
+
+    [Fact]
+    public async Task AddPrinters_DisposesTheSharedClientWithTheContainer()
+    {
+        ServiceCollection services = new();
+        _ = services.AddPrinters();
+        var provider = services.BuildServiceProvider();
+        var holder = provider.GetRequiredService<ServiceCollectionExtensions.IppHttpClientHolder>();
+
+        provider.Dispose();
+
+        _ = await Assert.ThrowsAsync<ObjectDisposedException>(() => holder.Client.GetAsync("http://printer.local/", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public void AddPrinters_ResolvesThePrinterManager()
     {
         ServiceCollection services = new();

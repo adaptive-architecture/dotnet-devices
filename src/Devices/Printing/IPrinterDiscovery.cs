@@ -11,5 +11,5 @@ public interface IPrinterDiscovery
     /// </summary>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>The discovered printers.</returns>
-    Task<IReadOnlyList<DiscoveredPrinter>> GetPrintersAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<DiscoveredPrinter>> DiscoverAsync(CancellationToken cancellationToken);
 }

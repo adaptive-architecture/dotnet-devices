@@ -93,8 +93,7 @@ public class IppPrinterStatusClientTests
         var details = await client.GetDetailsAsync("printer.local", CancellationToken.None);
 
         Assert.Equal(PrinterStatusState.Idle, details.Status.State);
-        // The first three requests are the resolver's probe, falling back from https to
-        // http; the fourth is the actual attribute read.
+        // Three resolver probes falling back from https to http, then the attribute read.
         Assert.Equal(4, handler.Requests.Count);
         Assert.Equal("https", handler.Requests[0].RequestUri.Scheme);
         Assert.Equal("https", handler.Requests[1].RequestUri.Scheme);
@@ -116,8 +115,7 @@ public class IppPrinterStatusClientTests
         Assert.Equal("/ipp/port1", handler.Requests[1].RequestUri.AbsolutePath);
     }
 
-    // A DNS-SD browse reports the resource path in the "rp" TXT attribute. Trying it first
-    // reaches a printer that serves IPP on neither well-known path.
+    // The "rp" TXT path is tried first, for a printer on neither well-known path.
     [Fact]
     public async Task GetDetailsAsync_ResourcePathFromDiscovery_IsTriedFirst()
     {
@@ -217,4 +215,67 @@ public class IppPrinterStatusClientTests
         Assert.Empty(handler.Requests);
     }
 
+
+    [Fact]
+    public async Task GetDetailsAsync_StoppedPrinterWithAnErrorReasonIsAnError()
+    {
+        var response = IppMessages.Response(0x0000,
+            (0x23, "printer-state", 5),
+            (0x44, "printer-state-reasons", "media-jam-error"));
+        IppPrinterStatusClient client = new(new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(response))));
+
+        var details = await client.GetDetailsAsync("printer.local", TestContext.Current.CancellationToken);
+
+        Assert.Equal(PrinterStatusState.Error, details.Status.State);
+        Assert.False(details.Status.IsAcceptingJobs);
+        Assert.Equal("media-jam-error", details.Status.Detail);
+    }
+
+    [Fact]
+    public async Task GetDetailsAsync_KeepsTheRawMarkerLevelAndReportsAPercentageOnlyFrom0To100()
+    {
+        var response = IppMessages.Response(0x0000,
+            (0x23, "printer-state", 3),
+            (0x42, "marker-names", "Black"),
+            (0x42, null, "Waste"),
+            (0x42, null, "Odd"),
+            (0x21, "marker-levels", 84),
+            (0x21, null, -2),
+            (0x21, null, 250));
+        IppPrinterStatusClient client = new(new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(response))));
+
+        var markers = (await client.GetDetailsAsync("printer.local", TestContext.Current.CancellationToken)).Status.Markers;
+
+        Assert.Equal(3, markers.Count);
+        Assert.Equal(84, markers[0].LevelPercent);
+        Assert.Equal(84, markers[0].LevelRaw);
+        Assert.Null(markers[1].LevelPercent);
+        Assert.Equal(-2, markers[1].LevelRaw);
+        Assert.Null(markers[2].LevelPercent);
+        Assert.Equal(250, markers[2].LevelRaw);
+    }
+
+    [Fact]
+    public async Task GetDetailsAsync_SecondReadOfTheSameHostSendsNoProbe()
+    {
+        var response = IppMessages.Response(0x0000, (0x23, "printer-state", 3));
+        IppMessages.StubHandler handler = new(_ => IppMessages.Ok(response));
+        using IppPrinterStatusClient client = new(new HttpClient(handler));
+
+        _ = await client.GetDetailsAsync("printer.local", TestContext.Current.CancellationToken);
+        var afterFirst = handler.Requests.Count;
+        _ = await client.GetDetailsAsync("PRINTER.local", TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, afterFirst);
+        Assert.Equal(3, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task GetDetailsAsync_AfterDispose_Throws()
+    {
+        IppPrinterStatusClient client = new();
+        client.Dispose();
+
+        _ = await Assert.ThrowsAsync<ObjectDisposedException>(() => client.GetDetailsAsync("printer.local", TestContext.Current.CancellationToken));
+    }
 }

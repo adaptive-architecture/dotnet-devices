@@ -15,9 +15,10 @@ public sealed class NetworkPrinterEndpoint : PrinterEndpoint, IEquatable<Network
     /// </summary>
     /// <param name="host">The host name or IP address of the printer.</param>
     /// <param name="port">The TCP port of the printer. Defaults to 9100.</param>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="host"/> is not a valid host name or address.</exception>
     public NetworkPrinterEndpoint(string host, int port = DefaultPort)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(host);
+        ThrowIfNotAHost(host);
         ArgumentOutOfRangeException.ThrowIfLessThan(port, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(port, 65535);
         Host = host;
@@ -26,6 +27,16 @@ public sealed class NetworkPrinterEndpoint : PrinterEndpoint, IEquatable<Network
 
     /// <inheritdoc />
     public override PrinterIdKind Kind => PrinterIdKind.Network;
+
+    // A path, a query or user information in the value would change the target.
+    internal static void ThrowIfNotAHost(string host)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(host);
+        if (Uri.CheckHostName(host) == UriHostNameType.Unknown)
+        {
+            throw new ArgumentException($"'{host}' is not a valid host name or IP address.", nameof(host));
+        }
+    }
 
     /// <summary>
     /// Gets the host name or IP address of the printer.

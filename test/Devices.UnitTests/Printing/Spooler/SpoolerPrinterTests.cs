@@ -54,6 +54,21 @@ public class SpoolerPrinterTests
     }
 
     [Fact]
+    public async Task PrintAsync_ReportsTheOptionsTheDriverDidNotApply()
+    {
+        // The printer removes Duplex and the driver reports Copies: both names reach the caller.
+        FakeSpoolerDriver driver = new(Simplex()) { DroppedOptions = [nameof(PrintOptions.Copies)] };
+        SpoolerPrinter printer = new(Endpoint, driver);
+
+        var job = await printer.PrintAsync(
+            PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
+            new PrintOptions { Copies = 2, Duplex = DuplexMode.LongEdge, OnUnsupported = UnsupportedOptionBehavior.Drop },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal([nameof(PrintOptions.Duplex), nameof(PrintOptions.Copies)], job.DroppedOptions);
+    }
+
+    [Fact]
     public async Task PrintAsync_ThrowStopsTheJobBeforeItReachesTheDriver()
     {
         FakeSpoolerDriver driver = new(Simplex());

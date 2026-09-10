@@ -3,8 +3,7 @@ using AdaptArch.Devices.Printing;
 
 namespace AdaptArch.Devices.UnitTests.Printing;
 
-// Counts its calls, so a test can prove how often the manager ran a discovery. A null
-// answer makes the source throw.
+// Counts its calls. A null answer makes the source throw.
 internal sealed class FakeMdnsDiscovery : IMdnsPrinterDiscovery
 {
     private readonly IReadOnlyList<DiscoveredPrinter> _answer;
@@ -15,7 +14,7 @@ internal sealed class FakeMdnsDiscovery : IMdnsPrinterDiscovery
 
     public Func<Task> Gate { get; set; }
 
-    public async Task<IReadOnlyList<DiscoveredPrinter>> DiscoverPrintersAsync(MdnsPrinterDiscoveryOptions options, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<DiscoveredPrinter>> DiscoverAsync(MdnsPrinterDiscoveryOptions options, CancellationToken cancellationToken)
     {
         Calls++;
         if (Gate is not null)
@@ -35,7 +34,7 @@ internal sealed class FakeSpoolerDiscovery : IPrinterDiscovery
 
     public int Calls { get; private set; }
 
-    public Task<IReadOnlyList<DiscoveredPrinter>> GetPrintersAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<DiscoveredPrinter>> DiscoverAsync(CancellationToken cancellationToken)
     {
         Calls++;
         return _answer is null
@@ -52,17 +51,21 @@ internal sealed class FakeNetworkProbe : INetworkPrinterDiscovery
 
     public int Calls { get; private set; }
 
-    public Task<IReadOnlyList<DiscoveredPrinter>> DiscoverNetworkPrintersAsync(NetworkPrinterDiscoveryOptions options, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<DiscoveredPrinter>> DiscoverAsync(NetworkPrinterDiscoveryOptions options, CancellationToken cancellationToken)
     {
         Calls++;
         return Task.FromResult(_answer);
     }
 }
 
-// Records what it was asked to print, so a test can prove the channel choice.
 internal sealed class FakePrinterFactory : IPrinterFactory
 {
     public List<DiscoveredPrinter> Opened { get; } = [];
+
+    public List<PrinterId> OpenedById { get; } = [];
+
+    // The answer for a network identifier the cache misses. Null makes the open fail.
+    public Func<PrinterId, DiscoveredPrinter> OpenById { get; set; }
 
     public IPrinter Open(DiscoveredPrinter printer)
     {
@@ -70,8 +73,13 @@ internal sealed class FakePrinterFactory : IPrinterFactory
         return new FakePrinter(printer);
     }
 
-    public Task<IPrinter> OpenAsync(PrinterId id, CancellationToken cancellationToken) =>
-        throw new NotSupportedException("The manager opens by discovered printer, never by identifier.");
+    public Task<IPrinter> OpenAsync(PrinterId id, CancellationToken cancellationToken)
+    {
+        OpenedById.Add(id);
+        return OpenById is null
+            ? Task.FromException<IPrinter>(new InvalidOperationException($"No printer answers at '{id.Value}'."))
+            : Task.FromResult<IPrinter>(new FakePrinter(OpenById(id)));
+    }
 }
 
 internal sealed class FakePrinter : IPrinter
@@ -96,8 +104,7 @@ internal sealed class FakePrinter : IPrinter
         Task.FromResult(new PrinterConfiguration(Id));
 }
 
-// Records what it was asked to watch and yields a scripted sequence, so a test can prove
-// the manager delegated rather than invented the readings.
+// Yields a scripted sequence, so a test can prove the manager delegated the readings.
 internal sealed class FakePrintJobMonitor : IPrintJobMonitor
 {
     private readonly IReadOnlyList<PrintJobInfo> _readings;

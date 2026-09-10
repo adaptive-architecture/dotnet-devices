@@ -3,15 +3,18 @@ using SharpIpp.Protocol.Models;
 
 namespace AdaptArch.Devices.Printing.Ipp;
 
-// Turns IPP job-description attributes into the library job model. The job-state map is
-// IppJobStateMapper, shared with IppPrinter, so this type only joins the reasons and
-// copies the counters and timestamps.
+// Turns IPP job-description attributes into the library job model.
 internal static class IppJobMapper
 {
-    public static PrintJobInfo Map(PrinterId id, JobDescriptionAttributes attributes)
+    // Returns null for a job without job-id: it can be neither tracked nor cancelled.
+    public static PrintJobInfo? Map(PrinterId id, JobDescriptionAttributes attributes)
     {
-        var jobId = attributes.JobId?.ToString(CultureInfo.InvariantCulture) ?? String.Empty;
-        PrintJobInfo job = new(jobId, id, IppJobStateMapper.Map(attributes.JobState))
+        if (attributes.JobId is not int numericId)
+        {
+            return null;
+        }
+
+        PrintJobInfo job = new(numericId.ToString(CultureInfo.InvariantCulture), id, IppJobStateMapper.Map(attributes.JobState))
         {
             JobName = attributes.JobName,
             ImpressionsCompleted = attributes.JobImpressionsCompleted,

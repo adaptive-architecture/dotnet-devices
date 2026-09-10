@@ -37,10 +37,19 @@ public class IppJobMapperTests
 
         var job = IppJobMapper.Map(PrinterId.FromNetwork("printer.local"), attributes);
 
+        Assert.NotNull(job);
         Assert.Equal("42", job.JobId);
         Assert.Equal("label.zpl", job.JobName);
         Assert.Equal(PrintJobState.Printing, job.State);
         Assert.Equal(4, job.ImpressionsCompleted);
         Assert.Equal(10, job.TotalImpressions);
+    }
+
+    [Fact]
+    public void Map_ReturnsNullForAJobWithoutAnIdentifier()
+    {
+        JobDescriptionAttributes attributes = new() { JobState = JobState.Pending };
+
+        Assert.Null(IppJobMapper.Map(PrinterId.FromNetwork("printer.local"), attributes));
     }
 }

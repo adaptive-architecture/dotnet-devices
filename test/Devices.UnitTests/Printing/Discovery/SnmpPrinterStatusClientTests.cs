@@ -1,4 +1,6 @@
-﻿using AdaptArch.Devices.Printing;
+﻿using System.Net;
+using System.Net.Sockets;
+using AdaptArch.Devices.Printing;
 using DotNetSnmp.Asn1.SyntaxObjects;
 using Lextm.SharpSnmpLib;
 using Xunit;
@@ -232,9 +234,7 @@ public class SnmpPrinterStatusClientTests
         Assert.Equal("black", marker.Color);
     }
 
-    // -2 means "some amount remains, unknown". LevelPercent cannot express that, but
-    // LevelRaw still carries the reported value, so a caller can tell it apart from a
-    // marker that reported nothing at all.
+    // LevelPercent cannot express -2, but LevelRaw still carries it.
     [Fact]
     public async Task GetDetailsAsync_UnknownAmountRemainingLevel_ReportsRawValueWithNullPercent()
     {
@@ -255,19 +255,19 @@ public class SnmpPrinterStatusClientTests
         Assert.Equal(500, marker.MaxCapacity);
     }
 
+    // The agent returns the rows interleaved, one repetition at a time, as RFC 3416 says.
     [Fact]
     public async Task GetDetailsAsync_ReadsSeveralMarkersInTableOrder()
     {
         FakeSnmpChannelFactory factory = new(
             [Scalars()],
-            [Walk(
+            [Agent(
                 SnmpResponses.Text($"{PrinterMibOids.SuppliesDescription}.1.1", "Cyan"),
                 SnmpResponses.Integer($"{PrinterMibOids.SuppliesMaxCapacity}.1.1", 200),
                 SnmpResponses.Integer($"{PrinterMibOids.SuppliesLevel}.1.1", 100),
                 SnmpResponses.Text($"{PrinterMibOids.SuppliesDescription}.1.2", "Magenta"),
                 SnmpResponses.Integer($"{PrinterMibOids.SuppliesMaxCapacity}.1.2", 200),
-                SnmpResponses.Integer($"{PrinterMibOids.SuppliesLevel}.1.2", 20))],
-            [EmptyWalk()]);
+                SnmpResponses.Integer($"{PrinterMibOids.SuppliesLevel}.1.2", 20))]);
 
         var details = await NewClient(factory)
             .GetDetailsAsync(Host, TestContext.Current.CancellationToken);
@@ -392,12 +392,11 @@ public class SnmpPrinterStatusClientTests
     [Fact]
     public async Task GetDetailsAsync_AnswerWithWrongRequestId_IsDiscarded()
     {
-        // The first datagram carries an identifier the client never sent, so the client
-        // must keep waiting and accept only the second one.
+        // The first datagram carries an identifier the client never sent.
         FakeSnmpChannelFactory factory = new(
             [
-                _ => SnmpResponses.Response(1, SnmpResponses.Text(PrinterMibOids.PrinterName, "Stale")),
-                requestId => SnmpResponses.Response(requestId, SnmpResponses.Text(PrinterMibOids.PrinterName, "Fresh")),
+                Reply(_ => SnmpResponses.Response(1, SnmpResponses.Text(PrinterMibOids.PrinterName, "Stale"))),
+                Scalars(SnmpResponses.Text(PrinterMibOids.PrinterName, "Fresh")),
             ],
             [EmptyWalk()]);
 
@@ -408,22 +407,174 @@ public class SnmpPrinterStatusClientTests
     }
 
     [Fact]
+    public async Task GetDetailsAsync_AnswerFromAnotherAddress_IsDiscarded()
+    {
+        FakeSnmpChannelFactory factory = new(
+            [
+                Reply(
+                    requestId => SnmpResponses.Response(requestId, SnmpResponses.Text(PrinterMibOids.PrinterName, "Stray")),
+                    IPAddress.Parse("192.168.1.99")),
+                Scalars(SnmpResponses.Text(PrinterMibOids.PrinterName, "Real")),
+            ],
+            [EmptyWalk()]);
+
+        var details = await NewClient(factory)
+            .GetDetailsAsync(Host, TestContext.Current.CancellationToken);
+
+        Assert.Equal("Real", details.Info.Name);
+    }
+
+    // An IPv4-mapped IPv6 sender is still the printer.
+    [Fact]
+    public async Task GetDetailsAsync_AnswerFromMappedAddress_IsAccepted()
+    {
+        FakeSnmpChannelFactory factory = new(
+            [Reply(
+                requestId => SnmpResponses.Response(requestId, SnmpResponses.Text(PrinterMibOids.PrinterName, "Mapped")),
+                IPAddress.Parse($"::ffff:{Host}"))],
+            [EmptyWalk()]);
+
+        var details = await NewClient(factory)
+            .GetDetailsAsync(Host, TestContext.Current.CancellationToken);
+
+        Assert.Equal("Mapped", details.Info.Name);
+    }
+
+    [Fact]
+    public async Task GetDetailsAsync_MalformedAnswerThenGoodAnswer_UsesTheGoodAnswer()
+    {
+        FakeSnmpChannelFactory factory = new(
+            [
+                new FakeSnmpAnswer(_ => [0x30, 0x05, 0x02]),
+                Scalars(SnmpResponses.Text(PrinterMibOids.PrinterName, "Good")),
+            ],
+            [EmptyWalk()]);
+
+        var details = await NewClient(factory)
+            .GetDetailsAsync(Host, TestContext.Current.CancellationToken);
+
+        Assert.Equal("Good", details.Info.Name);
+        Assert.Equal(2, factory.AttemptCount);
+    }
+
+    [Fact]
     public async Task GetDetailsAsync_AgentReportsErrorStatus_ThrowsInvalidOperation()
     {
         FakeSnmpChannelFactory factory = new(
-            [requestId => SnmpResponses.Response(requestId, 5, 1, SnmpResponses.Null(PrinterMibOids.SystemName))]);
+            [Reply(requestId => SnmpResponses.Response(requestId, 5, 1, SnmpResponses.Null(PrinterMibOids.SystemName)))]);
 
         _ = await Assert.ThrowsAsync<InvalidOperationException>(
             () => NewClient(factory).GetDetailsAsync(Host, TestContext.Current.CancellationToken));
     }
 
+    // A malformed datagram is not an answer.
     [Fact]
-    public async Task GetDetailsAsync_MalformedAnswer_ThrowsInvalidData()
+    public async Task GetDetailsAsync_OnlyMalformedAnswers_ThrowsInvalidOperationAfterEveryAttempt()
     {
-        FakeSnmpChannelFactory factory = new([_ => [0x30, 0x05, 0x02]]);
+        FakeSnmpChannelFactory factory = new(
+            [new FakeSnmpAnswer(_ => [0x30, 0x05, 0x02])],
+            [new FakeSnmpAnswer(_ => [0x30, 0x05, 0x02])],
+            [new FakeSnmpAnswer(_ => [0x30, 0x05, 0x02])]);
 
-        _ = await Assert.ThrowsAsync<InvalidDataException>(
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(
             () => NewClient(factory).GetDetailsAsync(Host, TestContext.Current.CancellationToken));
+        Assert.Equal(3, factory.AttemptCount);
+    }
+
+    [Fact]
+    public async Task GetDetailsAsync_SendFails_ReportsTheSocketErrorAsCause()
+    {
+        SocketException failure = new((int)SocketError.NetworkUnreachable);
+        FakeSnmpChannelFactory factory = new() { SendFailure = failure };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => NewClient(factory).GetDetailsAsync(Host, TestContext.Current.CancellationToken));
+
+        Assert.Same(failure, exception.InnerException);
+        Assert.Equal(3, factory.AttemptCount);
+    }
+
+    [Fact]
+    public async Task GetDetailsAsync_IPv4Host_OpensAnIPv4Channel()
+    {
+        FakeSnmpChannelFactory factory = new([Scalars()], [EmptyWalk()]);
+
+        _ = await NewClient(factory).GetDetailsAsync(Host, TestContext.Current.CancellationToken);
+
+        Assert.All(factory.AddressFamilies, family => Assert.Equal(AddressFamily.InterNetwork, family));
+    }
+
+    [Fact]
+    public async Task GetDetailsAsync_IPv6Host_OpensAnIPv6Channel()
+    {
+        FakeSnmpChannelFactory factory = new([Scalars()], [EmptyWalk()]);
+
+        _ = await NewClient(factory).GetDetailsAsync("::1", TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, factory.AttemptCount);
+        Assert.All(factory.AddressFamilies, family => Assert.Equal(AddressFamily.InterNetworkV6, family));
+    }
+
+    // The columns come back interleaved, one row of each per repetition, and a column
+    // that runs out spills into the next. One answer must give all four supplies.
+    [Fact]
+    public async Task GetDetailsAsync_FourSupplies_FinishTheWalkInOneRoundTrip()
+    {
+        string[] names = ["Black", "Cyan", "Magenta", "Yellow"];
+        List<Variable> mib = [];
+        for (var row = 1; row <= names.Length; row++)
+        {
+            mib.Add(SnmpResponses.Text($"{PrinterMibOids.SuppliesDescription}.1.{row}", names[row - 1]));
+            mib.Add(SnmpResponses.Integer($"{PrinterMibOids.SuppliesMaxCapacity}.1.{row}", 100));
+            mib.Add(SnmpResponses.Integer($"{PrinterMibOids.SuppliesLevel}.1.{row}", 10 * row));
+            mib.Add(SnmpResponses.Integer($"{PrinterMibOids.SuppliesColorantIndex}.1.{row}", row));
+            mib.Add(SnmpResponses.Text($"{PrinterMibOids.ColorantValue}.1.{row}", names[row - 1].ToLowerInvariant()));
+        }
+
+        mib.Add(SnmpResponses.Text("1.3.6.1.2.1.43.13.4.1.1.1.1", "next table"));
+        FakeSnmpChannelFactory factory = new([Scalars()], [Agent([.. mib])]);
+
+        var details = await NewClient(factory)
+            .GetDetailsAsync(Host, TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, factory.Requests.Count);
+        Assert.Equal(names, details.Status.Markers.Select(marker => marker.Name));
+        Assert.Equal([10, 20, 30, 40], details.Status.Markers.Select(marker => marker.LevelPercent));
+        Assert.Equal(["black", "cyan", "magenta", "yellow"], details.Status.Markers.Select(marker => marker.Color));
+    }
+
+    [Fact]
+    public async Task GetDetailsAsync_WalkTooBig_AsksAgainForHalfTheRows()
+    {
+        FakeSnmpChannelFactory factory = new([Scalars()], [TooBig()], [EmptyWalk()]);
+
+        _ = await NewClient(factory).GetDetailsAsync(Host, TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, factory.Requests.Count);
+        Assert.Equal(20, SnmpRequests.ReadMaxRepetitions(factory.Requests[1]));
+        Assert.Equal(10, SnmpRequests.ReadMaxRepetitions(factory.Requests[2]));
+        Assert.Equal(PrinterMibOids.SupplyColumns, SnmpRequests.ReadOids(factory.Requests[2]));
+    }
+
+    [Fact]
+    public async Task GetDetailsAsync_WalkTooBigTwice_ThrowsInvalidOperation()
+    {
+        FakeSnmpChannelFactory factory = new([Scalars()], [TooBig()], [TooBig()]);
+
+        _ = await Assert.ThrowsAnyAsync<InvalidOperationException>(
+            () => NewClient(factory).GetDetailsAsync(Host, TestContext.Current.CancellationToken));
+        Assert.Equal(3, factory.AttemptCount);
+    }
+
+    // Only the table walk can ask for less. A scalar read that is too big is an error.
+    [Fact]
+    public async Task GetDetailsAsync_ScalarsTooBig_ThrowsInvalidOperation()
+    {
+        FakeSnmpChannelFactory factory = new([TooBig()]);
+
+        _ = await Assert.ThrowsAnyAsync<InvalidOperationException>(
+            () => NewClient(factory).GetDetailsAsync(Host, TestContext.Current.CancellationToken));
+        Assert.Equal(1, factory.AttemptCount);
     }
 
     [Fact]
@@ -485,13 +636,25 @@ public class SnmpPrinterStatusClientTests
     private static SnmpPrinterStatusClient NewClient(FakeSnmpChannelFactory factory) =>
         new(new SnmpPrinterStatusOptions { RequestTimeout = TimeSpan.FromMilliseconds(150) }, factory.Create);
 
-    private static Func<int, byte[]> Scalars(params Variable[] variables) =>
-        requestId => SnmpResponses.Response(requestId, variables);
+    // An answer that echoes the request identifier, the way a real agent does.
+    private static FakeSnmpAnswer Reply(Func<int, byte[]> response, IPAddress sender = null) =>
+        new(request => response(SnmpRequests.ReadRequestId(request)), sender);
 
-    private static Func<int, byte[]> Walk(params Variable[] variables) =>
-        requestId => SnmpResponses.Response(requestId, variables);
+    private static FakeSnmpAnswer Scalars(params Variable[] variables) =>
+        Reply(requestId => SnmpResponses.Response(requestId, variables));
 
-    private static Func<int, byte[]> EmptyWalk() =>
-        requestId => SnmpResponses.Response(
-            requestId, SnmpResponses.EndOfMibView("1.3.6.1.2.1.43.99"));
+    private static FakeSnmpAnswer Walk(params Variable[] variables) =>
+        Reply(requestId => SnmpResponses.Response(requestId, variables));
+
+    private static FakeSnmpAnswer EmptyWalk() =>
+        Reply(requestId => SnmpResponses.Response(
+            requestId, SnmpResponses.EndOfMibView("1.3.6.1.2.1.43.99")));
+
+    // Error status 1 is tooBig.
+    private static FakeSnmpAnswer TooBig() =>
+        Reply(requestId => SnmpResponses.Response(requestId, 1, 0));
+
+    // An agent that answers every GetBulkRequest from the given rows.
+    private static FakeSnmpAnswer Agent(params Variable[] mib) =>
+        new(request => SnmpResponses.BulkResponse(request, mib));
 }

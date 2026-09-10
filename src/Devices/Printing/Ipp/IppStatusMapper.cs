@@ -3,9 +3,7 @@ using SharpIpp.Protocol.Models;
 
 namespace AdaptArch.Devices.Printing.Ipp;
 
-// Turns IPP printer attributes into the library status model. Shared by
-// IppPrinterStatusClient and IppPrinter, so the state map, the state-reason join and the
-// marker read live in one place.
+// Turns IPP printer attributes into the library status model.
 internal static class IppStatusMapper
 {
     public static readonly string[] RequestedAttributes =
@@ -22,9 +20,9 @@ internal static class IppStatusMapper
 
     public static IppPrinterDetails Map(PrinterId id, PrinterDescriptionAttributes? attributes, IIppResponseMessage? raw)
     {
-        var state = MapState(attributes?.PrinterState);
+        var state = MapState(attributes?.PrinterState, attributes?.PrinterStateReasons);
         var detail = JoinReasons(attributes?.PrinterStateReasons);
-        var accepting = attributes?.PrinterIsAcceptingJobs ?? state != PrinterStatusState.Paused;
+        var accepting = attributes?.PrinterIsAcceptingJobs ?? state is not (PrinterStatusState.Paused or PrinterStatusState.Error);
 
         PrinterStatus status = new(id, state)
         {
@@ -38,6 +36,9 @@ internal static class IppStatusMapper
         };
         return new IppPrinterDetails(info, status);
     }
+
+    private static bool HasErrorReason(PrinterStateReason[]? reasons) =>
+        reasons is not null && Array.Exists(reasons, static reason => reason.ToString().EndsWith("-error", StringComparison.OrdinalIgnoreCase));
 
     private static string? JoinReasons(PrinterStateReason[]? reasons)
     {
@@ -59,7 +60,7 @@ internal static class IppStatusMapper
         return named.Count == 0 ? null : String.Join("; ", named);
     }
 
-    private static PrinterStatusState MapState(PrinterState? state)
+    private static PrinterStatusState MapState(PrinterState? state, PrinterStateReason[]? reasons)
     {
         if (state == PrinterState.Idle)
         {
@@ -71,10 +72,11 @@ internal static class IppStatusMapper
             return PrinterStatusState.Processing;
         }
 
-        // IPP reports a printer that has halted as "stopped".
+        // IPP reports a halted printer as "stopped". An "-error" reason suffix
+        // (RFC 8011 §5.4.12) says the halt is a fault, not a pause.
         if (state == PrinterState.Stopped)
         {
-            return PrinterStatusState.Paused;
+            return HasErrorReason(reasons) ? PrinterStatusState.Error : PrinterStatusState.Paused;
         }
 
         return PrinterStatusState.Unknown;

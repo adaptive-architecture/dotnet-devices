@@ -5,7 +5,6 @@ using Microsoft.Extensions.DependencyInjection;
 Console.WriteLine("AdaptArch.Devices samples");
 Console.WriteLine($"Current OS: {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
 
-// Registrations from AdaptArch.Devices.DependencyInjection; the core package has zero runtime dependencies.
 ServiceCollection services = new();
 services.AddPrinters();
 using var provider = services.BuildServiceProvider();
@@ -19,7 +18,6 @@ foreach (var file in SampleHelpers.GetPrintFiles(printFilesDirectory))
 
 if (args.Length == 0)
 {
-    // No arguments meets a newcomer at the recommended path: the manager, not the seams.
     await PrinterManagerScenario.DiscoverAsync(provider).ConfigureAwait(false);
     PrintHelp();
     return;

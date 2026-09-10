@@ -12,7 +12,7 @@ public interface IPrinterManager
     /// <param name="options">The discovery scope. When <c>null</c>, defaults apply.</param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>The printers found by the sources that succeeded.</returns>
-    /// <exception cref="Exception">Thrown when every configured source failed. The exception is the last failure seen.</exception>
+    /// <exception cref="PrinterDiscoveryException">Thrown when every configured source failed. <see cref="PrinterDiscoveryException.Failures"/> holds the error of each source.</exception>
     Task<IReadOnlyList<DiscoveredPrinter>> DiscoverAsync(PrinterManagerOptions? options, CancellationToken cancellationToken);
 
     /// <summary>
@@ -23,6 +23,8 @@ public interface IPrinterManager
     /// <param name="options">Optional per-job printing options.</param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>The submitted job.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when <paramref name="id"/> is unknown, even after a fresh discovery.</exception>
+    /// <exception cref="NotSupportedException">Thrown when <see cref="PrintOptions.RequirePassthrough"/> is set and the printer has no channel that sends the payload unchanged.</exception>
     Task<PrintJobInfo> PrintAsync(PrinterId id, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken);
 
     /// <summary>

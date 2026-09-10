@@ -1,17 +1,12 @@
 ﻿namespace AdaptArch.Devices.Printing.Spooler;
 
-// Interprets the raw buffers DeviceCapabilitiesW fills in. Pure and P/Invoke-free on
-// purpose: the buffer layout (fixed 64-character blocks; pairs of horizontal/vertical
-// DPI) is documented behaviour of DeviceCapabilitiesW itself, not a struct guess, so
-// this is exactly the off-by-one-prone logic worth testing directly with hand-built
-// buffers instead of only through a native call nothing here can execute.
+// Interprets the raw buffers DeviceCapabilitiesW fills in. P/Invoke-free on purpose, so
+// the off-by-one-prone logic is testable with hand-built buffers.
 internal static class WindowsSpoolerCapabilityParser
 {
     private const int PaperNameBlockLength = 64;
 
-    // DC_PAPERNAMES returns one fixed-length block of PaperNameBlockLength characters
-    // per name. A name that fills the whole block has no null terminator, so trimming
-    // must fall back to the full block length when no null is found.
+    // One fixed-length block per name. A name that fills the block has no terminator.
     internal static IReadOnlyList<string> ParsePaperNames(ReadOnlySpan<char> buffer, int count)
     {
         List<string> names = new(count);
@@ -25,8 +20,7 @@ internal static class WindowsSpoolerCapabilityParser
         return names;
     }
 
-    // DC_ENUMRESOLUTIONS returns pairs of LONG: horizontal DPI followed by vertical
-    // DPI. Only the horizontal value is reported, per the task's binding decision.
+    // Pairs of horizontal and vertical DPI. Only the horizontal value is reported.
     internal static IReadOnlyList<int> ParseResolutions(ReadOnlySpan<int> pairs)
     {
         var count = pairs.Length / 2;

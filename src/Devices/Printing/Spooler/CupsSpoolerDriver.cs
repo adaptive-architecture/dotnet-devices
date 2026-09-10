@@ -5,23 +5,21 @@ using SharpIpp.Protocol.Models;
 
 namespace AdaptArch.Devices.Printing.Spooler;
 
-// Reaches the CUPS daemon over IPP. CUPS is itself an IPP server listening on
-// localhost:631, so this driver needs no native interop: it is the same IPP request
-// and response types IppPrinter and IppPrintJobQueue already use, pointed at the
-// fixed local daemon path instead of a resolved network endpoint. The daemon path
-// never changes, so this driver does not use IppEndpointResolver: there is nothing
-// to probe, and probing would double every call's round trips.
+// CUPS is an IPP server on localhost:631, so this driver is the same IPP calls pointed
+// at a fixed path. The path never changes, so IppEndpointResolver has nothing to probe.
 internal sealed class CupsSpoolerDriver : ISpoolerDriver
 {
     private static readonly Uri DefaultBaseUri = new("ipp://localhost:631/");
 
+    // One client for every driver: the target is fixed, and a client per driver would
+    // leak a connection pool each time the factory makes one.
+    private static readonly Lazy<HttpClient> SharedClient = new(static () => IppHttpClientFactory.Create(new IppTransportOptions()));
+
     private readonly HttpClient _httpClient;
     private readonly Uri _baseUri;
 
-    // Owns the client it builds here, because nothing else reaches the local CUPS
-    // daemon and nothing else can share it.
     public CupsSpoolerDriver()
-        : this(new HttpClient(), DefaultBaseUri)
+        : this(SharedClient.Value, DefaultBaseUri)
     {
     }
 
@@ -30,7 +28,6 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     {
     }
 
-    // Lets a test point this driver at a stub server instead of the real daemon.
     internal CupsSpoolerDriver(HttpClient httpClient, Uri baseUri)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
@@ -54,7 +51,6 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
 
         var attributes = response.PrintersAttributes ?? [];
         List<DiscoveredPrinter> printers = new(attributes.Length);
-        // A queue with no name cannot be addressed, so it is not reported.
         foreach (var printer in attributes.Where(printer => !String.IsNullOrWhiteSpace(printer.PrinterName)))
         {
             printers.Add(MapDiscovered(printer));
@@ -75,9 +71,7 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         return new DiscoveredPrinter(id, endpoint, info) { Source = DiscoverySource.Spooler };
     }
 
-    // The document format follows the payload content type, as IppPrinter does. CUPS
-    // accepts application/octet-stream and applies its own filter chain from there.
-    // A spooler printer validates the options above this driver, so nothing is dropped here.
+    // The options are validated above this driver, so nothing is dropped here.
     public Task<PrintJobInfo> SubmitAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
@@ -115,5 +109,6 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         return IppRequests.CancelJobAsync(_httpClient, QueueUri(queueName), jobId, cancellationToken);
     }
 
-    private Uri QueueUri(string queueName) => new(_baseUri, $"printers/{queueName}");
+    // The escape also covers a name handed to this driver directly, without an endpoint.
+    private Uri QueueUri(string queueName) => new(_baseUri, $"printers/{Uri.EscapeDataString(queueName)}");
 }

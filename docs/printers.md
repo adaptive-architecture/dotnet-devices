@@ -48,7 +48,9 @@ touching hardware.
 - `PrinterStatus` also carries `SerialNumber` and `LifetimePageCount`. A value is
   `null` when the printer did not report it. Only SNMP fills these two fields today.
   IPP and the operating system spooler do not report them yet.
-- `PrinterConfiguration` — supported DPIs, duplex/color support, media sizes. An empty
+- `PrinterConfiguration` — supported DPIs, duplex/color support, media sizes.
+  `SupportsDuplex` and `SupportsColor` are `bool?`: `null` means the printer did not
+  report the capability, `false` means it reported that it lacks it. An empty
   configuration means the capabilities are **not known**, not that nothing is supported.
   A `RawPrinter`, for example, always reports an empty configuration, because the raw
   channel gives no way to ask a printer what it supports.
@@ -75,14 +77,20 @@ support:
 
 `Throw` and `Drop` need a known configuration to compare against. When the printer
 reports an empty configuration, both act as `Send`, because there is nothing to
-compare the option to.
+compare the option to. A printer that reported only `SupportsDuplex = false` or
+`SupportsColor = false` made a capability statement, so both judge against it.
+
+The model types `DiscoveredPrinter`, `PrinterInfo`, `PrinterStatus` and
+`PrinterConfiguration` are read-only after construction (`init` setters). The manager
+hands out its cached instances, so a caller cannot change what other callers see.
 
 **A printer from `PrinterFactory` owns nothing and needs no disposal.**
-`PrinterFactory` keeps one internally managed `HttpClient` and shares it with every
-`IppPrinter` it returns, so a printer obtained through `IPrinterFactory.Open` or
-`OpenAsync` never owns an `HttpClient` of its own. Dispose `PrinterFactory` itself
-instead, when you are done with it (the dependency injection registration does this
-for you at shutdown).
+`PrinterFactory` keeps one internally managed `HttpClient`, one `IppPrinterStatusClient`
+and one `SnmpPrinterStatusClient`, and shares them with every `IppPrinter` and
+`RawPrinter` it returns. A printer obtained through `IPrinterFactory.Open` or `OpenAsync`
+owns no client of its own. Dispose `PrinterFactory` itself instead, when you are done
+with it (the dependency injection registration does this for you at shutdown). After
+`Dispose`, both `Open` methods throw `ObjectDisposedException`.
 
 **A directly constructed `IppPrinter` still owns its client.** `IPrinter` itself does
 not extend `IDisposable`, so a variable typed as `IPrinter` gives no compile-time
@@ -103,8 +111,12 @@ if (printer is IDisposable disposable)
 `WriteAsync(endpoint, payload, cancellationToken)`.
 
 - `TcpPrinterTransport` — sends to `NetworkPrinterEndpoint` printers over TCP.
-  The connection timeout defaults to five seconds and is configurable through the
-  constructor. Throws `NotSupportedException` for other endpoints.
+  The timeout defaults to five seconds and is configurable through the constructor. It
+  applies to the connection, and then again to the write of the payload, so a printer
+  that accepts the connection but stops reading fails with `TimeoutException` instead of
+  blocking the caller. After the write, the transport closes its side of the connection,
+  which tells the printer that the job is complete. Throws `NotSupportedException` for
+  other endpoints.
 
 ```csharp
 IPrinterTransport transport = new TcpPrinterTransport();
@@ -123,9 +135,7 @@ The wire format is handled by `SharpIppNext`; see [Packages](packages.md#runtime
 - `IppPrinterStatusClient` is `IDisposable`. The default constructor owns an
   `HttpClient`, and disposing the client disposes that `HttpClient`. A client built
   from a caller-supplied `HttpClient` does not dispose it.
-- The default client accepts any server certificate, because network printers
-  overwhelmingly use self-signed certificates. Supply your own `HttpClient`
-  for custom validation.
+- The trust policy comes from `IppTransportOptions`; see the next section.
 - The IPP port (default 631) is independent of any raw print channel port.
 - The optional `resourcePath` parameter is tried before the well-known paths. Pass the
   `rp` attribute of a DNS-SD TXT record to reach a printer that serves IPP elsewhere.
@@ -137,6 +147,49 @@ The wire format is handled by `SharpIppNext`; see [Packages](packages.md#runtime
 IppPrinterStatusClient client = new();
 IppPrinterDetails details = await client.GetDetailsAsync("192.168.1.50", cancellationToken).ConfigureAwait(false);
 ```
+
+
+## IPP transport policy
+
+Every IPP connection this library opens follows one `IppTransportOptions`. The same
+options apply to `IppPrinter`, `IppPrintJobQueue`, `IppPrinterStatusClient`,
+`CompositePrintJobQueue`, and `PrinterFactory`. The connection to a printer opens over
+IPPS (TLS) first. When no IPPS endpoint answers, the plain IPP endpoints are tried next.
+
+- `AllowPlainIpp` (default `true`): many label printers speak plain IPP only, so the
+  fallback is on. Set it to `false` to talk to IPPS printers only.
+- `ServerCertificateValidation` (default `null`): the default accepts every certificate,
+  because network printers use self-signed certificates in nearly every case. That
+  default protects the print data against a passive observer only. It does not prove
+  that the host is the printer you expect.
+- `ConnectTimeout` (default five seconds): a host that drops packets fails after this
+  time. Without it, the operating system default applies, which can be minutes.
+
+Set `ServerCertificateValidation` when the application must know that it talks to the
+right printer. A printer has no certificate chain to a public root, so pin the
+thumbprint of its certificate:
+
+```csharp
+IppTransportOptions options = new()
+{
+    ServerCertificateValidation = (_, certificate, _, _) =>
+        certificate is not null &&
+        String.Equals(certificate.GetCertHashString(), knownThumbprint, StringComparison.OrdinalIgnoreCase),
+};
+using PrinterFactory factory = new(options);
+```
+
+**A validating client never falls back to plain IPP.** When `ServerCertificateValidation`
+is set, or when you pass your own `HttpClient` to a constructor, a failed TLS handshake
+throws `AuthenticationException`. The library does not try plain IPP then, because clear
+text would defeat the trust you asked for. With the default policy, a failed handshake
+means "this port speaks plain IPP", and the fallback runs.
+
+To share one client between several types, build it once with
+`IppHttpClientFactory.Create(options)` and pass the client together with the same
+options to each constructor. `IppHttpClientFactory` sets the connect timeout, turns off
+redirects (every IPP operation is a POST that carries the document), and installs the
+certificate policy. The caller owns that client.
 
 ## Job queues and progress
 
@@ -164,14 +217,15 @@ A caller can go from `MdnsPrinterDiscovery`, to `IPrinterFactory.Open`, to
 
 ## Discovery
 
-- `IMdnsPrinterDiscovery.DiscoverPrintersAsync` — asks the local link for printers that
+- `IMdnsPrinterDiscovery.DiscoverAsync` — asks the local link for printers that
   advertise themselves. Prefer this: it needs no host list and opens no connection.
   `MdnsPrinterDiscovery` is the implementation. See [Discovery over mDNS](#discovery-over-mdns).
-- `INetworkPrinterDiscovery.DiscoverNetworkPrintersAsync` — probes explicit hosts for
+- `INetworkPrinterDiscovery.DiscoverAsync` — probes explicit hosts for
   an open raw print channel. Probing is opt-in: callers pass the hosts, port,
-  per-host `ConnectTimeout`, and `MaxDegreeOfParallelism`. `TcpNetworkPrinterDiscovery`
+  per-host `ConnectTimeout` (which must be positive), and `MaxDegreeOfParallelism`.
+  A host that is listed more than one time is probed one time. `TcpNetworkPrinterDiscovery`
   is the TCP-probe implementation. Use it for printers that do not advertise themselves.
-- `IPrinterDiscovery.GetPrintersAsync` — enumerates printers installed in the operating
+- `IPrinterDiscovery.DiscoverAsync` — enumerates printers installed in the operating
   system print spooler (Win32 print queues, CUPS destinations). `SpoolerPrinterDiscovery`
   is the implementation. See [Spooler](#spooler).
 
@@ -183,7 +237,7 @@ NetworkPrinterDiscoveryOptions options = new()
     ConnectTimeout = TimeSpan.FromSeconds(1),
 };
 IReadOnlyList<DiscoveredPrinter> printers =
-    await discovery.DiscoverNetworkPrintersAsync(options, cancellationToken).ConfigureAwait(false);
+    await discovery.DiscoverAsync(options, cancellationToken).ConfigureAwait(false);
 ```
 
 ## Discovery over mDNS
@@ -195,7 +249,7 @@ no host list, no connection to any address.
 ```csharp
 IMdnsPrinterDiscovery discovery = new MdnsPrinterDiscovery();
 IReadOnlyList<DiscoveredPrinter> printers =
-    await discovery.DiscoverPrintersAsync(new MdnsPrinterDiscoveryOptions(), cancellationToken).ConfigureAwait(false);
+    await discovery.DiscoverAsync(new MdnsPrinterDiscoveryOptions(), cancellationToken).ConfigureAwait(false);
 ```
 
 `MdnsPrinterDiscoveryOptions` controls the browse:
@@ -207,9 +261,15 @@ IReadOnlyList<DiscoveredPrinter> printers =
   multicast datagram can be lost. Defaults to two.
 - `NetworkInterfaceIndexes` — restricts the browse to named interfaces. Empty uses all.
 - `IncludeIPv6` — adds the `ff02::fb` group to the IPv4 `224.0.0.251` group.
+- `MaxRecords` — the largest number of DNS records to read on one interface. Defaults to
+  10000. It bounds the memory that a flood of answers can take.
 
-The TXT attributes of each answer fill `PrinterInfo`: `ty` becomes `Name`, `note` becomes
-`Location`, and `pdl` becomes `DriverName`.
+The browse opens one socket for each interface and address family, so a query goes out
+one time on each link. The TXT attributes of each answer fill `PrinterInfo`: `ty` becomes
+`Name`, `note` becomes `Location`, and `pdl` becomes `DriverName`. When a key appears
+more than one time, the first one counts (RFC 6763 §6.4). An address record that points
+to a loopback, unspecified, or multicast address is ignored, and the endpoint then keeps
+the target name of the service.
 
 A printer advertises every protocol it supports under one service name, so the browse
 reports it one time. When a printer offers more than one protocol, the endpoint is chosen
@@ -243,11 +303,18 @@ run time:
   local IPP server, so this driver is the one part of the library that calls
   native code.
 
-The Windows driver honours only `PrintOptions.JobName` today. `Copies`, `Duplex`,
+The Windows driver applies only `PrintOptions.JobName` for now. `Copies`, `Duplex`,
 `ColorMode`, `Orientation`, `MediaSource`, `MediaSize`, and `ResolutionDpi` are not
 mapped into a `DEVMODE`, so none of them changes what happens on Windows; a job
-reaches the device unchanged. This matches `UnsupportedOptionBehavior.Send`: the
-request goes out and the printer decides.
+reaches the device unchanged. The driver reports every one of these options that
+you set in `PrintJobInfo.DroppedOptions`, whatever `OnUnsupported` says, so the
+caller can see that the request did not apply them.
+
+A `SpoolerPrinterEndpoint` name has at most 127 characters and contains no control
+character and none of `/`, `?` and `#`: those characters would end the path segment
+the CUPS driver builds from the name. Spaces and a Windows connection name such as
+`\\server\queue` are accepted. Two endpoints are equal when their names are equal
+without regard to case, as Windows and CUPS compare them.
 
 Native Windows calls cannot run in this repository's own test suite or CI, which
 both run on Linux. [Windows Manual Tests](windows-manual-tests.md) lists what the
@@ -272,7 +339,13 @@ Console.WriteLine($"{details.Info.Name}: {details.Status.SerialNumber}, {details
   `PrinterStatus.LifetimePageCount`.
 - `SnmpPrinterStatusOptions` sets `Community` (defaults to `public`), `RequestTimeout`
   (two seconds), and `Retries` (two, which gives three attempts, because UDP can lose a
-  datagram). The client throws `InvalidOperationException` when no attempt is answered.
+  datagram). The client throws `InvalidOperationException` when no attempt is answered;
+  when a socket error caused the failure, it is the inner exception. A datagram from
+  another address, or a malformed datagram, is not an answer and is discarded.
+- The host can be an IPv4 or an IPv6 address. A host name that resolves to both is
+  queried over IPv4, because most printers answer SNMP on IPv4 only.
+- When the agent answers the supply walk with `tooBig`, the client asks again one time
+  for half as many rows. Every other SNMP error status is an `InvalidOperationException`.
 - `hrPrinterStatus` gives `PrinterStatus.State`. The bits of
   `hrPrinterDetectedErrorState` can raise it to `Error` or `Offline`, and every set bit is
   named in `PrinterStatus.Detail`. A bit that is only a warning, such as `lowToner`, does
@@ -318,15 +391,23 @@ one from the browse, and one from the spooler. The manager keeps these two entri
 separate on purpose. For a printer language such as ZPL, the raw channel sends the
 bytes unchanged. The spooler queue may not send the bytes unchanged.
 
-**The mDNS browse and the network probe do not always keep separate identifiers.**
-`MdnsRecordAssembler` builds `PrinterId.FromNetwork(host)`. `TcpNetworkPrinterDiscovery`
-builds `new PrinterId(PrinterIdKind.Network, host)`. For the same host, these two
-identifiers are equal. When a host is in `Probe.Hosts` and the same host also answers
-the mDNS browse, the two entries share one identifier. The cache then keeps only the
-last entry written, which is the probe's entry.
+**One network identifier can have several endpoints.** The mDNS browse and the network
+probe both build `PrinterId.FromNetwork(host)`. A host that advertises IPP on port 631
+and also answers the raw port 9100 probe gives two entries with one identifier. The
+manager keeps every distinct endpoint of an identifier, and the result of `DiscoverAsync`
+lists each endpoint one time. Each call then picks the endpoint it needs. A print with
+`RequirePassthrough` takes the raw channel. Every other call prefers the endpoint with a
+job queue, so the job can be watched after it is sent.
 
-`PrintAsync` keeps what discovery found. On an unknown identifier, it runs one fresh
-discovery. It throws only when the identifier is still unknown after that.
+**An unknown identifier is resolved by its kind.** A network identifier names its host,
+so `PrintAsync`, `GetStatusAsync` and `WatchJobAsync` open that host through
+`IPrinterFactory.OpenAsync` and cache the answer. No browse of the whole link runs. A
+spooler identifier runs one fresh discovery. The call throws `InvalidOperationException`
+only when the identifier is still unknown after that.
+
+**`DiscoverAsync` throws `PrinterDiscoveryException` only when every source failed.**
+`PrinterDiscoveryException.Failures` holds the error of each source, keyed by
+`DiscoverySource`. A source that failed while another source answered is not reported.
 
 **A stale entry does not repair itself.** When a printer keeps its identifier but
 changes address, the print fails with the transport error. The manager does not
@@ -412,10 +493,16 @@ life of the application.
 
 `AddPrinters()` also registers `PrinterManager` as a singleton, for a different reason.
 `PrinterManager` keeps a shared discovery cache and a semaphore on purpose. This shared
-state is why `PrinterManager` must stay a singleton too:
+state is why `PrinterManager` must stay a singleton too.
+
+Every registration uses `TryAdd`, so a second call, or a registration the application
+made first, is left in place. The optional callback sets the `IppTransportOptions` for
+every IPP type the container serves. One `HttpClient` is built from those options, is
+shared by `PrinterFactory`, `IppPrinterStatusClient` and `CompositePrintJobQueue`, and
+is disposed with the container:
 
 ```csharp
-services.AddPrinters();
+services.AddPrinters(options => options.AllowPlainIpp = false);
 ```
 
 ## Sample

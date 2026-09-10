@@ -24,6 +24,6 @@ public sealed class SpoolerPrinterDiscovery : IPrinterDiscovery
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<DiscoveredPrinter>> GetPrintersAsync(CancellationToken cancellationToken) =>
+    public Task<IReadOnlyList<DiscoveredPrinter>> DiscoverAsync(CancellationToken cancellationToken) =>
         _driver.EnumeratePrintersAsync(cancellationToken);
 }

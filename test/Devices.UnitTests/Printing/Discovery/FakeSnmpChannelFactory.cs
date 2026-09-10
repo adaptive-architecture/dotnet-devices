@@ -4,48 +4,59 @@ using AdaptArch.Devices.Printing;
 
 namespace AdaptArch.Devices.UnitTests.Printing.Discovery;
 
-// Hands out one channel for each attempt the client makes. An attempt with no answers
-// makes the client time out, so a test can drive the retry path. Each answer is built from
-// the request identifier the client actually sent, the way a real agent echoes it.
+// One channel per attempt. An attempt with no answers makes the client time out, so a
+// test can drive the retry path.
 internal sealed class FakeSnmpChannelFactory
 {
-    private readonly Queue<Func<int, byte[]>[]> _attempts;
+    private readonly Queue<FakeSnmpAnswer[]> _attempts;
 
-    public FakeSnmpChannelFactory(params Func<int, byte[]>[][] attempts) =>
-        _attempts = new Queue<Func<int, byte[]>[]>(attempts);
+    public FakeSnmpChannelFactory(params FakeSnmpAnswer[][] attempts) =>
+        _attempts = new Queue<FakeSnmpAnswer[]>(attempts);
 
     public List<byte[]> Requests { get; } = [];
 
-    public int AttemptCount { get; private set; }
+    public List<AddressFamily> AddressFamilies { get; } = [];
 
-    public IUdpChannel Create()
+    public int AttemptCount => AddressFamilies.Count;
+
+    // When set, every send fails with this error.
+    public SocketException SendFailure { get; set; }
+
+    public IUdpChannel Create(AddressFamily addressFamily)
     {
-        AttemptCount++;
+        AddressFamilies.Add(addressFamily);
         var answers = _attempts.Count > 0 ? _attempts.Dequeue() : [];
-        return new FakeSnmpChannel(answers, Requests);
+        return new FakeSnmpChannel(answers, Requests, SendFailure);
     }
 
     private sealed class FakeSnmpChannel : IUdpChannel
     {
-        private readonly Func<int, byte[]>[] _answers;
+        private readonly FakeSnmpAnswer[] _answers;
         private readonly List<byte[]> _requests;
-        private readonly Queue<byte[]> _ready = new();
+        private readonly SocketException _sendFailure;
+        private readonly Queue<UdpReceiveResult> _ready = new();
 
-        public FakeSnmpChannel(Func<int, byte[]>[] answers, List<byte[]> requests)
+        public FakeSnmpChannel(FakeSnmpAnswer[] answers, List<byte[]> requests, SocketException sendFailure)
         {
             _answers = answers;
             _requests = requests;
+            _sendFailure = sendFailure;
         }
 
         public ValueTask SendAsync(ReadOnlyMemory<byte> datagram, IPEndPoint destination, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (_sendFailure is not null)
+            {
+                throw _sendFailure;
+            }
+
             var request = datagram.ToArray();
             _requests.Add(request);
-            var requestId = SnmpRequests.ReadRequestId(request);
             foreach (var answer in _answers)
             {
-                _ready.Enqueue(answer(requestId));
+                IPEndPoint sender = new(answer.Sender ?? destination.Address, destination.Port);
+                _ready.Enqueue(new UdpReceiveResult(answer.Answer(request), sender));
             }
 
             return ValueTask.CompletedTask;
@@ -55,7 +66,7 @@ internal sealed class FakeSnmpChannelFactory
         {
             if (_ready.Count > 0)
             {
-                return new UdpReceiveResult(_ready.Dequeue(), new IPEndPoint(IPAddress.Loopback, 161));
+                return _ready.Dequeue();
             }
 
             await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);

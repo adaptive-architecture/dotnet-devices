@@ -14,6 +14,8 @@ public class WindowsSpoolerStatusMapperTests
     [InlineData(0x00000008u, PrinterStatusState.Error)] // PRINTER_STATUS_PAPER_JAM
     [InlineData(0x00000010u, PrinterStatusState.Error)] // PRINTER_STATUS_PAPER_OUT
     [InlineData(0x00000040u, PrinterStatusState.Error)] // PRINTER_STATUS_PAPER_PROBLEM
+    [InlineData(0x00040000u, PrinterStatusState.Error)] // PRINTER_STATUS_NO_TONER
+    [InlineData(0x00100000u, PrinterStatusState.Error)] // PRINTER_STATUS_USER_INTERVENTION
     [InlineData(0x00400000u, PrinterStatusState.Error)] // PRINTER_STATUS_DOOR_OPEN
     [InlineData(0x00000080u, PrinterStatusState.Offline)] // PRINTER_STATUS_OFFLINE
     [InlineData(0x00001000u, PrinterStatusState.Offline)] // PRINTER_STATUS_NOT_AVAILABLE
@@ -21,13 +23,34 @@ public class WindowsSpoolerStatusMapperTests
     [InlineData(0x00004000u, PrinterStatusState.Processing)] // PRINTER_STATUS_PROCESSING
     [InlineData(0x00000200u, PrinterStatusState.Idle)] // PRINTER_STATUS_BUSY: not one of the mapped bits
     public void MapPrinterStatus_MapsEachDocumentedBit(uint status, PrinterStatusState expected) =>
-        Assert.Equal(expected, WindowsSpoolerStatusMapper.MapPrinterStatus(status));
+        Assert.Equal(expected, WindowsSpoolerStatusMapper.MapPrinterStatus(status, 0u));
+
+    [Fact]
+    public void MapPrinterStatus_WorkOfflineAttributeIsOffline()
+    {
+        // No status bit, but PRINTER_ATTRIBUTE_WORK_OFFLINE (0x400) is set.
+        var status = WindowsSpoolerStatusMapper.MapPrinterStatus(0x00000000u, 0x00000400u);
+
+        Assert.Equal(PrinterStatusState.Offline, status);
+        Assert.False(WindowsSpoolerStatusMapper.IsAcceptingJobs(0x00000000u, 0x00000400u));
+        Assert.Equal("PRINTER_ATTRIBUTE_WORK_OFFLINE", WindowsSpoolerStatusMapper.DescribePrinterStatus(0x00000000u, 0x00000400u));
+    }
+
+    [Fact]
+    public void MapPrinterStatus_OtherAttributesDoNotChangeTheState()
+    {
+        // LOCAL (0x40) and SHARED (0x8) are not WORK_OFFLINE, so the queue stays idle.
+        var status = WindowsSpoolerStatusMapper.MapPrinterStatus(0x00000000u, 0x00000048u);
+
+        Assert.Equal(PrinterStatusState.Idle, status);
+        Assert.True(WindowsSpoolerStatusMapper.IsAcceptingJobs(0x00000000u, 0x00000048u));
+    }
 
     [Fact]
     public void MapPrinterStatus_ErrorTakesPrecedenceOverPaused()
     {
         // PAUSED (0x1) and ERROR (0x2) both set: error needs the most attention.
-        var status = WindowsSpoolerStatusMapper.MapPrinterStatus(0x00000003u);
+        var status = WindowsSpoolerStatusMapper.MapPrinterStatus(0x00000003u, 0u);
 
         Assert.Equal(PrinterStatusState.Error, status);
     }
@@ -36,7 +59,7 @@ public class WindowsSpoolerStatusMapperTests
     public void MapPrinterStatus_OfflineTakesPrecedenceOverProcessing()
     {
         // OFFLINE (0x80) and PROCESSING (0x4000) both set: offline is the more actionable state.
-        var status = WindowsSpoolerStatusMapper.MapPrinterStatus(0x00004080u);
+        var status = WindowsSpoolerStatusMapper.MapPrinterStatus(0x00004080u, 0u);
 
         Assert.Equal(PrinterStatusState.Offline, status);
     }
@@ -44,9 +67,8 @@ public class WindowsSpoolerStatusMapperTests
     [Fact]
     public void MapPrinterStatus_PendingDeletionTakesPrecedenceOverOffline()
     {
-        // PENDING_DELETION (0x4) and OFFLINE (0x80) both set: a queue being torn down
-        // is not the same "actionable, might come back" state offline alone reports.
-        var status = WindowsSpoolerStatusMapper.MapPrinterStatus(0x00000084u);
+        // PENDING_DELETION (0x4) and OFFLINE (0x80) both set: deletion is not recoverable.
+        var status = WindowsSpoolerStatusMapper.MapPrinterStatus(0x00000084u, 0u);
 
         Assert.Equal(PrinterStatusState.Error, status);
     }
@@ -55,12 +77,14 @@ public class WindowsSpoolerStatusMapperTests
     [InlineData(0x00000000u, true)] // no bits: idle, accepts jobs
     [InlineData(0x00000001u, false)] // PRINTER_STATUS_PAUSED
     [InlineData(0x00000002u, false)] // PRINTER_STATUS_ERROR
+    [InlineData(0x00040000u, false)] // PRINTER_STATUS_NO_TONER
+    [InlineData(0x00100000u, false)] // PRINTER_STATUS_USER_INTERVENTION
     [InlineData(0x00000080u, false)] // PRINTER_STATUS_OFFLINE
     [InlineData(0x00001000u, false)] // PRINTER_STATUS_NOT_AVAILABLE
     [InlineData(0x00000400u, true)] // PRINTER_STATUS_PRINTING: busy, but still accepting
     [InlineData(0x00004000u, true)] // PRINTER_STATUS_PROCESSING: busy, but still accepting
     public void IsAcceptingJobs_IsFalseForPausedOfflineOrErrorBits(uint status, bool expected) =>
-        Assert.Equal(expected, WindowsSpoolerStatusMapper.IsAcceptingJobs(status));
+        Assert.Equal(expected, WindowsSpoolerStatusMapper.IsAcceptingJobs(status, 0u));
 
     [Theory]
     [InlineData(0x00000000u, PrintJobState.Queued)]
@@ -108,20 +132,22 @@ public class WindowsSpoolerStatusMapperTests
     [InlineData(0x00000400u, "PRINTER_STATUS_PRINTING")]
     [InlineData(0x00001000u, "PRINTER_STATUS_NOT_AVAILABLE")]
     [InlineData(0x00004000u, "PRINTER_STATUS_PROCESSING")]
+    [InlineData(0x00040000u, "PRINTER_STATUS_NO_TONER")]
+    [InlineData(0x00100000u, "PRINTER_STATUS_USER_INTERVENTION")]
     [InlineData(0x00400000u, "PRINTER_STATUS_DOOR_OPEN")]
     public void DescribePrinterStatus_NamesEachDocumentedBit(uint status, string expected) =>
-        Assert.Equal(expected, WindowsSpoolerStatusMapper.DescribePrinterStatus(status));
+        Assert.Equal(expected, WindowsSpoolerStatusMapper.DescribePrinterStatus(status, 0u));
 
     [Fact]
     public void DescribePrinterStatus_NamesBothSetBits()
     {
         // PAUSED (0x1) and PAPER_JAM (0x8) both set.
-        var detail = WindowsSpoolerStatusMapper.DescribePrinterStatus(0x00000009u);
+        var detail = WindowsSpoolerStatusMapper.DescribePrinterStatus(0x00000009u, 0u);
 
         Assert.Equal("PRINTER_STATUS_PAUSED; PRINTER_STATUS_PAPER_JAM", detail);
     }
 
     [Fact]
     public void DescribePrinterStatus_ReturnsNullWhenNoBitIsSet() =>
-        Assert.Null(WindowsSpoolerStatusMapper.DescribePrinterStatus(0x00000000u));
+        Assert.Null(WindowsSpoolerStatusMapper.DescribePrinterStatus(0x00000000u, 0u));
 }

@@ -12,11 +12,8 @@ public class IppPrintJobQueueTests
     [Fact]
     public async Task GetJobsAsync_ReturnsOneEntryForEachJob()
     {
-        // 0x21 is integer, 0x23 is enum, 0x42 is nameWithoutLanguage. SharpIppNext groups a
-        // GetJobsResponse into one job per attribute-group tag: a repeated "job-id" name
-        // inside a single 0x02 group does not start a new job, it is dropped instead
-        // (verified empirically against SharpIppNext 4.2.4). A second bare 0x02 tag between
-        // the two attribute lists is required to make the printer report two jobs.
+        // 0x21 integer, 0x23 enum, 0x42 nameWithoutLanguage. SharpIppNext makes one job
+        // per group tag, so the bare 0x02 between the lists is what gives two jobs.
         var body = IppMessages.Response(0x0000, 0x02,
             (0x21, "job-id", 1),
             (0x23, "job-state", 5),
@@ -44,8 +41,7 @@ public class IppPrintJobQueueTests
         var requestCount = 0;
         IppMessages.StubHandler handler = new(_ =>
         {
-            // Request 1 is the resolver probe, which must succeed so resolution finishes.
-            // Request 2 is the job lookup, which reports the job as not found.
+            // 1 is the resolver probe, 2 the job lookup that reports not-found.
             requestCount++;
             return requestCount == 1 ? IppMessages.Ok(ok) : IppMessages.Ok(notFound);
         });
@@ -59,9 +55,8 @@ public class IppPrintJobQueueTests
     [Fact]
     public async Task GetJobAsync_ThrowsForAnIppErrorThatIsNotNotFound()
     {
-        // 0x0501 is server-error-operation-not-supported: a real IPP error, but not
-        // client-error-not-found. A caller (the polling job monitor) must not read this
-        // as "the job left the queue" — it must see the failure.
+        // 0x0501 is a real IPP error, not client-error-not-found: the caller must see it
+        // instead of reading it as "the job left the queue".
         var requestCount = 0;
         IppMessages.StubHandler handler = new(_ =>
         {
@@ -93,8 +88,7 @@ public class IppPrintJobQueueTests
         IppPrintJobQueue ok = new(Endpoint, new HttpClient(new IppMessages.StubHandler(
             _ => IppMessages.Ok(IppMessages.Response(0x0000, 0x02)))));
 
-        // 0x0406 is client-error-not-found. Request 1 is the resolver probe, which must
-        // succeed so resolution finishes; request 2 is the cancel, which reports not-found.
+        // 0x0406 is client-error-not-found. 1 is the resolver probe, 2 the cancel.
         var requestCount = 0;
         IppMessages.StubHandler missingHandler = new(_ =>
         {
@@ -112,9 +106,7 @@ public class IppPrintJobQueueTests
     [Fact]
     public async Task CancelJobAsync_ThrowsForAnIppErrorThatIsNotNotFound()
     {
-        // 0x0501 is server-error-operation-not-supported: a real IPP error, but not
-        // client-error-not-found. See the equivalent GetJobAsync test for why this must
-        // throw rather than report false.
+        // 0x0501 is a real IPP error: it must throw, as in the GetJobAsync test.
         var requestCount = 0;
         IppMessages.StubHandler handler = new(_ =>
         {
@@ -127,5 +119,22 @@ public class IppPrintJobQueueTests
 
         _ = await Assert.ThrowsAsync<InvalidOperationException>(
             () => queue.CancelJobAsync(Printer, "1", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task GetJobsAsync_SkipsAJobWithoutAnIdentifier()
+    {
+        var body = IppMessages.Response(0x0000, 0x02,
+            (0x23, "job-state", 5),
+            (0x42, "job-name", "orphan.zpl"),
+            (0x02, null, null),
+            (0x21, "job-id", 2),
+            (0x23, "job-state", 3));
+        IppPrintJobQueue queue = new(Endpoint, new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(body))));
+
+        var jobs = await queue.GetJobsAsync(Printer, TestContext.Current.CancellationToken);
+
+        var job = Assert.Single(jobs);
+        Assert.Equal("2", job.JobId);
     }
 }

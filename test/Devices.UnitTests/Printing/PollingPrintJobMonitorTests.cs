@@ -100,9 +100,8 @@ public class PollingPrintJobMonitorTests
     [Fact]
     public async Task WatchJobAsync_EndsAtTheTimeoutEvenWhenThePollIntervalIsLonger()
     {
-        // Regression test: the timeout must cut a running poll delay short, not wait for
-        // that delay to finish on its own. A poll interval far longer than the timeout
-        // makes the bug visible: without the fix, this took one whole poll interval.
+        // Regression: the timeout must cut a running poll delay short. The long poll
+        // interval is what makes the bug visible.
         FakeQueue queue = new InfiniteQueue(Job(PrintJobState.Printing, 1));
         PollingPrintJobMonitor monitor = new(queue);
         PrintJobMonitorOptions options = new() { PollInterval = TimeSpan.FromMilliseconds(500), Timeout = TimeSpan.FromMilliseconds(20) };
@@ -146,5 +145,16 @@ public class PollingPrintJobMonitorTests
 
         public override Task<PrintJobInfo> GetJobAsync(PrinterId printerId, string jobId, CancellationToken cancellationToken) =>
             Task.FromResult<PrintJobInfo>(_reading);
+    }
+
+    [Fact]
+    public void WatchJobAsync_RejectsANonPositivePollIntervalOrTimeoutAtTheCall()
+    {
+        PollingPrintJobMonitor monitor = new(new FakeQueue());
+
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => monitor.WatchJobAsync(
+            PrinterId.FromSpooler("lobby"), "1", new PrintJobMonitorOptions { PollInterval = TimeSpan.Zero }, TestContext.Current.CancellationToken));
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => monitor.WatchJobAsync(
+            PrinterId.FromSpooler("lobby"), "1", new PrintJobMonitorOptions { Timeout = TimeSpan.FromSeconds(-1) }, TestContext.Current.CancellationToken));
     }
 }

@@ -40,9 +40,8 @@ public class IppOperationsTests
     [Fact]
     public async Task SendAsync_NamesTheNoResponseCaseInsteadOfAnEmptyStatusCode()
     {
-        // No HttpStatusCode at all, the way a refused connection reports (no CUPS daemon
-        // listening on Linux, for example): the message must not format the missing code
-        // as an empty "HTTP ." and must instead say plainly that nothing answered.
+        // A refused connection reports no HttpStatusCode, so the message must not format
+        // an empty "HTTP .".
         ThrowingHandler handler = new(new HttpRequestException("Connection refused"));
         IppOperations operations = new(new HttpClient(handler));
 
@@ -74,8 +73,7 @@ public class IppOperationsTests
     private static GetPrinterAttributesRequest NewRequest() =>
         new() { OperationAttributes = new() { PrinterUri = Printer } };
 
-    // Throws before any HttpResponseMessage exists, the way a refused TCP connection does,
-    // so IppOperations sees an HttpRequestException with no HttpStatusCode at all.
+    // Throws before any response exists, so there is no HttpStatusCode.
     private sealed class ThrowingHandler : HttpMessageHandler
     {
         private readonly Exception _exception;
@@ -84,5 +82,36 @@ public class IppOperationsTests
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             throw _exception;
+    }
+
+    [Fact]
+    public async Task SendAsync_HttpErrorWithAnIppBody_NamesTheHttpStatus()
+    {
+        // A printer needing authentication answers 401 with an IPP body.
+        var body = IppMessages.Response(0x0000);
+        IppOperations operations = new(new HttpClient(new IppMessages.StubHandler(
+            _ => new HttpResponseMessage(System.Net.HttpStatusCode.Unauthorized) { Content = new ByteArrayContent(body) })));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => operations.SendAsync(
+            (client, request, token) => client.GetPrinterAttributesAsync(request, token),
+            NewRequest(),
+            Printer,
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("401", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SendAsync_ClientTimeout_ThrowsTimeoutException()
+    {
+        // HttpClient reports its own timeout as a TaskCanceledException.
+        ThrowingHandler handler = new(new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout."));
+        IppOperations operations = new(new HttpClient(handler));
+
+        _ = await Assert.ThrowsAsync<TimeoutException>(() => operations.SendAsync(
+            (client, request, token) => client.GetPrinterAttributesAsync(request, token),
+            NewRequest(),
+            Printer,
+            TestContext.Current.CancellationToken));
     }
 }

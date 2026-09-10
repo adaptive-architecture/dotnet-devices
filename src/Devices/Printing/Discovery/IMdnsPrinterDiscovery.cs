@@ -12,5 +12,5 @@ public interface IMdnsPrinterDiscovery
     /// <param name="options">The service types, the browse time, and the interfaces to use.</param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>The printers that answered.</returns>
-    Task<IReadOnlyList<DiscoveredPrinter>> DiscoverPrintersAsync(MdnsPrinterDiscoveryOptions options, CancellationToken cancellationToken);
+    Task<IReadOnlyList<DiscoveredPrinter>> DiscoverAsync(MdnsPrinterDiscoveryOptions options, CancellationToken cancellationToken);
 }

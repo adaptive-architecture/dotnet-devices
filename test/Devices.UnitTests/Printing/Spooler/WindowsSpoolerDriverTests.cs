@@ -4,13 +4,8 @@ using Xunit;
 
 namespace AdaptArch.Devices.UnitTests.Printing.Spooler;
 
-// WindowsSpoolerDriver calls winspool.drv, which does not exist on this platform, so
-// every real interop path is untestable here. What IS genuine, executed coverage on
-// Linux is the guard at the top of every method: OperatingSystem.IsWindows() is false
-// here, so each of the seven ISpoolerDriver members must throw
-// PlatformNotSupportedException before it ever reaches native code. That is precisely
-// what this file deliberately calls into from an unguarded, cross-platform context, so
-// the platform compatibility analyzer's warning here is expected and suppressed.
+// winspool.drv does not exist here, so only the platform guards are testable: every
+// member must throw before it reaches native code. The analyzer warning is expected.
 #pragma warning disable CA1416
 public class WindowsSpoolerDriverTests
 {
@@ -50,5 +45,17 @@ public class WindowsSpoolerDriverTests
     public async Task CancelJobAsync_ThrowsOnANonWindowsPlatform() =>
         await Assert.ThrowsAsync<PlatformNotSupportedException>(
             () => _driver.CancelJobAsync("lobby", "1", TestContext.Current.CancellationToken));
+
+    [Fact]
+    public void UnappliedOptions_NamesEverySetOptionExceptJobName()
+    {
+        PrintOptions options = new() { Copies = 2, MediaSize = "iso_a4_210x297mm", JobName = "label", OnUnsupported = UnsupportedOptionBehavior.Drop };
+
+        Assert.Equal([nameof(PrintOptions.Copies), nameof(PrintOptions.MediaSize)], WindowsSpoolerDriver.UnappliedOptions(options));
+    }
+
+    [Fact]
+    public void UnappliedOptions_IsEmptyWithoutOptions() =>
+        Assert.Empty(WindowsSpoolerDriver.UnappliedOptions(null));
 }
 #pragma warning restore CA1416

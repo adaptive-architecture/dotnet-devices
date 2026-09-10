@@ -45,7 +45,6 @@ internal static class IppMarkers
         return names.Count == 0 ? [] : BuildMarkers(names, colors, levels);
     }
 
-    // Split out of Read to keep its cognitive complexity within the repository limit.
     private static List<PrinterMarker> BuildMarkers(List<string> names, List<string> colors, List<int?> levels)
     {
         List<PrinterMarker> markers = new(names.Count);
@@ -64,8 +63,10 @@ internal static class IppMarkers
 
             if (i < levels.Count)
             {
+                // marker-levels is 0 to 100, or -1, -2 or -3 for a value that is not one.
                 var level = levels[i];
-                marker.LevelPercent = level is null || level < 0 ? null : level;
+                marker.LevelRaw = level;
+                marker.LevelPercent = level is >= 0 and <= 100 ? level : null;
             }
 
             markers.Add(marker);

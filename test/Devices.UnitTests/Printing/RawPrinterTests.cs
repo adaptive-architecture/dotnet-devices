@@ -38,16 +38,14 @@ public class RawPrinterTests
 
         Assert.Empty(configuration.MediaSizes);
         Assert.Empty(configuration.SupportedResolutionsDpi);
-        Assert.False(configuration.SupportsDuplex);
+        Assert.Null(configuration.SupportsDuplex);
     }
 
     [Fact]
     public async Task GetStatusAsync_ReportsUnknownWhenNeitherSnmpNorIppAnswer()
     {
-        // 127.0.0.4 is a loopback address that nothing binds to in this test environment,
-        // so both the SNMP UDP probe and the IPP TCP probe fail fast. A short SNMP timeout
-        // and a single attempt keep the test near-instant instead of the six seconds the
-        // default options (2s timeout, 3 attempts) would need.
+        // Nothing binds 127.0.0.4, so both probes fail fast. The short SNMP timeout and
+        // single attempt save the six seconds the default options would take.
         SnmpPrinterStatusOptions snmpOptions = new() { RequestTimeout = TimeSpan.FromMilliseconds(200), Retries = 0 };
         RawPrinter printer = new(new NetworkPrinterEndpoint("127.0.0.4", 9100), snmpOptions);
 

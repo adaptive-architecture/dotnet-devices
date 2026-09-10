@@ -7,8 +7,8 @@ using Lextm.SharpSnmpLib.Messaging;
 
 namespace AdaptArch.Devices.UnitTests.Printing.Discovery;
 
-// Builds SNMP version 2c responses with the same library the client reads them with. The
-// tests therefore exercise the real wire format without needing an agent on the network.
+// Builds SNMP version 2c responses with the library the client reads them with, so the
+// tests exercise the real wire format.
 internal static class SnmpResponses
 {
     public static byte[] Response(int requestId, params Variable[] variables) =>
@@ -16,8 +16,7 @@ internal static class SnmpResponses
 
     public static byte[] Response(int requestId, int errorStatus, int errorIndex, params Variable[] variables)
     {
-        // 13.0.0-beta.3 marks ResponseMessage as internal-use-only, but a test needs to
-        // produce the bytes an agent would send. Nothing here ships in a package.
+        // ResponseMessage is marked internal-use-only, but a test needs an agent's bytes.
 #pragma warning disable CS0618
         return new ResponseMessage(
             requestId,
@@ -27,6 +26,33 @@ internal static class SnmpResponses
             errorIndex,
             variables).ToBytes();
 #pragma warning restore CS0618
+    }
+
+    // Answers a GetBulkRequest as RFC 3416 §4.2.3 describes: one repetition at a time,
+    // the successor of each identifier, and endOfMibView once a cursor runs out.
+    public static byte[] BulkResponse(byte[] request, IReadOnlyList<Variable> mib)
+    {
+        var cursors = SnmpRequests.ReadOids(request).Select(static oid => new ObjectIdentifier(oid)).ToList();
+        var repetitions = SnmpRequests.ReadMaxRepetitions(request);
+        var sorted = mib.OrderBy(static variable => variable.Id).ToList();
+        List<Variable> variables = [];
+        for (var repetition = 0; repetition < repetitions; repetition++)
+        {
+            for (var cursor = 0; cursor < cursors.Count; cursor++)
+            {
+                var next = sorted.FindIndex(variable => variable.Id.CompareTo(cursors[cursor]) > 0);
+                if (next < 0)
+                {
+                    variables.Add(EndOfMibView(cursors[cursor].ToString()));
+                    continue;
+                }
+
+                variables.Add(sorted[next]);
+                cursors[cursor] = sorted[next].Id;
+            }
+        }
+
+        return Response(SnmpRequests.ReadRequestId(request), [.. variables]);
     }
 
     public static Variable Text(string oid, string value) => new(oid, new OctetString(value));
@@ -41,8 +67,7 @@ internal static class SnmpResponses
 
     public static Variable Ticks(string oid, uint value) => new(oid, new TimeTicks(value));
 
-    // 13.0.0-beta.3 gives NoSuchObject, NoSuchInstance and EndOfMibView no public
-    // constructor, so these three are built from the singleton that the parser produces.
+    // These three have no public constructor, so they are built from the parser singleton.
     public static Variable NoSuchObject(string oid) => new(oid, Absent(SnmpType.NoSuchObject));
 
     public static Variable NoSuchInstance(string oid) => new(oid, Absent(SnmpType.NoSuchInstance));
@@ -66,8 +91,7 @@ internal static class SnmpResponses
         return new AbsentValue(typeCode, 2);
     }
 
-    // The three markers say "there is no value here". On the wire each is a
-    // context-specific tag with no content, which is what the client must decode.
+    // Each marker is a context-specific tag with no content on the wire.
     private sealed class AbsentValue : IAsnSerializable
     {
         private readonly int _tagNumber;

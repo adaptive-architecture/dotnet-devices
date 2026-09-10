@@ -3,8 +3,6 @@ using SharpIpp.Protocol.Models;
 
 namespace AdaptArch.Devices.Printing.Ipp;
 
-// Turns the IPP printer attributes into the library model. An absent attribute means the
-// printer did not report the capability, which the model shows as an empty list or false.
 internal static class IppConfigurationMapper
 {
     public static readonly string[] RequestedAttributes =
@@ -18,30 +16,25 @@ internal static class IppConfigurationMapper
 
     public static PrinterConfiguration Map(PrinterId id, PrinterDescriptionAttributes? attributes)
     {
-        PrinterConfiguration configuration = new(id);
         if (attributes is null)
         {
-            return configuration;
+            return new PrinterConfiguration(id);
         }
 
-        configuration.SupportsColor = attributes.ColorSupported ?? false;
-        configuration.SupportsDuplex = HasDuplex(attributes.SidesSupported);
-        configuration.MediaSizes = ReadMedia(attributes.MediaSupported);
-        configuration.DefaultMediaSize = attributes.MediaDefault?.Value;
-        configuration.SupportedResolutionsDpi = ReadResolutions(attributes.PrinterResolutionSupported);
-        return configuration;
+        // An unsent attribute stays null: "not reported" is not "not supported".
+        return new PrinterConfiguration(id)
+        {
+            SupportsColor = attributes.ColorSupported,
+            SupportsDuplex = HasDuplex(attributes.SidesSupported),
+            MediaSizes = ReadMedia(attributes.MediaSupported),
+            DefaultMediaSize = attributes.MediaDefault?.Value,
+            SupportedResolutionsDpi = ReadResolutions(attributes.PrinterResolutionSupported),
+        };
     }
 
     // A printer that reports only "one-sided" cannot print on two sides.
-    private static bool HasDuplex(Sides[]? sides)
-    {
-        if (sides is null)
-        {
-            return false;
-        }
-
-        return sides.Any(side => side.Value?.StartsWith("two-sided", StringComparison.Ordinal) == true);
-    }
+    private static bool? HasDuplex(Sides[]? sides) =>
+        sides is null ? null : sides.Any(side => side.Value?.StartsWith("two-sided", StringComparison.Ordinal) == true);
 
     private static List<string> ReadMedia(Media[]? media)
     {
@@ -59,8 +52,7 @@ internal static class IppConfigurationMapper
         return names;
     }
 
-    // The Printer MIB and IPP both allow dots per centimetre. The model holds dots per
-    // inch only, so an entry in another unit is not reported.
+    // The model holds dots per inch only, so an entry in another unit is dropped.
     private static List<int> ReadResolutions(Resolution[]? resolutions)
     {
         if (resolutions is null || resolutions.Length == 0)
