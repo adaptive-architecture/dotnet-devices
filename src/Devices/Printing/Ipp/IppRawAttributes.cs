@@ -23,14 +23,13 @@ internal static class IppRawAttributes
             return null;
         }
 
-        foreach (var attribute in response.PrinterAttributes[index]
-            .Where(attribute => String.Equals(attribute.Name, name, StringComparison.Ordinal)))
-        {
-            var text = GetText(attribute.Value);
-            return String.IsNullOrWhiteSpace(text) ? null : text;
-        }
+        // The first attribute of that name answers, even when it carries nothing.
+        var text = response.PrinterAttributes[index]
+            .Where(attribute => String.Equals(attribute.Name, name, StringComparison.Ordinal))
+            .Select(static attribute => GetText(attribute.Value))
+            .FirstOrDefault();
 
-        return null;
+        return String.IsNullOrWhiteSpace(text) ? null : text;
     }
 
     private static string GetText(object? value)
