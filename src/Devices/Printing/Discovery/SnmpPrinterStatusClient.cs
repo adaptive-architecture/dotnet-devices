@@ -129,32 +129,7 @@ public sealed class SnmpPrinterStatusClient
                     ?? throw new SnmpTooBigException();
             }
 
-            // RFC 3416 §4.2.3: one variable per requested identifier per repetition, in
-            // order, so variable i belongs to slot i modulo the slot count. A walk past the
-            // end of a column spills into the next one, which the prefix test catches.
-            var advanced = new bool[slots.Count];
-            var stopped = new bool[slots.Count];
-            var variables = reply.Variables;
-            for (var i = 0; i < variables.Count; i++)
-            {
-                var slot = i % slots.Count;
-                if (stopped[slot])
-                {
-                    continue;
-                }
-
-                var variable = variables[i];
-                var oid = variable.Id.Oid;
-                if (SnmpValues.IsEndOfView(variable.Data) || !IsRowOf(oid, slots[slot].Column))
-                {
-                    stopped[slot] = true;
-                    continue;
-                }
-
-                collected.Add(variable);
-                slots[slot] = (slots[slot].Column, oid);
-                advanced[slot] = true;
-            }
+            var (advanced, stopped) = CollectRows(reply.Variables, slots, collected);
 
             // A slot that got no row has nothing more to give.
             for (var slot = slots.Count - 1; slot >= 0; slot--)
@@ -167,6 +142,40 @@ public sealed class SnmpPrinterStatusClient
         }
 
         return collected;
+    }
+
+    // RFC 3416 §4.2.3: one variable per requested identifier per repetition, in order, so
+    // variable i belongs to slot i modulo the slot count. A walk past the end of a column
+    // spills into the next one, which the prefix test catches.
+    private static (bool[] Advanced, bool[] Stopped) CollectRows(
+        IReadOnlyList<Variable> variables,
+        List<(string Column, string Cursor)> slots,
+        List<Variable> collected)
+    {
+        var advanced = new bool[slots.Count];
+        var stopped = new bool[slots.Count];
+        for (var i = 0; i < variables.Count; i++)
+        {
+            var slot = i % slots.Count;
+            if (stopped[slot])
+            {
+                continue;
+            }
+
+            var variable = variables[i];
+            var oid = variable.Id.Oid;
+            if (SnmpValues.IsEndOfView(variable.Data) || !IsRowOf(oid, slots[slot].Column))
+            {
+                stopped[slot] = true;
+                continue;
+            }
+
+            collected.Add(variable);
+            slots[slot] = (slots[slot].Column, oid);
+            advanced[slot] = true;
+        }
+
+        return (advanced, stopped);
     }
 
     private static bool IsRowOf(string oid, string column) =>

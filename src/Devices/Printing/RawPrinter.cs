@@ -16,8 +16,6 @@ public sealed class RawPrinter : IPrinter
     private static readonly Lazy<IppPrinterStatusClient> SharedIppClient = new(static () => new IppPrinterStatusClient());
 
     private readonly TcpPrinterTransport _transport;
-    private readonly SnmpPrinterStatusClient _snmpClient;
-    private readonly IppPrinterStatusClient _ippClient;
     private readonly string _host;
 
     /// <summary>
@@ -55,8 +53,8 @@ public sealed class RawPrinter : IPrinter
         Id = PrinterId.FromNetwork(_host);
         Info = new PrinterInfo(Id, _host);
         _transport = new TcpPrinterTransport();
-        _snmpClient = snmpClient;
-        _ippClient = ippClient;
+        SnmpStatusClient = snmpClient;
+        IppStatusClient = ippClient;
     }
 
     /// <inheritdoc />
@@ -68,9 +66,9 @@ public sealed class RawPrinter : IPrinter
     /// <inheritdoc />
     public PrinterInfo Info { get; }
 
-    internal SnmpPrinterStatusClient SnmpStatusClient => _snmpClient;
+    internal SnmpPrinterStatusClient SnmpStatusClient { get; }
 
-    internal IppPrinterStatusClient IppStatusClient => _ippClient;
+    internal IppPrinterStatusClient IppStatusClient { get; }
 
     /// <inheritdoc />
     /// <remarks>
@@ -101,7 +99,7 @@ public sealed class RawPrinter : IPrinter
     {
         try
         {
-            var snmpDetails = await _snmpClient.GetDetailsAsync(_host, cancellationToken).ConfigureAwait(false);
+            var snmpDetails = await SnmpStatusClient.GetDetailsAsync(_host, cancellationToken).ConfigureAwait(false);
             return snmpDetails.Status;
         }
         catch (InvalidOperationException)
@@ -111,7 +109,7 @@ public sealed class RawPrinter : IPrinter
 
         try
         {
-            var ippDetails = await _ippClient.GetDetailsAsync(_host, cancellationToken).ConfigureAwait(false);
+            var ippDetails = await IppStatusClient.GetDetailsAsync(_host, cancellationToken).ConfigureAwait(false);
             return ippDetails.Status;
         }
         catch (InvalidOperationException)

@@ -169,27 +169,34 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         }
     }
 
-    // WritePrinter can write fewer bytes than asked.
-    private static unsafe void WriteAll(nint printerHandle, ReadOnlyMemory<byte> data)
+    // WritePrinter can write fewer bytes than asked. The copy pins without unsafe code.
+    private static void WriteAll(nint printerHandle, ReadOnlyMemory<byte> data)
     {
-        using var pin = data.Pin();
-        var pointer = (nint)pin.Pointer;
-        var remaining = data.Length;
-        while (remaining > 0)
+        var handle = GCHandle.Alloc(data.ToArray(), GCHandleType.Pinned);
+        try
         {
-            if (!WindowsSpoolerInterop.WritePrinter(printerHandle, pointer, remaining, out var written))
+            var pointer = handle.AddrOfPinnedObject();
+            var remaining = data.Length;
+            while (remaining > 0)
             {
-                ThrowLastError(nameof(WindowsSpoolerInterop.WritePrinter));
-            }
+                if (!WindowsSpoolerInterop.WritePrinter(printerHandle, pointer, remaining, out var written))
+                {
+                    ThrowLastError(nameof(WindowsSpoolerInterop.WritePrinter));
+                }
 
-            if (written <= 0)
-            {
-                throw new InvalidOperationException(
-                    $"{nameof(WindowsSpoolerInterop.WritePrinter)} wrote 0 of {remaining} remaining bytes.");
-            }
+                if (written <= 0)
+                {
+                    throw new InvalidOperationException(
+                        $"{nameof(WindowsSpoolerInterop.WritePrinter)} wrote 0 of {remaining} remaining bytes.");
+                }
 
-            pointer += written;
-            remaining -= written;
+                pointer += written;
+                remaining -= written;
+            }
+        }
+        finally
+        {
+            handle.Free();
         }
     }
 

@@ -76,19 +76,10 @@ internal sealed class MdnsChannelFactory : IMdnsChannelFactory
         return channels;
     }
 
-    private static IPAddress? FirstAddress(IPInterfaceProperties properties, AddressFamily family)
-    {
-        foreach (var unicast in properties.UnicastAddresses)
-        {
-            var address = unicast.Address;
-            if (address.AddressFamily == family && !IPAddress.IsLoopback(address))
-            {
-                return address;
-            }
-        }
-
-        return null;
-    }
+    private static IPAddress? FirstAddress(IPInterfaceProperties properties, AddressFamily family) =>
+        properties.UnicastAddresses
+            .Select(unicast => unicast.Address)
+            .FirstOrDefault(address => address.AddressFamily == family && !IPAddress.IsLoopback(address));
 
     private static bool IsUsable(NetworkInterface adapter, MdnsPrinterDiscoveryOptions options)
     {

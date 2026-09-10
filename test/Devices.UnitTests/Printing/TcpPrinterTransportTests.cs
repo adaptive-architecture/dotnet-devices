@@ -83,7 +83,7 @@ public class TcpPrinterTransportTests
         // TcpClient has no DisposeAsync, so it keeps the plain using.
         using var client = await listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
         await using var stream = client.GetStream();
-        using MemoryStream buffer = new();
+        await using MemoryStream buffer = new();
         var chunk = new byte[1024];
         int read;
         while ((read = await stream.ReadAsync(chunk, cancellationToken).ConfigureAwait(false)) > 0)
