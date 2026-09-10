@@ -21,21 +21,34 @@ internal static class WindowsSpoolerStatusMapper
     private const uint PrinterStatusPrinting = 0x00000400;
     private const uint PrinterStatusNotAvailable = 0x00001000;
     private const uint PrinterStatusProcessing = 0x00004000;
+    private const uint PrinterStatusNoToner = 0x00040000;
+    private const uint PrinterStatusUserIntervention = 0x00100000;
     private const uint PrinterStatusDoorOpen = 0x00400000;
+
+    // PRINTER_ATTRIBUTE_WORK_OFFLINE: the user set "Use Printer Offline" on the queue.
+    // The spooler then holds every job and reports no PRINTER_STATUS_OFFLINE bit, so the
+    // attribute is the only sign that nothing prints.
+    private const uint PrinterAttributeWorkOffline = 0x00000400;
+
+    private const uint ErrorBits = PrinterStatusError | PrinterStatusPendingDeletion | PrinterStatusPaperJam | PrinterStatusPaperOut
+        | PrinterStatusPaperProblem | PrinterStatusNoToner | PrinterStatusUserIntervention | PrinterStatusDoorOpen;
+
+    private const uint OfflineBits = PrinterStatusOffline | PrinterStatusNotAvailable;
 
     // A printer can report several bits at once (for example paused and offline).
     // Error conditions are checked first because they need the most attention, then
-    // offline, then paused, then activity; zero, or any other unrecognised bit alone,
-    // falls through to idle. PENDING_DELETION is grouped with the error bits: a queue
-    // being torn down is not "ready" in any sense a caller should act on as idle.
-    internal static PrinterStatusState MapPrinterStatus(uint status)
+    // offline (a status bit, or the WORK_OFFLINE attribute), then paused, then
+    // activity; zero, or any other unrecognised bit alone, falls through to idle.
+    // PENDING_DELETION is grouped with the error bits: a queue being torn down is not
+    // "ready" in any sense a caller should act on as idle.
+    internal static PrinterStatusState MapPrinterStatus(uint status, uint attributes)
     {
-        if ((status & (PrinterStatusError | PrinterStatusPendingDeletion | PrinterStatusPaperJam | PrinterStatusPaperOut | PrinterStatusPaperProblem | PrinterStatusDoorOpen)) != 0)
+        if ((status & ErrorBits) != 0)
         {
             return PrinterStatusState.Error;
         }
 
-        if ((status & (PrinterStatusOffline | PrinterStatusNotAvailable)) != 0)
+        if ((status & OfflineBits) != 0 || IsWorkOffline(attributes))
         {
             return PrinterStatusState.Offline;
         }
@@ -58,7 +71,7 @@ internal static class WindowsSpoolerStatusMapper
     // the same way DescribeJobStatus below fills PrintJobInfo.Detail. Unlike
     // DescribeJobStatus, this spells out the full Win32 macro name, so a person can
     // compare the output directly against Windows documentation.
-    internal static string? DescribePrinterStatus(uint status)
+    internal static string? DescribePrinterStatus(uint status, uint attributes)
     {
         List<string> named = [];
         AddIfSet(named, status, PrinterStatusPaused, "PRINTER_STATUS_PAUSED");
@@ -71,7 +84,10 @@ internal static class WindowsSpoolerStatusMapper
         AddIfSet(named, status, PrinterStatusPrinting, "PRINTER_STATUS_PRINTING");
         AddIfSet(named, status, PrinterStatusNotAvailable, "PRINTER_STATUS_NOT_AVAILABLE");
         AddIfSet(named, status, PrinterStatusProcessing, "PRINTER_STATUS_PROCESSING");
+        AddIfSet(named, status, PrinterStatusNoToner, "PRINTER_STATUS_NO_TONER");
+        AddIfSet(named, status, PrinterStatusUserIntervention, "PRINTER_STATUS_USER_INTERVENTION");
         AddIfSet(named, status, PrinterStatusDoorOpen, "PRINTER_STATUS_DOOR_OPEN");
+        AddIfSet(named, attributes, PrinterAttributeWorkOffline, "PRINTER_ATTRIBUTE_WORK_OFFLINE");
 
         return named.Count == 0 ? null : String.Join("; ", named);
     }
@@ -79,10 +95,10 @@ internal static class WindowsSpoolerStatusMapper
     // Mirrors the bit groups MapPrinterStatus treats as Error, Offline or Paused: a
     // queue reporting any of them does not take a new job right now, the same way the
     // IPP path reports PrinterIsAcceptingJobs as false for those states.
-    internal static bool IsAcceptingJobs(uint status) =>
-        (status & (PrinterStatusError | PrinterStatusPendingDeletion | PrinterStatusPaperJam | PrinterStatusPaperOut
-            | PrinterStatusPaperProblem | PrinterStatusDoorOpen | PrinterStatusOffline | PrinterStatusNotAvailable
-            | PrinterStatusPaused)) == 0;
+    internal static bool IsAcceptingJobs(uint status, uint attributes) =>
+        (status & (ErrorBits | OfflineBits | PrinterStatusPaused)) == 0 && !IsWorkOffline(attributes);
+
+    private static bool IsWorkOffline(uint attributes) => (attributes & PrinterAttributeWorkOffline) != 0;
 
     private const uint JobStatusPaused = 0x00000001;
     private const uint JobStatusError = 0x00000002;

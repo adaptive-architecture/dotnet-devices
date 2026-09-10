@@ -10,9 +10,15 @@ public readonly struct PrinterId : IEquatable<PrinterId>
     /// </summary>
     /// <param name="kind">The addressing scheme of the printer.</param>
     /// <param name="value">The identifier value. For spooler printers this is the queue name; for network printers a host or URI; for USB printers a device path or serial number.</param>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="value"/> is empty, or when <paramref name="kind"/> is <see cref="PrinterIdKind.Network"/> and <paramref name="value"/> is not a valid host name or address.</exception>
     public PrinterId(PrinterIdKind kind, string value)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        if (kind == PrinterIdKind.Network)
+        {
+            NetworkPrinterEndpoint.ThrowIfNotAHost(value);
+        }
+
         Kind = kind;
         Value = value;
     }

@@ -52,10 +52,13 @@ public class PrinterEndpointTests
     }
 
     [Fact]
-    public void SpoolerEndpoint_Equality_IsOrdinalOnName()
+    public void SpoolerEndpoint_Equality_IgnoresCaseOfName()
     {
+        // Windows and CUPS compare queue names without regard to case.
         Assert.Equal(new SpoolerPrinterEndpoint("Q"), new SpoolerPrinterEndpoint("Q"));
-        Assert.NotEqual(new SpoolerPrinterEndpoint("Q"), new SpoolerPrinterEndpoint("q"));
+        Assert.Equal(new SpoolerPrinterEndpoint("Q"), new SpoolerPrinterEndpoint("q"));
+        Assert.Equal(new SpoolerPrinterEndpoint("Q").GetHashCode(), new SpoolerPrinterEndpoint("q").GetHashCode());
+        Assert.NotEqual(new SpoolerPrinterEndpoint("Q"), new SpoolerPrinterEndpoint("R"));
     }
 
     [Fact]
@@ -63,4 +66,23 @@ public class PrinterEndpointTests
     {
         Assert.ThrowsAny<ArgumentException>(() => new SpoolerPrinterEndpoint("  "));
     }
+
+    [Theory]
+    [InlineData("../admin")]
+    [InlineData("x?y")]
+    [InlineData("x#y")]
+    [InlineData("x\ty")]
+    public void SpoolerEndpoint_NameWithAPathCharacter_Throws(string name) =>
+        Assert.Throws<ArgumentException>(() => new SpoolerPrinterEndpoint(name));
+
+    [Fact]
+    public void SpoolerEndpoint_NameLongerThanTheCupsLimit_Throws() =>
+        Assert.Throws<ArgumentException>(() => new SpoolerPrinterEndpoint(new string('a', 128)));
+
+    [Theory]
+    [InlineData("Lobby Printer")]
+    [InlineData("HP LaserJet (Copy 1)")]
+    [InlineData("\\\\server\\queue")]
+    public void SpoolerEndpoint_AcceptsTheNamesTheSpoolersUse(string name) =>
+        Assert.Equal(name, new SpoolerPrinterEndpoint(name).Name);
 }

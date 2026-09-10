@@ -18,30 +18,25 @@ internal static class IppConfigurationMapper
 
     public static PrinterConfiguration Map(PrinterId id, PrinterDescriptionAttributes? attributes)
     {
-        PrinterConfiguration configuration = new(id);
         if (attributes is null)
         {
-            return configuration;
+            return new PrinterConfiguration(id);
         }
 
-        configuration.SupportsColor = attributes.ColorSupported ?? false;
-        configuration.SupportsDuplex = HasDuplex(attributes.SidesSupported);
-        configuration.MediaSizes = ReadMedia(attributes.MediaSupported);
-        configuration.DefaultMediaSize = attributes.MediaDefault?.Value;
-        configuration.SupportedResolutionsDpi = ReadResolutions(attributes.PrinterResolutionSupported);
-        return configuration;
+        // An attribute the printer did not send stays null: "not reported" is not "not supported".
+        return new PrinterConfiguration(id)
+        {
+            SupportsColor = attributes.ColorSupported,
+            SupportsDuplex = HasDuplex(attributes.SidesSupported),
+            MediaSizes = ReadMedia(attributes.MediaSupported),
+            DefaultMediaSize = attributes.MediaDefault?.Value,
+            SupportedResolutionsDpi = ReadResolutions(attributes.PrinterResolutionSupported),
+        };
     }
 
     // A printer that reports only "one-sided" cannot print on two sides.
-    private static bool HasDuplex(Sides[]? sides)
-    {
-        if (sides is null)
-        {
-            return false;
-        }
-
-        return sides.Any(side => side.Value?.StartsWith("two-sided", StringComparison.Ordinal) == true);
-    }
+    private static bool? HasDuplex(Sides[]? sides) =>
+        sides is null ? null : sides.Any(side => side.Value?.StartsWith("two-sided", StringComparison.Ordinal) == true);
 
     private static List<string> ReadMedia(Media[]? media)
     {

@@ -43,16 +43,36 @@ internal static class MdnsResponses
 
         if (address is not null)
         {
-            response.AdditionalRecords.Add(new ARecord
-            {
-                Name = target,
-                Address = IPAddress.Parse(address),
-                Class = InternetWithCacheFlush,
-            });
+            var parsed = IPAddress.Parse(address);
+            AddressRecord record = parsed.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
+                ? new ARecord()
+                : new AAAARecord();
+            record.Name = target;
+            record.Address = parsed;
+            record.Class = InternetWithCacheFlush;
+            response.AdditionalRecords.Add(record);
         }
 
         return response.ToByteArray();
     }
+
+    // A response with one answer whose name is a compression pointer to itself: the header
+    // is twelve bytes, and the name at offset twelve is "C0 0C", a pointer to offset twelve.
+    // No reader can finish such a name, so the packet is malformed.
+    public static byte[] SelfPointingName() =>
+    [
+        0x00, 0x00, // ID
+        0x84, 0x00, // QR, AA
+        0x00, 0x00, // QDCOUNT
+        0x00, 0x01, // ANCOUNT
+        0x00, 0x00, // NSCOUNT
+        0x00, 0x00, // ARCOUNT
+        0xC0, 0x0C, // NAME: pointer to offset 12, this same name
+        0x00, 0x0C, // TYPE PTR
+        0x00, 0x01, // CLASS IN
+        0x00, 0x00, 0x00, 0x78, // TTL
+        0x00, 0x00, // RDLENGTH
+    ];
 
     // A response that names an instance but never says where it is.
     public static byte[] PointerOnly(string instance, string serviceType)

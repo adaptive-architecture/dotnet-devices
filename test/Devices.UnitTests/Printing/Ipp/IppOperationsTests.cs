@@ -85,4 +85,37 @@ public class IppOperationsTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             throw _exception;
     }
+
+    [Fact]
+    public async Task SendAsync_HttpErrorWithAnIppBody_NamesTheHttpStatus()
+    {
+        // A printer that needs authentication answers 401 with an IPP body. SharpIppNext
+        // parses the body and throws with the HttpRequestException as inner exception.
+        var body = IppMessages.Response(0x0000);
+        IppOperations operations = new(new HttpClient(new IppMessages.StubHandler(
+            _ => new HttpResponseMessage(System.Net.HttpStatusCode.Unauthorized) { Content = new ByteArrayContent(body) })));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => operations.SendAsync(
+            (client, request, token) => client.GetPrinterAttributesAsync(request, token),
+            NewRequest(),
+            Printer,
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("401", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SendAsync_ClientTimeout_ThrowsTimeoutException()
+    {
+        // HttpClient reports its own timeout as a TaskCanceledException while the caller
+        // token is not cancelled.
+        ThrowingHandler handler = new(new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout."));
+        IppOperations operations = new(new HttpClient(handler));
+
+        _ = await Assert.ThrowsAsync<TimeoutException>(() => operations.SendAsync(
+            (client, request, token) => client.GetPrinterAttributesAsync(request, token),
+            NewRequest(),
+            Printer,
+            TestContext.Current.CancellationToken));
+    }
 }

@@ -42,8 +42,9 @@ public class PrintingModelTests
         Assert.Equal(id, configuration.PrinterId);
         Assert.Empty(configuration.SupportedResolutionsDpi);
         Assert.Empty(configuration.MediaSizes);
-        Assert.False(configuration.SupportsDuplex);
-        Assert.False(configuration.SupportsColor);
+        // Not reported is not the same as not supported.
+        Assert.Null(configuration.SupportsDuplex);
+        Assert.Null(configuration.SupportsColor);
         Assert.Null(configuration.DefaultMediaSize);
     }
 
@@ -105,5 +106,16 @@ public class PrintingModelTests
         PrintOptions options = new();
 
         Assert.False(options.RequirePassthrough);
+    }
+
+    [Fact]
+    public void PrintOptions_RejectsZeroOrNegativeCopies()
+    {
+        PrintOptions options = new();
+
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => options.Copies = 0);
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => options.Copies = -1);
+        options.Copies = 2;
+        Assert.Equal(2, options.Copies);
     }
 }

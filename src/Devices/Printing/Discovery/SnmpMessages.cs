@@ -50,7 +50,8 @@ internal static class SnmpMessages
     /// <param name="payload">The bytes of the response.</param>
     /// <returns>The decoded response.</returns>
     /// <exception cref="InvalidDataException">Thrown when the message is malformed.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when the agent reported an error status.</exception>
+    /// <exception cref="SnmpTooBigException">Thrown when the agent reported <c>tooBig</c>. The caller can ask for less.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the agent reported another error status.</exception>
     public static SnmpReply Parse(byte[] payload)
     {
         ArgumentNullException.ThrowIfNull(payload);
@@ -75,6 +76,11 @@ internal static class SnmpMessages
         if (pdu is null)
         {
             throw new InvalidDataException("The SNMP response holds no protocol data unit.");
+        }
+
+        if (pdu.ErrorStatus == ErrorCode.TooBig)
+        {
+            throw new SnmpTooBigException();
         }
 
         if (pdu.ErrorStatus != ErrorCode.NoError)

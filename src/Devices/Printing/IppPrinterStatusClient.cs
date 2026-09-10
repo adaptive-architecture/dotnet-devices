@@ -1,4 +1,5 @@
-﻿using AdaptArch.Devices.Printing.Ipp;
+﻿using System.Collections.Concurrent;
+using AdaptArch.Devices.Printing.Ipp;
 using SharpIpp.Models.Requests;
 
 namespace AdaptArch.Devices.Printing;
@@ -21,42 +22,67 @@ public sealed class IppPrinterStatusClient : IDisposable
     public const int DefaultPort = 631;
 
     private readonly HttpClient _httpClient;
+    private readonly IppTransportOptions _options;
     private readonly bool _ownsClient;
+    // One resolver per printer, so a repeated status read costs one round trip, not a probe
+    // plus a read. The key ignores the case of the host name.
+    private readonly ConcurrentDictionary<string, IppEndpointResolver> _resolvers = new(StringComparer.OrdinalIgnoreCase);
     private bool _disposed;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="IppPrinterStatusClient"/> class with an
-    /// internally managed <see cref="HttpClient"/> that accepts any server certificate,
-    /// because network printers overwhelmingly use self-signed certificates.
-    /// Supply your own client for custom certificate validation.
+    /// internally managed <see cref="HttpClient"/> and the default <see cref="IppTransportOptions"/>,
+    /// which accept any server certificate, because network printers overwhelmingly use
+    /// self-signed certificates.
     /// </summary>
     public IppPrinterStatusClient()
-        : this(CreateDefaultClient(), true)
+        : this(new IppTransportOptions())
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="IppPrinterStatusClient"/> class with an
+    /// internally managed <see cref="HttpClient"/> built from <paramref name="options"/>.
+    /// </summary>
+    /// <param name="options">The certificate trust, the plain IPP fallback, and the connect timeout.</param>
+    public IppPrinterStatusClient(IppTransportOptions options)
+        : this(IppHttpClientFactory.Create(options), options, true)
     {
     }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="IppPrinterStatusClient"/> class with a
     /// caller-provided <see cref="HttpClient"/>. The client is not disposed by this instance.
+    /// The library treats the client as one that validates certificates, so a failed TLS
+    /// handshake throws instead of a fallback to plain IPP.
     /// </summary>
     /// <param name="httpClient">The HTTP client used to send IPP requests.</param>
     public IppPrinterStatusClient(HttpClient httpClient)
-        : this(httpClient, false)
+        : this(httpClient, IppTransportOptions.ForSuppliedClient(), false)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
     }
 
-    private IppPrinterStatusClient(HttpClient httpClient, bool ownsClient)
+    /// <summary>
+    /// Initializes a new instance of the <see cref="IppPrinterStatusClient"/> class with a
+    /// caller-provided <see cref="HttpClient"/> and the <see cref="IppTransportOptions"/> it
+    /// was built from, for example by <see cref="IppHttpClientFactory.Create"/>. The client
+    /// is not disposed by this instance.
+    /// </summary>
+    /// <param name="httpClient">The HTTP client used to send IPP requests.</param>
+    /// <param name="options">The policy of <paramref name="httpClient"/>: the certificate trust and the plain IPP fallback. Pass the options the client was built from.</param>
+    public IppPrinterStatusClient(HttpClient httpClient, IppTransportOptions options)
+        : this(httpClient, options, false)
     {
-        _httpClient = httpClient;
-        _ownsClient = ownsClient;
+        ArgumentNullException.ThrowIfNull(httpClient);
     }
 
-    private static HttpClient CreateDefaultClient()
+    private IppPrinterStatusClient(HttpClient httpClient, IppTransportOptions options, bool ownsClient)
     {
-        SocketsHttpHandler handler = new();
-        handler.SslOptions.RemoteCertificateValidationCallback = static (_, _, _, _) => true;
-        return new HttpClient(handler, true);
+        ArgumentNullException.ThrowIfNull(options);
+        _httpClient = httpClient;
+        _options = options;
+        _ownsClient = ownsClient;
     }
 
     /// <inheritdoc />
@@ -82,25 +108,35 @@ public sealed class IppPrinterStatusClient : IDisposable
     /// <returns>The printer details.</returns>
     /// <exception cref="InvalidOperationException">Thrown when no IPP endpoint answers, or the printer reports an IPP error.</exception>
     /// <exception cref="InvalidDataException">Thrown when the printer returns a malformed IPP response.</exception>
-    public async Task<IppPrinterDetails> GetDetailsAsync(string host, CancellationToken cancellationToken, int port = DefaultPort, string? resourcePath = null)
+    /// <exception cref="TimeoutException">Thrown when the printer does not answer in time.</exception>
+    /// <exception cref="System.Security.Authentication.AuthenticationException">Thrown when the TLS handshake fails and this client validates certificates.</exception>
+    /// <exception cref="ObjectDisposedException">Thrown after <see cref="Dispose"/>.</exception>
+    public Task<IppPrinterDetails> GetDetailsAsync(string host, CancellationToken cancellationToken, int port = DefaultPort, string? resourcePath = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(host);
         ArgumentOutOfRangeException.ThrowIfLessThan(port, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(port, 65535);
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
-        IppEndpointResolver resolver = new(_httpClient, host, port, resourcePath);
-        var uri = await resolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
+        var resolver = _resolvers.GetOrAdd(
+            $"{host}:{port}/{resourcePath}",
+            _ => new IppEndpointResolver(_httpClient, host, port, resourcePath, _options));
+        return resolver.RunAsync((uri, token) => ReadDetailsAsync(uri, PrinterId.FromNetwork(host), token), cancellationToken);
+    }
+
+    private async Task<IppPrinterDetails> ReadDetailsAsync(Uri uri, PrinterId id, CancellationToken cancellationToken)
+    {
         IppOperations operations = new(_httpClient);
         GetPrinterAttributesRequest request = new()
         {
             OperationAttributes = new() { PrinterUri = uri, RequestedAttributes = IppStatusMapper.RequestedAttributes },
         };
         var response = await operations.SendAsync(
-            (client, message, token) => client.GetPrinterAttributesAsync(message, token),
+            static (client, message, token) => client.GetPrinterAttributesAsync(message, token),
             request,
             uri,
             cancellationToken).ConfigureAwait(false);
 
-        return IppStatusMapper.Map(PrinterId.FromNetwork(host), response.PrinterAttributes, operations.LastRawResponse);
+        return IppStatusMapper.Map(id, response.PrinterAttributes, operations.LastRawResponse);
     }
 }

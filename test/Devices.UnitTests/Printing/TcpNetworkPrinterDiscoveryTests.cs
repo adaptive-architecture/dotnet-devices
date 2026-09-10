@@ -8,7 +8,7 @@ namespace AdaptArch.Devices.UnitTests.Printing;
 public class TcpNetworkPrinterDiscoveryTests
 {
     [Fact]
-    public async Task DiscoverNetworkPrintersAsync_FindsOpenPort()
+    public async Task DiscoverAsync_FindsOpenPort()
     {
         using TcpListener listener = new(IPAddress.Loopback, 0);
         listener.Start();
@@ -23,7 +23,7 @@ public class TcpNetworkPrinterDiscoveryTests
             ConnectTimeout = TimeSpan.FromSeconds(5),
         };
 
-        var found = await discovery.DiscoverNetworkPrintersAsync(options, timeoutSource.Token);
+        var found = await discovery.DiscoverAsync(options, timeoutSource.Token);
 
         var printer = Assert.Single(found);
         Assert.Equal(PrinterIdKind.Network, printer.Id.Kind);
@@ -34,7 +34,7 @@ public class TcpNetworkPrinterDiscoveryTests
     }
 
     [Fact]
-    public async Task DiscoverNetworkPrintersAsync_SkipsClosedPorts()
+    public async Task DiscoverAsync_SkipsClosedPorts()
     {
         var closedPort = GetClosedPort();
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(15));
@@ -47,32 +47,63 @@ public class TcpNetworkPrinterDiscoveryTests
             ConnectTimeout = TimeSpan.FromSeconds(2),
         };
 
-        var found = await discovery.DiscoverNetworkPrintersAsync(options, timeoutSource.Token);
+        var found = await discovery.DiscoverAsync(options, timeoutSource.Token);
 
         Assert.Empty(found);
     }
 
     [Fact]
-    public async Task DiscoverNetworkPrintersAsync_EmptyHosts_ReturnsEmpty()
+    public async Task DiscoverAsync_EmptyHosts_ReturnsEmpty()
     {
         TcpNetworkPrinterDiscovery discovery = new();
 
         var found = await discovery
-            .DiscoverNetworkPrintersAsync(new NetworkPrinterDiscoveryOptions(), CancellationToken.None);
+            .DiscoverAsync(new NetworkPrinterDiscoveryOptions(), CancellationToken.None);
 
         Assert.Empty(found);
     }
 
     [Fact]
-    public async Task DiscoverNetworkPrintersAsync_SkipsBlankHosts()
+    public async Task DiscoverAsync_SkipsBlankHosts()
     {
         TcpNetworkPrinterDiscovery discovery = new();
         NetworkPrinterDiscoveryOptions options = new() { Hosts = ["  ", String.Empty] };
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(15));
 
-        var found = await discovery.DiscoverNetworkPrintersAsync(options, timeoutSource.Token);
+        var found = await discovery.DiscoverAsync(options, timeoutSource.Token);
 
         Assert.Empty(found);
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_DuplicateHosts_ProbesAndReportsOnce()
+    {
+        using TcpListener listener = new(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(15));
+
+        TcpNetworkPrinterDiscovery discovery = new();
+        NetworkPrinterDiscoveryOptions options = new()
+        {
+            Hosts = ["127.0.0.1", "127.0.0.1"],
+            Port = port,
+            ConnectTimeout = TimeSpan.FromSeconds(5),
+        };
+
+        var found = await discovery.DiscoverAsync(options, timeoutSource.Token);
+
+        Assert.Equal("127.0.0.1", Assert.Single(found).Id.Value);
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_NonPositiveConnectTimeout_Throws()
+    {
+        TcpNetworkPrinterDiscovery discovery = new();
+        NetworkPrinterDiscoveryOptions options = new() { Hosts = ["127.0.0.1"], ConnectTimeout = TimeSpan.Zero };
+
+        _ = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => discovery.DiscoverAsync(options, CancellationToken.None));
     }
 
     private static int GetClosedPort()

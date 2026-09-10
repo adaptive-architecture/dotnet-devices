@@ -38,6 +38,12 @@ internal sealed class MdnsChannelFactory : IMdnsChannelFactory
     /// </summary>
     private const int TimeToLive = 255;
 
+    /// <summary>
+    /// The largest datagram that a channel reads. RFC 6762 permits a multicast DNS
+    /// response of up to 9000 bytes.
+    /// </summary>
+    private const int MaxDatagramSize = 9000;
+
     /// <inheritdoc />
     public IReadOnlyList<(IUdpChannel Channel, IPEndPoint Destination)> Create(MdnsPrinterDiscoveryOptions options)
     {
@@ -51,13 +57,38 @@ internal sealed class MdnsChannelFactory : IMdnsChannelFactory
                 continue;
             }
 
-            foreach (var unicast in adapter.GetIPProperties().UnicastAddresses)
+            // One channel for each address family of the adapter. A second address of the
+            // same family is on the same link, so a second channel there sends the same
+            // query to the same printers a second time.
+            var properties = adapter.GetIPProperties();
+            var v4 = FirstAddress(properties, AddressFamily.InterNetwork);
+            if (v4 is not null)
             {
-                AddChannel(channels, unicast.Address, options);
+                AddChannel(channels, v4, GroupV4, 0);
+            }
+
+            var v6 = options.IncludeIPv6 ? FirstAddress(properties, AddressFamily.InterNetworkV6) : null;
+            if (v6 is not null && adapter.Supports(NetworkInterfaceComponent.IPv6))
+            {
+                AddChannel(channels, v6, GroupV6, properties.GetIPv6Properties().Index);
             }
         }
 
         return channels;
+    }
+
+    private static IPAddress? FirstAddress(IPInterfaceProperties properties, AddressFamily family)
+    {
+        foreach (var unicast in properties.UnicastAddresses)
+        {
+            var address = unicast.Address;
+            if (address.AddressFamily == family && !IPAddress.IsLoopback(address))
+            {
+                return address;
+            }
+        }
+
+        return null;
     }
 
     private static bool IsUsable(NetworkInterface adapter, MdnsPrinterDiscoveryOptions options)
@@ -94,28 +125,12 @@ internal sealed class MdnsChannelFactory : IMdnsChannelFactory
     private static void AddChannel(
         List<(IUdpChannel, IPEndPoint)> channels,
         IPAddress address,
-        MdnsPrinterDiscoveryOptions options)
+        IPAddress group,
+        int interfaceIndex)
     {
-        if (address.AddressFamily == AddressFamily.InterNetworkV6 && !options.IncludeIPv6)
-        {
-            return;
-        }
-
-        if (address.AddressFamily != AddressFamily.InterNetwork &&
-            address.AddressFamily != AddressFamily.InterNetworkV6)
-        {
-            return;
-        }
-
-        if (IPAddress.IsLoopback(address))
-        {
-            return;
-        }
-
-        var group = address.AddressFamily == AddressFamily.InterNetwork ? GroupV4 : GroupV6;
         try
         {
-            UdpChannel channel = new(address, TimeToLive);
+            UdpChannel channel = new(address, MaxDatagramSize, TimeToLive, interfaceIndex);
             channels.Add((channel, new IPEndPoint(group, Port)));
         }
         catch (SocketException)

@@ -1,7 +1,4 @@
-﻿
-using System.Diagnostics.CodeAnalysis;
-
-namespace AdaptArch.Devices.Printing.Ipp;
+﻿namespace AdaptArch.Devices.Printing.Ipp;
 
 /// <summary>
 /// Prints to and queries a network printer over IPP (Internet Printing Protocol).
@@ -23,57 +20,56 @@ public sealed class IppPrinter : IPrinter, IDisposable
 
     /// <summary>
     /// Initializes a new instance of the <see cref="IppPrinter"/> class with an internally
-    /// managed <see cref="HttpClient"/> that accepts any server certificate, because network
-    /// printers overwhelmingly use self-signed certificates.
-    /// Supply your own client for custom certificate validation.
+    /// managed <see cref="HttpClient"/> and the default <see cref="IppTransportOptions"/>,
+    /// which accept any server certificate, because network printers overwhelmingly use
+    /// self-signed certificates.
     /// </summary>
     /// <param name="endpoint">The network endpoint of the printer.</param>
     public IppPrinter(NetworkPrinterEndpoint endpoint)
-        : this(endpoint, CreateDefaultClient(), null, true)
+        : this(endpoint, new IppTransportOptions())
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="IppPrinter"/> class with an internally
+    /// managed <see cref="HttpClient"/> built from <paramref name="options"/>.
+    /// </summary>
+    /// <param name="endpoint">The network endpoint of the printer.</param>
+    /// <param name="options">The certificate trust, the plain IPP fallback, and the connect timeout.</param>
+    public IppPrinter(NetworkPrinterEndpoint endpoint, IppTransportOptions options)
+        : this(endpoint, IppHttpClientFactory.Create(options), null, options, true)
     {
     }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="IppPrinter"/> class with a
     /// caller-provided <see cref="HttpClient"/>. The client is not disposed by this instance.
+    /// The library treats the client as one that validates certificates, so a failed TLS
+    /// handshake throws instead of a fallback to plain IPP.
     /// </summary>
     /// <param name="endpoint">The network endpoint of the printer.</param>
     /// <param name="httpClient">The HTTP client used to send IPP requests.</param>
     public IppPrinter(NetworkPrinterEndpoint endpoint, HttpClient httpClient)
-        : this(endpoint, httpClient, null, false)
+        : this(endpoint, httpClient, null, IppTransportOptions.ForSuppliedClient(), false)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
     }
 
-    internal IppPrinter(NetworkPrinterEndpoint endpoint, HttpClient httpClient, string? resourcePath)
-        : this(endpoint, httpClient, resourcePath, false)
+    internal IppPrinter(NetworkPrinterEndpoint endpoint, HttpClient httpClient, string? resourcePath, IppTransportOptions options)
+        : this(endpoint, httpClient, resourcePath, options, false)
     {
     }
 
-    private IppPrinter(NetworkPrinterEndpoint endpoint, HttpClient httpClient, string? resourcePath, bool ownsClient)
+    private IppPrinter(NetworkPrinterEndpoint endpoint, HttpClient httpClient, string? resourcePath, IppTransportOptions options, bool ownsClient)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
+        ArgumentNullException.ThrowIfNull(options);
         Endpoint = endpoint;
         Id = PrinterId.FromNetwork(endpoint.Host);
         Info = new PrinterInfo(Id, endpoint.Host);
         _httpClient = httpClient;
         _ownsClient = ownsClient;
-        _resolver = new IppEndpointResolver(httpClient, endpoint.Host, endpoint.Port, resourcePath);
-    }
-
-    // Shared with PrinterFactory, so every IppPrinter the factory hands out accepts the
-    // same self-signed printer certificates the factory itself already accepts for
-    // status reads, instead of a second, default-validating client that can reach the
-    // printer over plain IPP only.
-    [SuppressMessage(
-        "Critical Vulnerability",
-        "S4830:Server certificates should be verified during SSL/TLS connections",
-        Justification = "Network printers overwhelmingly use self-signed certificates, so a validating client reaches almost none of them over IPPS. A caller that needs validation supplies its own HttpClient; see docs/printers.md.")]
-    internal static HttpClient CreateDefaultClient()
-    {
-        SocketsHttpHandler handler = new();
-        handler.SslOptions.RemoteCertificateValidationCallback = static (_, _, _, _) => true;
-        return new HttpClient(handler, true);
+        _resolver = new IppEndpointResolver(httpClient, endpoint.Host, endpoint.Port, resourcePath, options);
     }
 
     /// <inheritdoc />
@@ -89,11 +85,13 @@ public sealed class IppPrinter : IPrinter, IDisposable
     /// <exception cref="NotSupportedException">Thrown when an option is not supported by the printer and <see cref="PrintOptions.OnUnsupported"/> is <see cref="UnsupportedOptionBehavior.Throw"/>.</exception>
     /// <exception cref="InvalidOperationException">Thrown when no IPP endpoint answers, or the printer reports an IPP error.</exception>
     /// <exception cref="InvalidDataException">Thrown when the printer returns a malformed IPP response.</exception>
+    /// <exception cref="TimeoutException">Thrown when the printer does not answer in time.</exception>
+    /// <exception cref="System.Security.Authentication.AuthenticationException">Thrown when the TLS handshake fails and this printer validates certificates.</exception>
+    /// <exception cref="ObjectDisposedException">Thrown after <see cref="Dispose"/>.</exception>
     public async Task<PrintJobInfo> PrintAsync(PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(payload);
-
-        var uri = await _resolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
         var effectiveOptions = options;
         IReadOnlyList<string> dropped = [];
@@ -103,16 +101,18 @@ public sealed class IppPrinter : IPrinter, IDisposable
             effectiveOptions = PrintOptionValidator.Apply(options, configuration, out dropped);
         }
 
-        return await IppRequests.SubmitAsync(_httpClient, uri, Id, payload, effectiveOptions, dropped, cancellationToken).ConfigureAwait(false);
+        return await _resolver.RunAsync(
+            (uri, token) => IppRequests.SubmitAsync(_httpClient, uri, Id, payload, effectiveOptions, dropped, token),
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     /// <exception cref="InvalidOperationException">Thrown when no IPP endpoint answers, or the printer reports an IPP error.</exception>
     /// <exception cref="InvalidDataException">Thrown when the printer returns a malformed IPP response.</exception>
-    public async Task<PrinterStatus> GetStatusAsync(CancellationToken cancellationToken)
+    public Task<PrinterStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
-        var uri = await _resolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
-        return await IppRequests.GetStatusAsync(_httpClient, uri, Id, cancellationToken).ConfigureAwait(false);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return _resolver.RunAsync((uri, token) => IppRequests.GetStatusAsync(_httpClient, uri, Id, token), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -121,13 +121,15 @@ public sealed class IppPrinter : IPrinter, IDisposable
     /// <exception cref="InvalidDataException">Thrown when the printer returns a malformed IPP response.</exception>
     public async Task<PrinterConfiguration> GetConfigurationAsync(CancellationToken cancellationToken)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if (_configuration is not null)
         {
             return _configuration;
         }
 
-        var uri = await _resolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
-        var configuration = await IppRequests.GetConfigurationAsync(_httpClient, uri, Id, cancellationToken).ConfigureAwait(false);
+        var configuration = await _resolver.RunAsync(
+            (uri, token) => IppRequests.GetConfigurationAsync(_httpClient, uri, Id, token),
+            cancellationToken).ConfigureAwait(false);
         _configuration = configuration;
         return configuration;
     }

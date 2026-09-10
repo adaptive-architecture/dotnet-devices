@@ -68,8 +68,27 @@ public class PrinterManagerDiscoveryTests
         PrinterManager manager = new(
             new FakeMdnsDiscovery(null), new FakeSpoolerDiscovery(null), new FakeNetworkProbe([]), new FakePrinterFactory(), new FakePrintJobMonitor([]));
 
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(
+        var error = await Assert.ThrowsAsync<PrinterDiscoveryException>(
             () => manager.DiscoverAsync(null, TestContext.Current.CancellationToken));
+
+        Assert.Equal(2, error.Failures.Count);
+        Assert.Equal("The browse failed.", error.Failures[DiscoverySource.Mdns].Message);
+        Assert.Equal("The spooler failed.", error.Failures[DiscoverySource.Spooler].Message);
+        Assert.NotNull(error.InnerException);
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_ReportsOneEndpointOneTime()
+    {
+        // The browse and the probe both report the raw channel of one host.
+        var fromBrowse = FakePrinters.Network("192.168.1.50", 9100, DiscoverySource.Mdns);
+        var fromProbe = FakePrinters.Network("192.168.1.50", 9100, DiscoverySource.NetworkProbe);
+        PrinterManager manager = new(
+            new FakeMdnsDiscovery([fromBrowse]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([fromProbe]), new FakePrinterFactory(), new FakePrintJobMonitor([]));
+
+        var printers = await manager.DiscoverAsync(new PrinterManagerOptions { Probe = new() { Hosts = ["192.168.1.50"] } }, TestContext.Current.CancellationToken);
+
+        _ = Assert.Single(printers);
     }
 
     [Fact]

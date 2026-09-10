@@ -35,6 +35,7 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
     }
 
     /// <inheritdoc />
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <see cref="PrintJobMonitorOptions.PollInterval"/> or <see cref="PrintJobMonitorOptions.Timeout"/> is zero or negative.</exception>
     public IAsyncEnumerable<PrintJobInfo> WatchJobAsync(
         PrinterId printerId,
         string jobId,
@@ -43,6 +44,11 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.PollInterval, TimeSpan.Zero);
+        if (options.Timeout is TimeSpan timeout)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
+        }
 
         return WatchJobAsyncCore(printerId, jobId, options, cancellationToken);
     }
@@ -75,9 +81,11 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
             {
                 // Both CUPS and the Windows spooler drop a finished job from the queue, so
                 // a job that is gone has finished.
+                var now = _timeProvider.GetUtcNow();
                 var done = new PrintJobInfo(jobId, printerId, PrintJobState.Completed)
                 {
-                    CompletedAt = _timeProvider.GetUtcNow(),
+                    CreatedAt = now,
+                    CompletedAt = now,
                 };
                 yield return done;
                 yield break;

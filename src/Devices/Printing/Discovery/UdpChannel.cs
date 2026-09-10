@@ -10,30 +10,39 @@ namespace AdaptArch.Devices.Printing;
 /// </summary>
 internal sealed class UdpChannel : IUdpChannel
 {
-    /// <summary>
-    /// The largest datagram that the channel reads. RFC 6762 permits a multicast DNS
-    /// response of up to 9000 bytes.
-    /// </summary>
-    private const int MaxDatagramSize = 9000;
-
     private readonly Socket _socket;
+    private readonly int _bufferSize;
     private bool _disposed;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="UdpChannel"/> class for unicast requests.
+    /// </summary>
+    /// <param name="bindAddress">The local address to bind, normally <see cref="IPAddress.Any"/> or <see cref="IPAddress.IPv6Any"/>.</param>
+    /// <param name="bufferSize">The largest datagram that the channel reads. A longer datagram is cut.</param>
+    public UdpChannel(IPAddress bindAddress, int bufferSize)
+        : this(bindAddress, bufferSize, 0, 0)
+    {
+    }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UdpChannel"/> class.
     /// </summary>
-    /// <param name="bindAddress">The local address to bind. Use <see cref="IPAddress.Any"/> for unicast requests, or the address of one interface to send multicast on that interface.</param>
+    /// <param name="bindAddress">The local address to bind. Use the address of one interface to send multicast on that interface.</param>
+    /// <param name="bufferSize">The largest datagram that the channel reads. A longer datagram is cut.</param>
     /// <param name="multicastTimeToLive">The multicast time to live. Pass zero for a unicast channel.</param>
-    public UdpChannel(IPAddress bindAddress, int multicastTimeToLive)
+    /// <param name="interfaceIndex">The index of the interface that sends IPv6 multicast. Not used for IPv4 or for unicast.</param>
+    public UdpChannel(IPAddress bindAddress, int bufferSize, int multicastTimeToLive, int interfaceIndex)
     {
         ArgumentNullException.ThrowIfNull(bindAddress);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(bufferSize, 0);
+        _bufferSize = bufferSize;
         _socket = new Socket(bindAddress.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
         try
         {
             _socket.Bind(new IPEndPoint(bindAddress, 0));
             if (multicastTimeToLive > 0)
             {
-                SetMulticastOptions(bindAddress, multicastTimeToLive);
+                SetMulticastOptions(bindAddress, multicastTimeToLive, interfaceIndex);
             }
         }
         catch
@@ -43,7 +52,7 @@ internal sealed class UdpChannel : IUdpChannel
         }
     }
 
-    private void SetMulticastOptions(IPAddress bindAddress, int multicastTimeToLive)
+    private void SetMulticastOptions(IPAddress bindAddress, int multicastTimeToLive, int interfaceIndex)
     {
         if (bindAddress.AddressFamily == AddressFamily.InterNetwork)
         {
@@ -55,8 +64,10 @@ internal sealed class UdpChannel : IUdpChannel
             return;
         }
 
+        // IPv6 names the outgoing interface by index. The scope identifier of the address
+        // is not a substitute: it is zero for every address that is not link-local.
         _socket.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.MulticastTimeToLive, multicastTimeToLive);
-        _socket.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.MulticastInterface, (int)bindAddress.ScopeId);
+        _socket.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.MulticastInterface, interfaceIndex);
     }
 
     /// <inheritdoc />
@@ -69,7 +80,7 @@ internal sealed class UdpChannel : IUdpChannel
     /// <inheritdoc />
     public async ValueTask<UdpReceiveResult> ReceiveAsync(CancellationToken cancellationToken)
     {
-        var buffer = new byte[MaxDatagramSize];
+        var buffer = new byte[_bufferSize];
         EndPoint remote = new IPEndPoint(
             _socket.AddressFamily == AddressFamily.InterNetwork ? IPAddress.Any : IPAddress.IPv6Any, 0);
         var result = await _socket

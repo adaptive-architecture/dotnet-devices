@@ -15,6 +15,9 @@ namespace AdaptArch.Devices.Printing.Spooler;
 // platform compatibility analyzer accepts the calls into WindowsSpoolerInterop below
 // it, and so a caller on Linux or macOS gets a clear PlatformNotSupportedException
 // instead of a native load failure.
+//
+// The spooler RPC runs on the caller thread and cannot be interrupted, so each method
+// checks the cancellation token on entry only.
 [SupportedOSPlatform("windows")]
 internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 {
@@ -26,6 +29,10 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // longer in the queue.
     private const int ErrorInvalidParameter = 87;
 
+    // ERROR_INSUFFICIENT_BUFFER: the expected answer of a size query made with an empty
+    // buffer. Any other failure of that query is a real error.
+    private const int ErrorInsufficientBuffer = 122;
+
     private const string WindowsOnlyMessage = "The Windows spooler driver needs Windows.";
 
     public Task<IReadOnlyList<DiscoveredPrinter>> EnumeratePrintersAsync(CancellationToken cancellationToken)
@@ -35,10 +42,17 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             throw new PlatformNotSupportedException(WindowsOnlyMessage);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+
         var buffer = IntPtr.Zero;
         try
         {
-            _ = WindowsSpoolerInterop.EnumPrinters(WindowsSpoolerInterop.PrinterEnumLocalAndConnections, 0, 4, 0, 0, out var needed, out _);
+            if (!WindowsSpoolerInterop.EnumPrinters(WindowsSpoolerInterop.PrinterEnumLocalAndConnections, 0, 4, 0, 0, out var needed, out _)
+                && Marshal.GetLastWin32Error() != ErrorInsufficientBuffer)
+            {
+                ThrowLastError(nameof(WindowsSpoolerInterop.EnumPrinters));
+            }
+
             if (needed == 0)
             {
                 return Task.FromResult<IReadOnlyList<DiscoveredPrinter>>([]);
@@ -86,10 +100,13 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // MediaSource and MediaSize are driver-specific numeric indices that would need a
     // second round trip (matching DC_BINNAMES / DC_PAPERNAMES) to resolve correctly,
     // and none of it can be exercised on this platform. This is a documented gap, not
-    // a silent one: even a fully mapped DEVMODE only ever changes the result when the
-    // queue's driver chooses to read it, since a RAW job reaches the device unchanged
-    // either way. This matches UnsupportedOptionBehavior.Send: the request goes out
-    // and the printer decides.
+    // a silent one: every set option except JobName is reported in
+    // PrintJobInfo.DroppedOptions, and even a fully mapped DEVMODE only ever changes
+    // the result when the queue's driver chooses to read it, since a RAW job reaches
+    // the device unchanged either way.
+    //
+    // A failure after StartDocPrinter deletes the job before EndDocPrinter, so the
+    // spooler never commits a truncated document.
     public Task<PrintJobInfo> SubmitAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsWindows())
@@ -97,17 +114,21 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             throw new PlatformNotSupportedException(WindowsOnlyMessage);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
         ArgumentNullException.ThrowIfNull(payload);
 
-        var dataTypePtr = Marshal.StringToHGlobalUni("RAW");
-        var jobNamePtr = Marshal.StringToHGlobalUni(options?.JobName ?? queueName);
-        var dataPtr = IntPtr.Zero;
+        var dataTypePtr = IntPtr.Zero;
+        var jobNamePtr = IntPtr.Zero;
         var printerHandle = IntPtr.Zero;
-        var docStarted = false;
+        var jobId = 0;
         var pageStarted = false;
+        var written = false;
         try
         {
+            dataTypePtr = Marshal.StringToHGlobalUni("RAW");
+            jobNamePtr = Marshal.StringToHGlobalUni(options?.JobName ?? queueName);
             var defaults = new WindowsSpoolerInterop.PrinterDefaults
             {
                 DataType = dataTypePtr,
@@ -130,13 +151,11 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 DataType = dataTypePtr,
             };
 
-            var jobId = WindowsSpoolerInterop.StartDocPrinter(printerHandle, 1, in documentInfo);
+            jobId = WindowsSpoolerInterop.StartDocPrinter(printerHandle, 1, in documentInfo);
             if (jobId <= 0)
             {
                 ThrowLastError(nameof(WindowsSpoolerInterop.StartDocPrinter));
             }
-
-            docStarted = true;
 
             if (!WindowsSpoolerInterop.StartPagePrinter(printerHandle))
             {
@@ -144,25 +163,13 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             }
 
             pageStarted = true;
-
-            var data = payload.Data;
-            dataPtr = Marshal.AllocHGlobal(data.Length);
-            Marshal.Copy(data.ToArray(), 0, dataPtr, data.Length);
-
-            if (!WindowsSpoolerInterop.WritePrinter(printerHandle, dataPtr, data.Length, out var written))
-            {
-                ThrowLastError(nameof(WindowsSpoolerInterop.WritePrinter));
-            }
-
-            if (written != data.Length)
-            {
-                throw new InvalidOperationException(
-                    $"{nameof(WindowsSpoolerInterop.WritePrinter)} wrote {written} of {data.Length} bytes.");
-            }
+            WriteAll(printerHandle, payload.Data);
+            written = true;
 
             return Task.FromResult(new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.FromSpooler(queueName), PrintJobState.Queued)
             {
                 JobName = options?.JobName,
+                DroppedOptions = UnappliedOptions(options),
             });
         }
         finally
@@ -172,8 +179,13 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 _ = WindowsSpoolerInterop.EndPagePrinter(printerHandle);
             }
 
-            if (docStarted)
+            if (jobId > 0)
             {
+                if (!written)
+                {
+                    _ = WindowsSpoolerInterop.SetJob(printerHandle, jobId, 0, 0, WindowsSpoolerInterop.JobControlDelete);
+                }
+
                 _ = WindowsSpoolerInterop.EndDocPrinter(printerHandle);
             }
 
@@ -182,9 +194,61 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 _ = WindowsSpoolerInterop.ClosePrinter(printerHandle);
             }
 
-            FreeIfSet(dataPtr);
-            Marshal.FreeHGlobal(jobNamePtr);
-            Marshal.FreeHGlobal(dataTypePtr);
+            FreeIfSet(jobNamePtr);
+            FreeIfSet(dataTypePtr);
+        }
+    }
+
+    // WritePrinter can write fewer bytes than asked, so it is called until every byte
+    // is out. The payload is pinned in place instead of copied into a native buffer.
+    private static unsafe void WriteAll(nint printerHandle, ReadOnlyMemory<byte> data)
+    {
+        using var pin = data.Pin();
+        var pointer = (nint)pin.Pointer;
+        var remaining = data.Length;
+        while (remaining > 0)
+        {
+            if (!WindowsSpoolerInterop.WritePrinter(printerHandle, pointer, remaining, out var written))
+            {
+                ThrowLastError(nameof(WindowsSpoolerInterop.WritePrinter));
+            }
+
+            if (written <= 0)
+            {
+                throw new InvalidOperationException(
+                    $"{nameof(WindowsSpoolerInterop.WritePrinter)} wrote 0 of {remaining} remaining bytes.");
+            }
+
+            pointer += written;
+            remaining -= written;
+        }
+    }
+
+    // Every option this driver does not map into a DEVMODE, named as PrintOptionValidator
+    // names them, so PrintJobInfo.DroppedOptions tells the caller what did not apply.
+    internal static IReadOnlyList<string> UnappliedOptions(PrintOptions? options)
+    {
+        if (options is null)
+        {
+            return [];
+        }
+
+        List<string> names = [];
+        AddIfSet(names, options.Copies is not null, nameof(PrintOptions.Copies));
+        AddIfSet(names, options.Duplex is not null, nameof(PrintOptions.Duplex));
+        AddIfSet(names, options.ColorMode is not null, nameof(PrintOptions.ColorMode));
+        AddIfSet(names, options.Orientation is not null, nameof(PrintOptions.Orientation));
+        AddIfSet(names, options.MediaSource is not null, nameof(PrintOptions.MediaSource));
+        AddIfSet(names, options.MediaSize is not null, nameof(PrintOptions.MediaSize));
+        AddIfSet(names, options.ResolutionDpi is not null, nameof(PrintOptions.ResolutionDpi));
+        return names;
+    }
+
+    private static void AddIfSet(List<string> names, bool isSet, string name)
+    {
+        if (isSet)
+        {
+            names.Add(name);
         }
     }
 
@@ -194,6 +258,8 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         {
             throw new PlatformNotSupportedException(WindowsOnlyMessage);
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
 
@@ -211,11 +277,11 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             }
 
             var info = Marshal.PtrToStructure<WindowsSpoolerInterop.PrinterInfo2>(buffer);
-            var state = WindowsSpoolerStatusMapper.MapPrinterStatus(info.Status);
+            var state = WindowsSpoolerStatusMapper.MapPrinterStatus(info.Status, info.Attributes);
             return Task.FromResult(new PrinterStatus(PrinterId.FromSpooler(queueName), state)
             {
-                IsAcceptingJobs = WindowsSpoolerStatusMapper.IsAcceptingJobs(info.Status),
-                Detail = WindowsSpoolerStatusMapper.DescribePrinterStatus(info.Status),
+                IsAcceptingJobs = WindowsSpoolerStatusMapper.IsAcceptingJobs(info.Status, info.Attributes),
+                Detail = WindowsSpoolerStatusMapper.DescribePrinterStatus(info.Status, info.Attributes),
             });
         }
         finally
@@ -231,7 +297,8 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // DeviceCapabilitiesW needs no printer handle: it is called with the queue name
     // directly. Each buffer-returning capability is called twice, once with a null
     // buffer to learn the count and once with a buffer of that size; DC_DUPLEX and
-    // DC_COLORDEVICE return 1 or 0 directly and need no buffer at all.
+    // DC_COLORDEVICE return 1 or 0 directly and need no buffer at all. A negative
+    // return is an error, for example a queue name that does not exist.
     public Task<PrinterConfiguration> GetConfigurationAsync(string queueName, CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsWindows())
@@ -239,12 +306,14 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             throw new PlatformNotSupportedException(WindowsOnlyMessage);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
 
         var configuration = new PrinterConfiguration(PrinterId.FromSpooler(queueName))
         {
-            SupportsDuplex = WindowsSpoolerInterop.DeviceCapabilities(queueName, null, WindowsSpoolerInterop.DcDuplex, 0, 0) == 1,
-            SupportsColor = WindowsSpoolerInterop.DeviceCapabilities(queueName, null, WindowsSpoolerInterop.DcColorDevice, 0, 0) == 1,
+            SupportsDuplex = QueryCapability(queueName, WindowsSpoolerInterop.DcDuplex, 0) == 1,
+            SupportsColor = QueryCapability(queueName, WindowsSpoolerInterop.DcColorDevice, 0) == 1,
             SupportedResolutionsDpi = ReadResolutions(queueName),
             MediaSizes = ReadPaperNames(queueName),
         };
@@ -252,10 +321,21 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         return Task.FromResult(configuration);
     }
 
+    private static int QueryCapability(string queueName, ushort capability, nint output)
+    {
+        var result = WindowsSpoolerInterop.DeviceCapabilities(queueName, null, capability, output, 0);
+        if (result < 0)
+        {
+            ThrowLastError(nameof(WindowsSpoolerInterop.DeviceCapabilities));
+        }
+
+        return result;
+    }
+
     private static IReadOnlyList<int> ReadResolutions(string queueName)
     {
-        var count = WindowsSpoolerInterop.DeviceCapabilities(queueName, null, WindowsSpoolerInterop.DcEnumResolutions, 0, 0);
-        if (count <= 0)
+        var count = QueryCapability(queueName, WindowsSpoolerInterop.DcEnumResolutions, 0);
+        if (count == 0)
         {
             return [];
         }
@@ -263,8 +343,8 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         var buffer = Marshal.AllocHGlobal(count * 2 * sizeof(int));
         try
         {
-            var written = WindowsSpoolerInterop.DeviceCapabilities(queueName, null, WindowsSpoolerInterop.DcEnumResolutions, buffer, 0);
-            if (written <= 0)
+            var written = QueryCapability(queueName, WindowsSpoolerInterop.DcEnumResolutions, buffer);
+            if (written == 0)
             {
                 return [];
             }
@@ -286,8 +366,8 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     private static IReadOnlyList<string> ReadPaperNames(string queueName)
     {
         const int BlockLength = 64;
-        var count = WindowsSpoolerInterop.DeviceCapabilities(queueName, null, WindowsSpoolerInterop.DcPaperNames, 0, 0);
-        if (count <= 0)
+        var count = QueryCapability(queueName, WindowsSpoolerInterop.DcPaperNames, 0);
+        if (count == 0)
         {
             return [];
         }
@@ -295,8 +375,8 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         var buffer = Marshal.AllocHGlobal(count * BlockLength * sizeof(char));
         try
         {
-            var written = WindowsSpoolerInterop.DeviceCapabilities(queueName, null, WindowsSpoolerInterop.DcPaperNames, buffer, 0);
-            if (written <= 0)
+            var written = QueryCapability(queueName, WindowsSpoolerInterop.DcPaperNames, buffer);
+            if (written == 0)
             {
                 return [];
             }
@@ -320,6 +400,8 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             throw new PlatformNotSupportedException(WindowsOnlyMessage);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
 
         var printerHandle = IntPtr.Zero;
@@ -328,7 +410,12 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         {
             OpenForUse(queueName, out printerHandle);
 
-            _ = WindowsSpoolerInterop.EnumJobs(printerHandle, 0, JobEnumerationLimit, 2, 0, 0, out var needed, out _);
+            if (!WindowsSpoolerInterop.EnumJobs(printerHandle, 0, JobEnumerationLimit, 2, 0, 0, out var needed, out _)
+                && Marshal.GetLastWin32Error() != ErrorInsufficientBuffer)
+            {
+                ThrowLastError(nameof(WindowsSpoolerInterop.EnumJobs));
+            }
+
             if (needed == 0)
             {
                 return Task.FromResult<IReadOnlyList<PrintJobInfo>>([]);
@@ -383,6 +470,8 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             throw new PlatformNotSupportedException(WindowsOnlyMessage);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
         ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
 
@@ -396,6 +485,8 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         {
             throw new PlatformNotSupportedException(WindowsOnlyMessage);
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
         if (!Int32.TryParse(jobId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id))
@@ -416,7 +507,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                     return Task.FromResult(false);
                 }
 
-                throw new InvalidOperationException($"{nameof(WindowsSpoolerInterop.SetJob)} failed with Win32 error {error}.");
+                throw new InvalidOperationException(Describe(nameof(WindowsSpoolerInterop.SetJob), error));
             }
 
             return Task.FromResult(true);
@@ -458,5 +549,9 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     }
 
     private static void ThrowLastError(string operation) =>
-        throw new InvalidOperationException($"{operation} failed with Win32 error {Marshal.GetLastWin32Error()}.");
+        throw new InvalidOperationException(Describe(operation, Marshal.GetLastWin32Error()));
+
+    // GetPInvokeErrorMessage needs no reflection, so it is safe under native AOT.
+    private static string Describe(string operation, int error) =>
+        $"{operation} failed with Win32 error {error}: {Marshal.GetPInvokeErrorMessage(error)}";
 }

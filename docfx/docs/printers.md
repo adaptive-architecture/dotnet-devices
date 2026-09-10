@@ -36,7 +36,7 @@ The `AdaptArch.Devices` package provides cross-platform printer abstractions
 // Find the printers that advertise themselves on the local link.
 IMdnsPrinterDiscovery discovery = new MdnsPrinterDiscovery();
 IReadOnlyList<DiscoveredPrinter> printers =
-    await discovery.DiscoverPrintersAsync(new MdnsPrinterDiscoveryOptions(), cancellationToken);
+    await discovery.DiscoverAsync(new MdnsPrinterDiscoveryOptions(), cancellationToken);
 
 PrinterPayload payload = PrinterPayload.FromString("^XA^FO50,50^ADN,36,20^FDHello^FS^XZ", PrinterContentTypes.Zpl);
 

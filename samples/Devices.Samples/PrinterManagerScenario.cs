@@ -95,9 +95,10 @@ internal static class PrinterManagerScenario
         // nothing and needs no disposal here.
         var manager = provider.GetRequiredService<IPrinterManager>();
         var printerId = SampleHelpers.ParsePrinterId(identifierText);
-        var bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(false);
-
-        await SeedCacheAsync(manager, printerId).ConfigureAwait(false);
+        // A network identifier that the cache does not hold is opened by host, so no browse
+        // runs. A spooler identifier runs one discovery. Either way the manager resolves it.
+        using CancellationTokenSource timeoutSource = new(TimeSpan.FromMinutes(2));
+        var bytes = await File.ReadAllBytesAsync(path, timeoutSource.Token).ConfigureAwait(false);
 
         PrintJobInfo submitted;
         try
@@ -106,7 +107,7 @@ internal static class PrinterManagerScenario
                 printerId,
                 PrinterPayload.FromBytes(bytes, PrinterContentTypes.OctetStream),
                 new PrintOptions { JobName = safeFileName },
-                CancellationToken.None).ConfigureAwait(false);
+                timeoutSource.Token).ConfigureAwait(false);
         }
         catch (InvalidOperationException)
         {
@@ -132,9 +133,10 @@ internal static class PrinterManagerScenario
         var manager = provider.GetRequiredService<IPrinterManager>();
         var monitor = provider.GetRequiredService<IPrintJobMonitor>();
         var printerId = SampleHelpers.ParsePrinterId(identifierText);
-        var bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(false);
-
-        await SeedCacheAsync(manager, printerId).ConfigureAwait(false);
+        // A network identifier that the cache does not hold is opened by host, so no browse
+        // runs. A spooler identifier runs one discovery. Either way the manager resolves it.
+        using CancellationTokenSource timeoutSource = new(TimeSpan.FromMinutes(2));
+        var bytes = await File.ReadAllBytesAsync(path, timeoutSource.Token).ConfigureAwait(false);
 
         PrintJobInfo submitted;
         try
@@ -143,7 +145,7 @@ internal static class PrinterManagerScenario
                 printerId,
                 PrinterPayload.FromBytes(bytes, PrinterContentTypes.OctetStream),
                 new PrintOptions { JobName = safeFileName },
-                CancellationToken.None).ConfigureAwait(false);
+                timeoutSource.Token).ConfigureAwait(false);
         }
         catch (InvalidOperationException)
         {
@@ -163,7 +165,7 @@ internal static class PrinterManagerScenario
         }
 
         await foreach (var reading in monitor.WatchJobAsync(
-            printerId, submitted.JobId, new PrintJobMonitorOptions(), CancellationToken.None).ConfigureAwait(false))
+            printerId, submitted.JobId, new PrintJobMonitorOptions(), timeoutSource.Token).ConfigureAwait(false))
         {
             Console.WriteLine($"  {SampleHelpers.DescribeJobReading(reading)}");
         }
@@ -176,8 +178,6 @@ internal static class PrinterManagerScenario
         var manager = provider.GetRequiredService<IPrinterManager>();
         var printerId = SampleHelpers.ParsePrinterId(identifierText);
         var payload = PrinterPayload.FromString("^XA^FO50,50^ADN,36,20^FDHello^FS^XZ", PrinterContentTypes.Zpl);
-
-        await SeedCacheAsync(manager, printerId).ConfigureAwait(false);
 
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(15));
         try
@@ -236,32 +236,5 @@ internal static class PrinterManagerScenario
         {
             Console.WriteLine($"    Manager status unavailable: {exception.Message}");
         }
-    }
-
-    // PrintAsync resolves only from the cache or a fresh mDNS-plus-spooler discovery. A
-    // network identifier given by address often advertises on neither, so a targeted probe
-    // of that one host, through PrinterManagerOptions.Probe, closes the gap. A spooler (or
-    // USB) identifier needs no probe: the spooler discovery source already finds the queue,
-    // so a plain discovery is enough to populate the cache.
-    private static async Task SeedCacheAsync(IPrinterManager manager, PrinterId id)
-    {
-        if (id.Kind != PrinterIdKind.Network)
-        {
-            _ = await manager.DiscoverAsync(null, CancellationToken.None).ConfigureAwait(false);
-            return;
-        }
-
-        PrinterManagerOptions targeted = new()
-        {
-            // The caller named the host, so neither the browse nor the spooler can help.
-            IncludeSpooler = false,
-            IncludeMdns = false,
-            Probe = new NetworkPrinterDiscoveryOptions
-            {
-                Hosts = [id.Value],
-                ConnectTimeout = TimeSpan.FromSeconds(2),
-            },
-        };
-        _ = await manager.DiscoverAsync(targeted, CancellationToken.None).ConfigureAwait(false);
     }
 }

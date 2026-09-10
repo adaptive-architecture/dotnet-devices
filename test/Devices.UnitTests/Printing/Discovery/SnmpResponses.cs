@@ -29,6 +29,36 @@ internal static class SnmpResponses
 #pragma warning restore CS0618
     }
 
+    // Answers a GetBulkRequest the way RFC 3416 §4.2.3 describes. The agent walks its own
+    // MIB one repetition at a time, and inside one repetition it returns the successor of
+    // each requested identifier. A cursor with no successor left reports endOfMibView. A
+    // cursor that passed the end of its column spills over into the next one, as a real
+    // agent does.
+    public static byte[] BulkResponse(byte[] request, IReadOnlyList<Variable> mib)
+    {
+        var cursors = SnmpRequests.ReadOids(request).Select(static oid => new ObjectIdentifier(oid)).ToList();
+        var repetitions = SnmpRequests.ReadMaxRepetitions(request);
+        var sorted = mib.OrderBy(static variable => variable.Id).ToList();
+        List<Variable> variables = [];
+        for (var repetition = 0; repetition < repetitions; repetition++)
+        {
+            for (var cursor = 0; cursor < cursors.Count; cursor++)
+            {
+                var next = sorted.FindIndex(variable => variable.Id.CompareTo(cursors[cursor]) > 0);
+                if (next < 0)
+                {
+                    variables.Add(EndOfMibView(cursors[cursor].ToString()));
+                    continue;
+                }
+
+                variables.Add(sorted[next]);
+                cursors[cursor] = sorted[next].Id;
+            }
+        }
+
+        return Response(SnmpRequests.ReadRequestId(request), [.. variables]);
+    }
+
     public static Variable Text(string oid, string value) => new(oid, new OctetString(value));
 
     public static Variable Bytes(string oid, byte[] value) => new(oid, new OctetString(value));

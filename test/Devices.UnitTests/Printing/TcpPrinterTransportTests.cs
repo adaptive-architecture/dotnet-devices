@@ -59,10 +59,31 @@ public class TcpPrinterTransportTests
             transport.WriteAsync(new NetworkPrinterEndpoint("127.0.0.1", 9100), payload, canceledSource.Token));
     }
 
+    // The listener accepts the connection and then never reads. The payload is larger
+    // than the socket buffers on both sides, so the write cannot complete.
+    [Fact]
+    public async Task WriteAsync_PrinterStopsReading_ThrowsTimeout()
+    {
+        using TcpListener listener = new(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(30));
+        var acceptTask = listener.AcceptTcpClientAsync(timeoutSource.Token);
+
+        TcpPrinterTransport transport = new(TimeSpan.FromMilliseconds(200));
+        var payload = PrinterPayload.FromBytes(new byte[32 * 1024 * 1024], PrinterContentTypes.OctetStream);
+
+        await Assert.ThrowsAsync<TimeoutException>(() =>
+            transport.WriteAsync(new NetworkPrinterEndpoint("127.0.0.1", port), payload, timeoutSource.Token));
+
+        using var accepted = await acceptTask;
+    }
+
     private static async Task<byte[]> ReadOnceAsync(TcpListener listener, CancellationToken cancellationToken)
     {
+        // TcpClient has no DisposeAsync, so it keeps the plain using.
         using var client = await listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
-        using var stream = client.GetStream();
+        await using var stream = client.GetStream();
         using MemoryStream buffer = new();
         var chunk = new byte[1024];
         int read;

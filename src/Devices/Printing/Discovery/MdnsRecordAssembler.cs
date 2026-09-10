@@ -82,7 +82,7 @@ internal static class MdnsRecordAssembler
             {
                 texts.TryAdd(Key(record.Name), text);
             }
-            else if (record is AddressRecord address && address.Address is not null)
+            else if (record is AddressRecord address && IsReachable(address.Address))
             {
                 // Prefer IPv4, because the endpoint is handed to a TCP transport.
                 var key = Key(record.Name);
@@ -93,6 +93,20 @@ internal static class MdnsRecordAssembler
             }
         }
     }
+
+    // A responder can advertise an address that no other host can connect to. Such an
+    // address must not replace the target name, which the caller can still resolve.
+    private static bool IsReachable(IPAddress? address) =>
+        address is not null &&
+        !IPAddress.IsLoopback(address) &&
+        !address.Equals(IPAddress.Any) &&
+        !address.Equals(IPAddress.IPv6Any) &&
+        !IsMulticast(address);
+
+    private static bool IsMulticast(IPAddress address) =>
+        address.AddressFamily == AddressFamily.InterNetwork
+            ? address.GetAddressBytes()[0] is >= 224 and <= 239
+            : address.IsIPv6Multicast;
 
     private static void AddCandidate(
         Dictionary<string, ServiceCandidate> best,
@@ -159,9 +173,10 @@ internal static class MdnsRecordAssembler
             var separator = entry.IndexOf('=', StringComparison.Ordinal);
             var key = separator < 0 ? entry : entry[..separator];
             var value = separator < 0 ? String.Empty : entry[(separator + 1)..];
+            // RFC 6763 §6.4: when a key appears more than one time, the first one counts.
             if (key.Length > 0)
             {
-                attributes[key] = value;
+                _ = attributes.TryAdd(key, value);
             }
         }
 

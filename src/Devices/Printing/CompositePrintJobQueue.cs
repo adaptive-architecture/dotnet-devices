@@ -23,19 +23,39 @@ public sealed class CompositePrintJobQueue : IPrintJobQueue
 {
     private readonly SpoolerPrintJobQueue _spoolerQueue;
     private readonly HttpClient _httpClient;
-    private readonly ConcurrentDictionary<string, IppPrintJobQueue> _networkQueues = new();
+    private readonly IppTransportOptions _options;
+    private readonly ConcurrentDictionary<string, IppPrintJobQueue> _networkQueues = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CompositePrintJobQueue"/> class.
     /// </summary>
     /// <param name="spoolerQueue">The queue used for <see cref="PrinterIdKind.Spooler"/> identifiers.</param>
-    /// <param name="httpClient">The HTTP client used to build an <see cref="IppPrintJobQueue"/> for <see cref="PrinterIdKind.Network"/> identifiers.</param>
+    /// <param name="httpClient">
+    /// The HTTP client used to build an <see cref="IppPrintJobQueue"/> for <see cref="PrinterIdKind.Network"/>
+    /// identifiers. The library treats the client as one that validates certificates, so a
+    /// failed TLS handshake throws instead of a fallback to plain IPP.
+    /// </param>
     public CompositePrintJobQueue(SpoolerPrintJobQueue spoolerQueue, HttpClient httpClient)
+        : this(spoolerQueue, httpClient, IppTransportOptions.ForSuppliedClient())
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CompositePrintJobQueue"/> class with a
+    /// caller-provided <see cref="HttpClient"/> and the <see cref="IppTransportOptions"/> it
+    /// was built from, for example by <see cref="IppHttpClientFactory.Create"/>.
+    /// </summary>
+    /// <param name="spoolerQueue">The queue used for <see cref="PrinterIdKind.Spooler"/> identifiers.</param>
+    /// <param name="httpClient">The HTTP client used to build an <see cref="IppPrintJobQueue"/> for <see cref="PrinterIdKind.Network"/> identifiers.</param>
+    /// <param name="options">The policy of <paramref name="httpClient"/>: the certificate trust and the plain IPP fallback. Pass the options the client was built from.</param>
+    public CompositePrintJobQueue(SpoolerPrintJobQueue spoolerQueue, HttpClient httpClient, IppTransportOptions options)
     {
         ArgumentNullException.ThrowIfNull(spoolerQueue);
         ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentNullException.ThrowIfNull(options);
         _spoolerQueue = spoolerQueue;
         _httpClient = httpClient;
+        _options = options;
     }
 
     /// <inheritdoc />
@@ -64,7 +84,7 @@ public sealed class CompositePrintJobQueue : IPrintJobQueue
         {
             return _networkQueues.GetOrAdd(
                 printerId.Value,
-                host => new IppPrintJobQueue(new NetworkPrinterEndpoint(host, IppPrinterStatusClient.DefaultPort), _httpClient));
+                host => new IppPrintJobQueue(new NetworkPrinterEndpoint(host, IppPrinterStatusClient.DefaultPort), _httpClient, _options));
         }
 
         throw new NotSupportedException($"Printer identifier kind '{printerId.Kind}' has no job queue.");

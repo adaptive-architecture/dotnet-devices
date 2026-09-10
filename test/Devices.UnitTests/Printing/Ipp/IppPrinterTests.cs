@@ -145,4 +145,36 @@ public class IppPrinterTests
             return IppMessages.Ok(_responseBody);
         }
     }
+
+    [Fact]
+    public async Task PrintAsync_SendsTheRequestingUserName()
+    {
+        var job = IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 1), (0x23, "job-state", 3));
+        CapturingHandler handler = new(job);
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler));
+
+        _ = await printer.PrintAsync(
+            PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
+            new PrintOptions { RequestingUserName = "kiosk-7" },
+            TestContext.Current.CancellationToken);
+        _ = await printer.PrintAsync(
+            PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
+            null,
+            TestContext.Current.CancellationToken);
+
+        Assert.Contains("kiosk-7", Encoding.Latin1.GetString(handler.RequestBodies[^2]), StringComparison.Ordinal);
+        Assert.Contains(PrintOptions.DefaultRequestingUserName, Encoding.Latin1.GetString(handler.RequestBodies[^1]), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PrintAsync_AfterDispose_Throws()
+    {
+        IppPrinter printer = new(Endpoint);
+        printer.Dispose();
+
+        _ = await Assert.ThrowsAsync<ObjectDisposedException>(() => printer.PrintAsync(
+            PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
+            null,
+            TestContext.Current.CancellationToken));
+    }
 }

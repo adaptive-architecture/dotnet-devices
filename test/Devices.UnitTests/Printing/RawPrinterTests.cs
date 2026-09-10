@@ -38,7 +38,7 @@ public class RawPrinterTests
 
         Assert.Empty(configuration.MediaSizes);
         Assert.Empty(configuration.SupportedResolutionsDpi);
-        Assert.False(configuration.SupportsDuplex);
+        Assert.Null(configuration.SupportsDuplex);
     }
 
     [Fact]

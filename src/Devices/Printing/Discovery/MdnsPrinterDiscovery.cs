@@ -28,13 +28,14 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
     internal MdnsPrinterDiscovery(IMdnsChannelFactory channelFactory) => _channelFactory = channelFactory;
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<DiscoveredPrinter>> DiscoverPrintersAsync(MdnsPrinterDiscoveryOptions options, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<DiscoveredPrinter>> DiscoverAsync(MdnsPrinterDiscoveryOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(options.ServiceTypes);
         ArgumentNullException.ThrowIfNull(options.NetworkInterfaceIndexes);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.BrowseTimeout, TimeSpan.Zero);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.QueryRetries, 0);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.MaxRecords, 0);
 
         if (options.ServiceTypes.Count == 0)
         {
@@ -83,7 +84,7 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
         windowSource.CancelAfter(options.BrowseTimeout);
 
         var sender = SendQueriesAsync(channel, destination, options, windowSource.Token);
-        var records = await ReceiveAsync(channel, cancellationToken, windowSource.Token).ConfigureAwait(false);
+        var records = await ReceiveAsync(channel, options.MaxRecords, cancellationToken, windowSource.Token).ConfigureAwait(false);
 
         try
         {
@@ -104,13 +105,15 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
 
     private static async Task<List<ResourceRecord>> ReceiveAsync(
         IUdpChannel channel,
+        int maxRecords,
         CancellationToken cancellationToken,
         CancellationToken windowToken)
     {
         List<ResourceRecord> records = [];
         try
         {
-            while (true)
+            // The cap keeps a flood of answers from taking unbounded memory.
+            while (records.Count < maxRecords)
             {
                 var result = await channel.ReceiveAsync(windowToken).ConfigureAwait(false);
                 try

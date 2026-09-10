@@ -128,4 +128,21 @@ public class IppPrintJobQueueTests
         _ = await Assert.ThrowsAsync<InvalidOperationException>(
             () => queue.CancelJobAsync(Printer, "1", TestContext.Current.CancellationToken));
     }
+
+    [Fact]
+    public async Task GetJobsAsync_SkipsAJobWithoutAnIdentifier()
+    {
+        var body = IppMessages.Response(0x0000, 0x02,
+            (0x23, "job-state", 5),
+            (0x42, "job-name", "orphan.zpl"),
+            (0x02, null, null),
+            (0x21, "job-id", 2),
+            (0x23, "job-state", 3));
+        IppPrintJobQueue queue = new(Endpoint, new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(body))));
+
+        var jobs = await queue.GetJobsAsync(Printer, TestContext.Current.CancellationToken);
+
+        var job = Assert.Single(jobs);
+        Assert.Equal("2", job.JobId);
+    }
 }

@@ -60,6 +60,9 @@ internal static partial class WindowsSpoolerInterop
     // JOB_CONTROL_CANCEL
     internal const int JobControlCancel = 3;
 
+    // JOB_CONTROL_DELETE: removes a job that was started but not written in full.
+    internal const int JobControlDelete = 5;
+
     // PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS
     internal const int PrinterEnumLocalAndConnections = 0x00000006;
 

@@ -16,9 +16,29 @@
 public sealed class PrintOptions
 {
     /// <summary>
+    /// The user name an IPP request carries when <see cref="RequestingUserName"/> is not set.
+    /// </summary>
+    public const string DefaultRequestingUserName = "anonymous";
+
+    private int? _copies;
+
+    /// <summary>
     /// Gets or sets the number of copies. Must be positive when set.
     /// </summary>
-    public int? Copies { get; set; }
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is zero or negative.</exception>
+    public int? Copies
+    {
+        get => _copies;
+        set
+        {
+            if (value is int copies)
+            {
+                ArgumentOutOfRangeException.ThrowIfLessThan(copies, 1);
+            }
+
+            _copies = value;
+        }
+    }
 
     /// <summary>
     /// Gets or sets the duplex mode.
@@ -54,6 +74,14 @@ public sealed class PrintOptions
     /// Gets or sets the human-readable job name shown in print queues.
     /// </summary>
     public string? JobName { get; set; }
+
+    /// <summary>
+    /// Gets or sets the user name an IPP request carries as <c>requesting-user-name</c>.
+    /// RFC 8011 says a client should send it, and CUPS uses it for its owner-based cancel
+    /// policy. Defaults to <see cref="DefaultRequestingUserName"/> when not set. The
+    /// operating system spooler and the raw channel do not use it.
+    /// </summary>
+    public string? RequestingUserName { get; set; }
 
     /// <summary>
     /// Gets or sets what to do with an option the printer does not support.

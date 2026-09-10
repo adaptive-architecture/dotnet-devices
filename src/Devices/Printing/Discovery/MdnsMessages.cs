@@ -58,10 +58,11 @@ internal static class MdnsMessages
         {
             message = (Message)new Message().Read(payload);
         }
-        catch (Exception exception) when (
-            exception is EndOfStreamException or IOException or FormatException or
-                         ArgumentException or IndexOutOfRangeException or OverflowException)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            // The codec has no single failure type. A compression pointer to an offset that
+            // is not read yet, for example, surfaces as KeyNotFoundException. Every failure
+            // of the codec means the same thing: the packet is malformed.
             throw new InvalidDataException("The multicast DNS response is malformed.", exception);
         }
 

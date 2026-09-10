@@ -147,4 +147,15 @@ public class PollingPrintJobMonitorTests
         public override Task<PrintJobInfo> GetJobAsync(PrinterId printerId, string jobId, CancellationToken cancellationToken) =>
             Task.FromResult<PrintJobInfo>(_reading);
     }
+
+    [Fact]
+    public void WatchJobAsync_RejectsANonPositivePollIntervalOrTimeoutAtTheCall()
+    {
+        PollingPrintJobMonitor monitor = new(new FakeQueue());
+
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => monitor.WatchJobAsync(
+            PrinterId.FromSpooler("lobby"), "1", new PrintJobMonitorOptions { PollInterval = TimeSpan.Zero }, TestContext.Current.CancellationToken));
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => monitor.WatchJobAsync(
+            PrinterId.FromSpooler("lobby"), "1", new PrintJobMonitorOptions { Timeout = TimeSpan.FromSeconds(-1) }, TestContext.Current.CancellationToken));
+    }
 }

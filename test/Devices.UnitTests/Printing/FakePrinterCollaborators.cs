@@ -15,7 +15,7 @@ internal sealed class FakeMdnsDiscovery : IMdnsPrinterDiscovery
 
     public Func<Task> Gate { get; set; }
 
-    public async Task<IReadOnlyList<DiscoveredPrinter>> DiscoverPrintersAsync(MdnsPrinterDiscoveryOptions options, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<DiscoveredPrinter>> DiscoverAsync(MdnsPrinterDiscoveryOptions options, CancellationToken cancellationToken)
     {
         Calls++;
         if (Gate is not null)
@@ -35,7 +35,7 @@ internal sealed class FakeSpoolerDiscovery : IPrinterDiscovery
 
     public int Calls { get; private set; }
 
-    public Task<IReadOnlyList<DiscoveredPrinter>> GetPrintersAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<DiscoveredPrinter>> DiscoverAsync(CancellationToken cancellationToken)
     {
         Calls++;
         return _answer is null
@@ -52,7 +52,7 @@ internal sealed class FakeNetworkProbe : INetworkPrinterDiscovery
 
     public int Calls { get; private set; }
 
-    public Task<IReadOnlyList<DiscoveredPrinter>> DiscoverNetworkPrintersAsync(NetworkPrinterDiscoveryOptions options, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<DiscoveredPrinter>> DiscoverAsync(NetworkPrinterDiscoveryOptions options, CancellationToken cancellationToken)
     {
         Calls++;
         return Task.FromResult(_answer);
@@ -64,14 +64,25 @@ internal sealed class FakePrinterFactory : IPrinterFactory
 {
     public List<DiscoveredPrinter> Opened { get; } = [];
 
+    public List<PrinterId> OpenedById { get; } = [];
+
+    // The answer for a network identifier the cache does not hold. Null makes the open fail,
+    // the way an unreachable host would.
+    public Func<PrinterId, DiscoveredPrinter> OpenById { get; set; }
+
     public IPrinter Open(DiscoveredPrinter printer)
     {
         Opened.Add(printer);
         return new FakePrinter(printer);
     }
 
-    public Task<IPrinter> OpenAsync(PrinterId id, CancellationToken cancellationToken) =>
-        throw new NotSupportedException("The manager opens by discovered printer, never by identifier.");
+    public Task<IPrinter> OpenAsync(PrinterId id, CancellationToken cancellationToken)
+    {
+        OpenedById.Add(id);
+        return OpenById is null
+            ? Task.FromException<IPrinter>(new InvalidOperationException($"No printer answers at '{id.Value}'."))
+            : Task.FromResult<IPrinter>(new FakePrinter(OpenById(id)));
+    }
 }
 
 internal sealed class FakePrinter : IPrinter

@@ -8,10 +8,16 @@ namespace AdaptArch.Devices.Printing.Ipp;
 // copies the counters and timestamps.
 internal static class IppJobMapper
 {
-    public static PrintJobInfo Map(PrinterId id, JobDescriptionAttributes attributes)
+    // Returns null for a job without job-id. Such an entry cannot be tracked or cancelled,
+    // so the caller skips it instead of failing the whole list.
+    public static PrintJobInfo? Map(PrinterId id, JobDescriptionAttributes attributes)
     {
-        var jobId = attributes.JobId?.ToString(CultureInfo.InvariantCulture) ?? String.Empty;
-        PrintJobInfo job = new(jobId, id, IppJobStateMapper.Map(attributes.JobState))
+        if (attributes.JobId is not int numericId)
+        {
+            return null;
+        }
+
+        PrintJobInfo job = new(numericId.ToString(CultureInfo.InvariantCulture), id, IppJobStateMapper.Map(attributes.JobState))
         {
             JobName = attributes.JobName,
             ImpressionsCompleted = attributes.JobImpressionsCompleted,

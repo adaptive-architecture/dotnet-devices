@@ -1,4 +1,4 @@
-# Windows Manual Tests
+﻿# Windows Manual Tests
 
 The Windows spooler driver speaks to `winspool.drv` through native interop. This code
 **cannot run** in the usual development environment: the repository is developed on Linux
@@ -16,7 +16,8 @@ testable.
 
 | Area | Test class | What it proves |
 | --- | --- | --- |
-| Printer status bits | `WindowsSpoolerStatusMapperTests` | Each `PRINTER_STATUS_*` bit maps to the correct `PrinterStatusState`, the precedence is correct when two bits are set together, and each bit is named correctly in `PrinterStatus.Detail`. |
+| Printer status bits | `WindowsSpoolerStatusMapperTests` | Each `PRINTER_STATUS_*` bit maps to the correct `PrinterStatusState`, the precedence is correct when two bits are set together, and each bit is named correctly in `PrinterStatus.Detail`. The `PRINTER_ATTRIBUTE_WORK_OFFLINE` attribute maps to `Offline`. |
+| Unapplied options | `WindowsSpoolerDriverTests` | `UnappliedOptions` names every set `PrintOptions` property except `JobName`, so `PrintJobInfo.DroppedOptions` is correct. |
 | Job status bits | `WindowsSpoolerStatusMapperTests` | Each `JOB_STATUS_*` bit maps to the correct `PrintJobState`, with the same precedence check. |
 | Paper names | `WindowsSpoolerCapabilityParserTests` | `DC_PAPERNAMES` gives fixed 64-character blocks. The parser reads a short name with null padding, a name that fills all 64 characters with no terminator, an empty block, and several blocks in sequence. |
 | Resolutions | `WindowsSpoolerCapabilityParserTests` | `DC_ENUMRESOLUTIONS` gives pairs of integers. The parser reads a list of pairs, one pair, and an empty buffer. |
@@ -74,6 +75,10 @@ is wrong.
 1. Pause the queue. `win-printer-test` must report `Paused`.
 2. Put the printer offline. It must report `Offline`.
 3. Cause an error, such as an empty paper tray or an open door. It must report `Error`.
+4. Select **Use Printer Offline** in the queue menu. The queue has no
+   `PRINTER_STATUS_OFFLINE` bit in this mode; it has the `PRINTER_ATTRIBUTE_WORK_OFFLINE`
+   attribute. It must report `Offline`, with `IsAcceptingJobs` false and
+   `PRINTER_ATTRIBUTE_WORK_OFFLINE` in the `Detail` text.
 
 In each case, check the `Detail` text too. It must name the bit you expect, for example
 `PRINTER_STATUS_PAUSED`, next to the mapped state.
@@ -87,9 +92,15 @@ complete sequence: `OpenPrinter`, `StartDocPrinter`, `StartPagePrinter`, `WriteP
 - The job must reach the device or the output file.
 - The job identifier the scenario prints must agree with the identifier in the Windows
   print queue window.
-- The driver checks the byte count itself: if `WritePrinter` writes fewer bytes than the
-  payload holds, the driver throws `InvalidOperationException` and names both counts. You
-  do not need to check this by hand.
+- The driver calls `WritePrinter` until every byte is written. If `WritePrinter` fails or
+  writes zero bytes, the driver throws `InvalidOperationException` with the Win32 error
+  text, and it deletes the job with `SetJob(JOB_CONTROL_DELETE)` before `EndDocPrinter`.
+  A failed or short write must not leave a partial job in the queue. To check this,
+  send a job to a queue whose port is a file that cannot be written (for example a
+  read-only path): the call must throw, and the Windows print queue window must show no
+  job afterwards.
+- Set `Copies`, `Duplex` and `MediaSize` in the `PrintOptions` of the job. The
+  `PrintJobInfo.DroppedOptions` list must name all three, and `JobName` must not be in it.
 
 ### 4. A native AOT publish
 
@@ -107,10 +118,20 @@ normal, non-AOT build.
 `win-printer-test` runs both of these for you.
 
 1. Open a queue name that does not exist. The `InvalidOperationException` must carry a
-   sensible Win32 error code.
+   sensible Win32 error code and the Windows error text after it, for example
+   `OpenPrinter failed with Win32 error 1801: The printer name is invalid.`
 2. Cancel a job that already finished, or an id that never existed, on the real queue.
    `CancelJobAsync` must return `false`, not throw. The driver gives
    `ERROR_INVALID_PARAMETER` (87) this special treatment.
+3. Call `GetConfigurationAsync` with a queue name that does not exist. `DeviceCapabilities`
+   returns `-1`, and the driver must throw `InvalidOperationException`, not return an empty
+   configuration.
+4. Stop the **Print Spooler** service, then call `EnumeratePrintersAsync` and `GetJobsAsync`.
+   Both must throw `InvalidOperationException` with error 1722 (`RPC_S_SERVER_UNAVAILABLE`)
+   or a similar code. Neither call may return an empty list. Start the service again.
+5. Pass a cancelled `CancellationToken` to any method. The call must throw
+   `OperationCanceledException` before it reaches the spooler. The token is checked on
+   entry only: a call that already runs inside `winspool.drv` completes on its own.
 
 ### 6. The configuration, against a real driver
 

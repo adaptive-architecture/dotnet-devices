@@ -15,13 +15,16 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
 {
     private static readonly Uri DefaultBaseUri = new("ipp://localhost:631/");
 
+    // One client for every driver instance. The target is the fixed local daemon, so
+    // there is no DNS rotation to follow, and a client per driver would leak a
+    // connection pool each time the factory makes a driver.
+    private static readonly Lazy<HttpClient> SharedClient = new(static () => IppHttpClientFactory.Create(new IppTransportOptions()));
+
     private readonly HttpClient _httpClient;
     private readonly Uri _baseUri;
 
-    // Owns the client it builds here, because nothing else reaches the local CUPS
-    // daemon and nothing else can share it.
     public CupsSpoolerDriver()
-        : this(new HttpClient(), DefaultBaseUri)
+        : this(SharedClient.Value, DefaultBaseUri)
     {
     }
 
@@ -115,5 +118,8 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         return IppRequests.CancelJobAsync(_httpClient, QueueUri(queueName), jobId, cancellationToken);
     }
 
-    private Uri QueueUri(string queueName) => new(_baseUri, $"printers/{queueName}");
+    // The queue name is one path segment. SpoolerPrinterEndpoint rejects the characters
+    // that would end the segment early; the escape here covers the rest (spaces, and
+    // any name a caller hands to this driver directly).
+    private Uri QueueUri(string queueName) => new(_baseUri, $"printers/{Uri.EscapeDataString(queueName)}");
 }

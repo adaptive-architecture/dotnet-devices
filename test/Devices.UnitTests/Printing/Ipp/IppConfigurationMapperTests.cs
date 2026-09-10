@@ -63,7 +63,8 @@ public class IppConfigurationMapperTests
 
         Assert.Empty(configuration.MediaSizes);
         Assert.Empty(configuration.SupportedResolutionsDpi);
-        Assert.False(configuration.SupportsDuplex);
+        Assert.Null(configuration.SupportsDuplex);
+        Assert.Null(configuration.SupportsColor);
         Assert.Null(configuration.DefaultMediaSize);
     }
 }

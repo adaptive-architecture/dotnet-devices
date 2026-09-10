@@ -19,7 +19,7 @@ internal static class ManualManagementScenario
         {
             try
             {
-                printers = await mdns.DiscoverPrintersAsync(new MdnsPrinterDiscoveryOptions(), mdnsTimeout.Token).ConfigureAwait(false);
+                printers = await mdns.DiscoverAsync(new MdnsPrinterDiscoveryOptions(), mdnsTimeout.Token).ConfigureAwait(false);
             }
             catch (Exception exception)
             {
@@ -43,7 +43,7 @@ internal static class ManualManagementScenario
             using CancellationTokenSource probeTimeout = new(TimeSpan.FromMinutes(2));
             try
             {
-                printers = await network.DiscoverNetworkPrintersAsync(options, probeTimeout.Token).ConfigureAwait(false);
+                printers = await network.DiscoverAsync(options, probeTimeout.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {

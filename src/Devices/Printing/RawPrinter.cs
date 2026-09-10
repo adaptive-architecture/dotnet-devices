@@ -12,8 +12,13 @@
 /// </remarks>
 public sealed class RawPrinter : IPrinter
 {
+    // One client for every RawPrinter built through a public constructor. IPrinter is not
+    // IDisposable, so a client per instance would have no owner to dispose it.
+    private static readonly Lazy<IppPrinterStatusClient> SharedIppClient = new(static () => new IppPrinterStatusClient());
+
     private readonly TcpPrinterTransport _transport;
-    private readonly SnmpPrinterStatusOptions _snmpOptions;
+    private readonly SnmpPrinterStatusClient _snmpClient;
+    private readonly IppPrinterStatusClient _ippClient;
     private readonly string _host;
 
     /// <summary>
@@ -37,15 +42,22 @@ public sealed class RawPrinter : IPrinter
     /// retries when the host is known to have no SNMP agent, so the probe fails fast.
     /// </param>
     public RawPrinter(NetworkPrinterEndpoint endpoint, SnmpPrinterStatusOptions snmpOptions)
+        : this(endpoint, new SnmpPrinterStatusClient(snmpOptions), SharedIppClient.Value)
+    {
+    }
+
+    internal RawPrinter(NetworkPrinterEndpoint endpoint, SnmpPrinterStatusClient snmpClient, IppPrinterStatusClient ippClient)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
-        ArgumentNullException.ThrowIfNull(snmpOptions);
+        ArgumentNullException.ThrowIfNull(snmpClient);
+        ArgumentNullException.ThrowIfNull(ippClient);
         Endpoint = endpoint;
         _host = endpoint.Host;
         Id = PrinterId.FromNetwork(_host);
         Info = new PrinterInfo(Id, _host);
         _transport = new TcpPrinterTransport();
-        _snmpOptions = snmpOptions;
+        _snmpClient = snmpClient;
+        _ippClient = ippClient;
     }
 
     /// <inheritdoc />
@@ -56,6 +68,10 @@ public sealed class RawPrinter : IPrinter
 
     /// <inheritdoc />
     public PrinterInfo Info { get; }
+
+    internal SnmpPrinterStatusClient SnmpStatusClient => _snmpClient;
+
+    internal IppPrinterStatusClient IppStatusClient => _ippClient;
 
     /// <inheritdoc />
     /// <remarks>
@@ -86,8 +102,7 @@ public sealed class RawPrinter : IPrinter
     {
         try
         {
-            SnmpPrinterStatusClient snmpClient = new(_snmpOptions);
-            var snmpDetails = await snmpClient.GetDetailsAsync(_host, cancellationToken).ConfigureAwait(false);
+            var snmpDetails = await _snmpClient.GetDetailsAsync(_host, cancellationToken).ConfigureAwait(false);
             return snmpDetails.Status;
         }
         catch (InvalidOperationException)
@@ -97,8 +112,7 @@ public sealed class RawPrinter : IPrinter
 
         try
         {
-            using IppPrinterStatusClient ippClient = new();
-            var ippDetails = await ippClient.GetDetailsAsync(_host, cancellationToken).ConfigureAwait(false);
+            var ippDetails = await _ippClient.GetDetailsAsync(_host, cancellationToken).ConfigureAwait(false);
             return ippDetails.Status;
         }
         catch (InvalidOperationException)

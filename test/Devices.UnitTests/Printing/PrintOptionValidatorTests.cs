@@ -110,4 +110,17 @@ public class PrintOptionValidatorTests
         Assert.Same(options, result);
         Assert.Empty(dropped);
     }
+
+    [Fact]
+    public void Apply_JudgesAPrinterThatReportedOnlyNoDuplexAndNoColor()
+    {
+        // A monochrome simplex printer with no media list still made a capability statement.
+        PrinterConfiguration monochrome = new(PrinterId.FromNetwork("printer.local")) { SupportsDuplex = false, SupportsColor = false };
+        var options = new PrintOptions { ColorMode = PrintColorMode.Color, OnUnsupported = UnsupportedOptionBehavior.Drop };
+
+        var result = PrintOptionValidator.Apply(options, monochrome, out var dropped);
+
+        Assert.Equal([nameof(PrintOptions.ColorMode)], dropped);
+        Assert.Null(result!.ColorMode);
+    }
 }

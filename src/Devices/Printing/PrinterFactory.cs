@@ -10,61 +10,95 @@ namespace AdaptArch.Devices.Printing;
 /// operating system print spooler.
 /// </summary>
 /// <remarks>
-/// Every <see cref="IppPrinter"/> this factory creates shares one internally managed,
-/// permissive <see cref="HttpClient"/> that accepts any server certificate, because
-/// network printers overwhelmingly use self-signed certificates. A printer this
-/// factory returns therefore owns nothing and does not need disposing.
+/// Every <see cref="IppPrinter"/> and every <see cref="RawPrinter"/> this factory creates
+/// shares one <see cref="HttpClient"/> and one <see cref="SnmpPrinterStatusClient"/>,
+/// built from the <see cref="IppTransportOptions"/> of the factory. The default options
+/// accept any server certificate, because network printers overwhelmingly use self-signed
+/// certificates. A printer this factory returns owns no client, so a caller disposes the
+/// factory, not the printers.
 /// </remarks>
 public sealed class PrinterFactory : IPrinterFactory, IDisposable
 {
     private const string UsbNotSupportedMessage = "USB printers are not supported yet.";
 
     private readonly HttpClient _httpClient;
+    private readonly IppTransportOptions _options;
+    private readonly IppPrinterStatusClient _ippStatusClient;
+    private readonly SnmpPrinterStatusClient _snmpStatusClient = new();
     private readonly bool _ownsClient;
     private bool _disposed;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PrinterFactory"/> class with an
-    /// internally managed, permissive <see cref="HttpClient"/> shared by every
-    /// <see cref="IppPrinter"/> this factory creates.
+    /// internally managed <see cref="HttpClient"/> and the default <see cref="IppTransportOptions"/>.
     /// </summary>
     public PrinterFactory()
-        : this(IppPrinter.CreateDefaultClient(), true)
+        : this(new IppTransportOptions())
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PrinterFactory"/> class with an
+    /// internally managed <see cref="HttpClient"/> built from <paramref name="options"/>.
+    /// </summary>
+    /// <param name="options">The certificate trust, the plain IPP fallback, and the connect timeout for every printer this factory creates.</param>
+    public PrinterFactory(IppTransportOptions options)
+        : this(IppHttpClientFactory.Create(options), options, true)
     {
     }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PrinterFactory"/> class with a
-    /// caller-provided <see cref="HttpClient"/>, shared by every <see cref="IppPrinter"/>
-    /// this factory creates. The client is not disposed by this instance.
+    /// caller-provided <see cref="HttpClient"/>, shared by every printer this factory
+    /// creates. The client is not disposed by this instance. The library treats the client
+    /// as one that validates certificates, so a failed TLS handshake throws instead of a
+    /// fallback to plain IPP.
     /// </summary>
-    /// <param name="httpClient">The HTTP client used for every <see cref="IppPrinter"/> this factory creates.</param>
+    /// <param name="httpClient">The HTTP client used for every printer this factory creates.</param>
     public PrinterFactory(HttpClient httpClient)
-        : this(httpClient, false)
+        : this(httpClient, IppTransportOptions.ForSuppliedClient(), false)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
     }
 
-    private PrinterFactory(HttpClient httpClient, bool ownsClient)
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PrinterFactory"/> class with a
+    /// caller-provided <see cref="HttpClient"/> and the <see cref="IppTransportOptions"/> it
+    /// was built from, for example by <see cref="IppHttpClientFactory.Create"/>. The client
+    /// is not disposed by this instance.
+    /// </summary>
+    /// <param name="httpClient">The HTTP client used for every printer this factory creates.</param>
+    /// <param name="options">The policy of <paramref name="httpClient"/>: the certificate trust and the plain IPP fallback. Pass the options the client was built from.</param>
+    public PrinterFactory(HttpClient httpClient, IppTransportOptions options)
+        : this(httpClient, options, false)
     {
+    }
+
+    private PrinterFactory(HttpClient httpClient, IppTransportOptions options, bool ownsClient)
+    {
+        ArgumentNullException.ThrowIfNull(options);
         _httpClient = httpClient;
+        _options = options;
         _ownsClient = ownsClient;
+        _ippStatusClient = new IppPrinterStatusClient(httpClient, options);
     }
 
     /// <inheritdoc />
     /// <exception cref="NotSupportedException">Thrown for a <see cref="UsbPrinterEndpoint"/>.</exception>
+    /// <exception cref="ObjectDisposedException">Thrown after <see cref="Dispose"/>.</exception>
     public IPrinter Open(DiscoveredPrinter printer)
     {
         ArgumentNullException.ThrowIfNull(printer);
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
         if (printer.Endpoint is NetworkPrinterEndpoint network)
         {
             if (network.Port == IppPrinterStatusClient.DefaultPort)
             {
-                return new IppPrinter(network, _httpClient);
+                return new IppPrinter(network, _httpClient, null, _options);
             }
 
-            return new RawPrinter(network);
+            return OpenRaw(network);
         }
 
         if (printer.Endpoint is SpoolerPrinterEndpoint spooler)
@@ -86,8 +120,11 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
     /// answers no IPP request at all, it falls back to the raw port 9100 channel.
     /// </remarks>
     /// <exception cref="NotSupportedException">Thrown for a <see cref="PrinterIdKind.Usb"/> identifier.</exception>
+    /// <exception cref="ObjectDisposedException">Thrown after <see cref="Dispose"/>.</exception>
+    /// <exception cref="System.Security.Authentication.AuthenticationException">Thrown when the TLS handshake fails and this factory validates certificates.</exception>
     public async Task<IPrinter> OpenAsync(PrinterId id, CancellationToken cancellationToken)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if (id.Kind == PrinterIdKind.Usb)
         {
             throw new NotSupportedException(UsbNotSupportedMessage);
@@ -99,18 +136,20 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
         }
 
         NetworkPrinterEndpoint ippEndpoint = new(id.Value, IppPrinterStatusClient.DefaultPort);
-        var ippPrinter = new IppPrinter(ippEndpoint, _httpClient);
+        var ippPrinter = new IppPrinter(ippEndpoint, _httpClient, null, _options);
         try
         {
             _ = await ippPrinter.GetStatusAsync(cancellationToken).ConfigureAwait(false);
             return ippPrinter;
         }
-        catch (InvalidOperationException)
+        catch (Exception exception) when (exception is InvalidOperationException or InvalidDataException)
         {
-            NetworkPrinterEndpoint rawEndpoint = new(id.Value, NetworkPrinterEndpoint.DefaultPort);
-            return new RawPrinter(rawEndpoint);
+            // No IPP answer, or a service on port 631 that is not IPP at all.
+            return OpenRaw(new NetworkPrinterEndpoint(id.Value, NetworkPrinterEndpoint.DefaultPort));
         }
     }
+
+    private RawPrinter OpenRaw(NetworkPrinterEndpoint endpoint) => new(endpoint, _snmpStatusClient, _ippStatusClient);
 
     /// <summary>
     /// Disposes the internally managed <see cref="HttpClient"/>, if this instance owns one.
@@ -121,6 +160,7 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
         if (!_disposed)
         {
             _disposed = true;
+            _ippStatusClient.Dispose();
             if (_ownsClient)
             {
                 _httpClient.Dispose();

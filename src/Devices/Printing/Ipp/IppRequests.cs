@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.Runtime.InteropServices;
 using SharpIpp.Models.Requests;
 using SharpIpp.Protocol.Models;
 
@@ -21,7 +22,10 @@ internal static class IppRequests
         IReadOnlyList<string> dropped,
         CancellationToken cancellationToken)
     {
-        await using MemoryStream document = new(payload.Data.ToArray());
+        // The payload is wrapped, not copied, when its memory is a plain array.
+        await using var document = MemoryMarshal.TryGetArray(payload.Data, out var segment)
+            ? new MemoryStream(segment.Array!, segment.Offset, segment.Count, false)
+            : new MemoryStream(payload.Data.ToArray(), false);
         PrintJobRequest request = new()
         {
             Document = document,
@@ -30,6 +34,7 @@ internal static class IppRequests
                 PrinterUri = uri,
                 DocumentFormat = new DocumentFormat(payload.ContentType, true),
                 JobName = options?.JobName,
+                RequestingUserName = options?.RequestingUserName ?? PrintOptions.DefaultRequestingUserName,
             },
             JobTemplateAttributes = IppJobTemplateMapper.Map(options),
         };
@@ -83,7 +88,10 @@ internal static class IppRequests
         List<PrintJobInfo> jobs = new(attributes.Length);
         foreach (var job in attributes)
         {
-            jobs.Add(IppJobMapper.Map(printerId, job));
+            if (IppJobMapper.Map(printerId, job) is PrintJobInfo mapped)
+            {
+                jobs.Add(mapped);
+            }
         }
 
         return jobs;
@@ -93,7 +101,7 @@ internal static class IppRequests
     // identifier that came from a spooler rather than from IPP.
     public static async Task<PrintJobInfo?> GetJobAsync(HttpClient httpClient, Uri uri, PrinterId printerId, string jobId, CancellationToken cancellationToken)
     {
-        if (!Int32.TryParse(jobId, out var id))
+        if (!Int32.TryParse(jobId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
         {
             return null;
         }
@@ -127,7 +135,7 @@ internal static class IppRequests
 
     public static async Task<bool> CancelJobAsync(HttpClient httpClient, Uri uri, string jobId, CancellationToken cancellationToken)
     {
-        if (!Int32.TryParse(jobId, out var id))
+        if (!Int32.TryParse(jobId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
         {
             return false;
         }

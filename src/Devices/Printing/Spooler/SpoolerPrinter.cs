@@ -58,8 +58,10 @@ public sealed class SpoolerPrinter : IPrinter
             effectiveOptions = PrintOptionValidator.Apply(options, configuration, out dropped);
         }
 
+        // The driver can drop options of its own (the Windows spooler applies JobName
+        // only). An option this printer removed is no longer set, so no name repeats.
         var job = await _driver.SubmitAsync(_queueName, payload, effectiveOptions, cancellationToken).ConfigureAwait(false);
-        job.DroppedOptions = dropped;
+        job.DroppedOptions = [.. dropped, .. job.DroppedOptions];
         return job;
     }
 

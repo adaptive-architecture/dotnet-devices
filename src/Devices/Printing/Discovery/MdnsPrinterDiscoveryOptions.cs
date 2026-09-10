@@ -61,4 +61,11 @@ public sealed class MdnsPrinterDiscoveryOptions
     /// Defaults to <c>false</c>.
     /// </summary>
     public bool IncludeIPv6 { get; set; }
+
+    /// <summary>
+    /// Gets or sets the largest number of DNS records that the browse reads on one
+    /// interface. When the count is reached, the browse stops reading on that interface.
+    /// This bounds the memory that a flood of answers can take. Defaults to 10000.
+    /// </summary>
+    public int MaxRecords { get; set; } = 10000;
 }

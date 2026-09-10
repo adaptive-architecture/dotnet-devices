@@ -92,4 +92,33 @@ public class PrinterFactoryTests
         var endpoint = Assert.IsType<NetworkPrinterEndpoint>(raw.Endpoint);
         Assert.Equal(NetworkPrinterEndpoint.DefaultPort, endpoint.Port);
     }
+
+    [Fact]
+    public void Dispose_DisposesAnOwnedClientAndKeepsASuppliedOne()
+    {
+        using HttpClient supplied = new();
+        PrinterFactory owned = new();
+        PrinterFactory borrowed = new(supplied);
+
+        owned.Dispose();
+        borrowed.Dispose();
+
+        _ = Assert.Throws<ObjectDisposedException>(() => owned.Open(Found(new NetworkPrinterEndpoint("printer.local", 631))));
+        _ = Assert.Throws<ObjectDisposedException>(() => borrowed.Open(Found(new NetworkPrinterEndpoint("printer.local", 631))));
+        // The supplied client is still usable after the factory that borrowed it is gone.
+        Assert.Equal(TimeSpan.FromSeconds(100), supplied.Timeout);
+        _ = supplied.DefaultRequestHeaders;
+    }
+
+    [Fact]
+    public void Open_RawPrintersShareTheStatusClientsOfTheFactory()
+    {
+        PrinterFactory factory = new();
+
+        var first = Assert.IsType<RawPrinter>(factory.Open(Found(new NetworkPrinterEndpoint("printer.local", 9100))));
+        var second = Assert.IsType<RawPrinter>(factory.Open(Found(new NetworkPrinterEndpoint("other.local", 9100))));
+
+        Assert.Same(first.IppStatusClient, second.IppStatusClient);
+        Assert.Same(first.SnmpStatusClient, second.SnmpStatusClient);
+    }
 }

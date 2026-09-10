@@ -49,6 +49,58 @@ public class CupsSpoolerDriverTests
     }
 
     [Fact]
+    public async Task SubmitAsync_EscapesTheQueueNameInTheRequestUri()
+    {
+        var body = IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 7), (0x23, "job-state", 3));
+        IppMessages.StubHandler handler = new(_ => IppMessages.Ok(body));
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        _ = await driver.SubmitAsync(
+            "Lobby Printer",
+            PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
+            null,
+            TestContext.Current.CancellationToken);
+
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal("/printers/Lobby%20Printer", request.RequestUri!.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task GetStatusAsync_ReportsTheStateOfTheQueue()
+    {
+        var body = IppMessages.Response(0x0000,
+            (0x23, "printer-state", 4),
+            (0x44, "printer-state-reasons", "media-empty"));
+        IppMessages.StubHandler handler = new(_ => IppMessages.Ok(body));
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        var status = await driver.GetStatusAsync("lobby", TestContext.Current.CancellationToken);
+
+        Assert.Equal(PrinterIdKind.Spooler, status.PrinterId.Kind);
+        Assert.Equal(PrinterStatusState.Processing, status.State);
+        Assert.Equal("media-empty", status.Detail);
+        Assert.Equal("/printers/lobby", Assert.Single(handler.Requests).RequestUri!.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task GetConfigurationAsync_ReportsTheCapabilitiesOfTheQueue()
+    {
+        var body = IppMessages.Response(0x0000,
+            (0x44, "sides-supported", "two-sided-long-edge"),
+            (0x22, "color-supported", (byte)1),
+            (0x44, "media-supported", "iso_a4_210x297mm"));
+        IppMessages.StubHandler handler = new(_ => IppMessages.Ok(body));
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        var configuration = await driver.GetConfigurationAsync("lobby", TestContext.Current.CancellationToken);
+
+        Assert.True(configuration.SupportsDuplex);
+        Assert.True(configuration.SupportsColor);
+        Assert.Equal(["iso_a4_210x297mm"], configuration.MediaSizes);
+        Assert.Equal("/printers/lobby", Assert.Single(handler.Requests).RequestUri!.AbsolutePath);
+    }
+
+    [Fact]
     public async Task GetJobsAsync_MapsEachJob()
     {
         // 0x02 is the job-attributes group; see the comment in SubmitAsync's test above.

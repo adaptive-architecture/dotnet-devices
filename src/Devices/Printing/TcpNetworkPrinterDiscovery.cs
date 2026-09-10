@@ -11,13 +11,14 @@ namespace AdaptArch.Devices.Printing;
 public sealed class TcpNetworkPrinterDiscovery : INetworkPrinterDiscovery
 {
     /// <inheritdoc />
-    public async Task<IReadOnlyList<DiscoveredPrinter>> DiscoverNetworkPrintersAsync(NetworkPrinterDiscoveryOptions options, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<DiscoveredPrinter>> DiscoverAsync(NetworkPrinterDiscoveryOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(options.Hosts);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.Port, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(options.Port, 65535);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxDegreeOfParallelism, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.ConnectTimeout, TimeSpan.Zero);
 
         ConcurrentBag<DiscoveredPrinter> found = new();
         ParallelOptions parallelOptions = new()
@@ -25,7 +26,10 @@ public sealed class TcpNetworkPrinterDiscovery : INetworkPrinterDiscovery
             CancellationToken = cancellationToken,
             MaxDegreeOfParallelism = options.MaxDegreeOfParallelism,
         };
-        await Parallel.ForEachAsync(options.Hosts, parallelOptions, async (host, hostCancellationToken) =>
+
+        // A host that is listed two times is probed one time and reported one time.
+        var hosts = options.Hosts.Distinct(StringComparer.OrdinalIgnoreCase);
+        await Parallel.ForEachAsync(hosts, parallelOptions, async (host, hostCancellationToken) =>
         {
             if (String.IsNullOrWhiteSpace(host))
             {
@@ -41,7 +45,7 @@ public sealed class TcpNetworkPrinterDiscovery : INetworkPrinterDiscovery
         }).ConfigureAwait(false);
 
         List<DiscoveredPrinter> result = [.. found];
-        result.Sort(static (left, right) => String.Compare(left.Id.Value, right.Id.Value, StringComparison.Ordinal));
+        result.Sort(static (left, right) => String.CompareOrdinal(left.Id.Value, right.Id.Value));
         return result;
     }
 

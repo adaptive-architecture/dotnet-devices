@@ -64,8 +64,11 @@ internal static class IppMarkers
 
             if (i < levels.Count)
             {
+                // IPP marker-levels is -1 for "unknown", -2 for "unlimited", -3 for "value not
+                // available", and 0 to 100 otherwise. The raw value is always kept.
                 var level = levels[i];
-                marker.LevelPercent = level is null || level < 0 ? null : level;
+                marker.LevelRaw = level;
+                marker.LevelPercent = level is >= 0 and <= 100 ? level : null;
             }
 
             markers.Add(marker);

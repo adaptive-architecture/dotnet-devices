@@ -60,6 +60,13 @@ public class MdnsMessagesTests
         Assert.Throws<InvalidDataException>(() => MdnsMessages.ReadRecords(payload[..(payload.Length - 4)]));
     }
 
+    // The codec reports a compression pointer to a name it has not read yet with an
+    // exception type that no list of "parse" exceptions would guess. Every failure of the
+    // codec must still come out as InvalidDataException, so the browse can skip the packet.
+    [Fact]
+    public void ReadRecords_SelfPointingName_ThrowsInvalidData() =>
+        Assert.Throws<InvalidDataException>(() => MdnsMessages.ReadRecords(MdnsResponses.SelfPointingName()));
+
     [Fact]
     public void ReadRecords_EmptyPayload_ThrowsInvalidData() =>
         Assert.Throws<InvalidDataException>(() => MdnsMessages.ReadRecords([]));
