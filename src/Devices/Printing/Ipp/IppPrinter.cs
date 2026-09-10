@@ -111,7 +111,7 @@ public sealed class IppPrinter : IPrinter, IDisposable
         }
 
         return await _resolver.RunAsync(
-            (uri, token) => IppRequests.SubmitAsync(_httpClient, uri, Id, payload, format, effectiveOptions, dropped, token),
+            (uri, token) => IppRequests.SubmitAsync(_httpClient, uri, Id, new IppSubmission(payload, format, effectiveOptions, dropped), token),
             cancellationToken).ConfigureAwait(false);
     }
 

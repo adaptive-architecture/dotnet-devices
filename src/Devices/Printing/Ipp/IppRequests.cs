@@ -14,12 +14,10 @@ internal static class IppRequests
         HttpClient httpClient,
         Uri uri,
         PrinterId printerId,
-        PrinterPayload payload,
-        string documentFormat,
-        PrintOptions? options,
-        IReadOnlyList<string> dropped,
+        IppSubmission submission,
         CancellationToken cancellationToken)
     {
+        var (payload, documentFormat, options, dropped) = submission;
         await using var document = MemoryMarshal.TryGetArray(payload.Data, out var segment)
             ? new MemoryStream(segment.Array!, segment.Offset, segment.Count, false)
             : new MemoryStream(payload.Data.ToArray(), false);

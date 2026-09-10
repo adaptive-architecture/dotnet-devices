@@ -38,31 +38,18 @@ internal static class IppDocumentFormat
         }
 
         // A label printer that names the language itself understands it natively.
-        if (Contains(supported, contentType))
+        if (supported.Contains(contentType, StringComparer.OrdinalIgnoreCase))
         {
             return contentType;
         }
 
         // Only CUPS offers this one, so offering it identifies the peer as CUPS.
-        if (Contains(supported, CupsRaw))
+        if (supported.Contains(CupsRaw, StringComparer.OrdinalIgnoreCase))
         {
             return CupsRaw;
         }
 
         // The portable fallback, and the answer when the printer reported no list.
         return PrinterContentTypes.OctetStream;
-    }
-
-    private static bool Contains(IReadOnlyList<string> formats, string value)
-    {
-        foreach (var format in formats)
-        {
-            if (String.Equals(format, value, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

@@ -94,10 +94,7 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
             _httpClient,
             QueueUri(queueName),
             PrinterId.ForSpooler(queueName),
-            payload,
-            IppDocumentFormat.ForCups(payload.ContentType),
-            options,
-            [],
+            new IppSubmission(payload, IppDocumentFormat.ForCups(payload.ContentType), options, []),
             cancellationToken);
     }
 
