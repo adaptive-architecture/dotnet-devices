@@ -1,9 +1,7 @@
 ﻿namespace AdaptArch.Devices.Printing.Ipp;
 
 // Reads an IEEE 1284 device identification string, which IPP carries as
-// "printer-device-id" and multicast DNS carries in its "usb_" TXT keys:
-//
-//     MFG:EPSON;MDL:L6270;CMD:ESCPL2,BDC,D4;SN:X4TY012345;
+// "printer-device-id" and multicast DNS carries in its "usb_" TXT keys.
 //
 // The serial number in it is the only device identity that IPP reports besides the UUID,
 // and many printers report one and not the other.
@@ -88,10 +86,7 @@ internal sealed class Ieee1284DeviceId
 
         if (commandSets.Count == 0 && (Matches(key, "CMD") || Matches(key, "COMMAND SET") || Matches(key, "COMMANDSET")))
         {
-            foreach (var part in text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            {
-                commandSets.Add(part);
-            }
+            commandSets.AddRange(text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         }
     }
 

@@ -173,18 +173,8 @@ internal sealed class DeviceUriParser
         return Guid.TryParse(text, out var uuid) ? uuid.ToString("D") : null;
     }
 
-    private static bool IsHostScheme(string scheme)
-    {
-        foreach (var known in HostSchemes)
-        {
-            if (String.Equals(scheme, known, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    private static bool IsHostScheme(string scheme) =>
+        Array.Exists(HostSchemes, known => String.Equals(scheme, known, StringComparison.OrdinalIgnoreCase));
 
     internal static bool IsLoopbackOrUnspecified(string host)
     {

@@ -11,7 +11,37 @@ internal static class PrintOptionValidator
             return options;
         }
 
+        var unsupported = Collect(options, configuration);
+        if (unsupported.Count == 0)
+        {
+            return options;
+        }
+
+        if (options.OnUnsupported == UnsupportedOptionBehavior.Throw)
+        {
+            throw new NotSupportedException(
+                $"Printer '{configuration.PrinterId}' does not support {String.Join(", ", unsupported)}.");
+        }
+
+        dropped = unsupported;
+        return Without(options, unsupported);
+    }
+
+    // Every option the printer said it does not apply. A capability the printer did not
+    // report judges nothing, so an empty list on the configuration lets the option pass.
+    private static List<string> Collect(PrintOptions options, PrinterConfiguration configuration)
+    {
         List<string> unsupported = [];
+        CollectSheet(options, configuration, unsupported);
+        CollectMedia(options, configuration, unsupported);
+        CollectQuality(options, configuration, unsupported);
+        CollectLayout(options, configuration, unsupported);
+        return unsupported;
+    }
+
+    // What the printer does with the sheet itself.
+    private static void CollectSheet(PrintOptions options, PrinterConfiguration configuration, List<string> unsupported)
+    {
         if (options.Duplex is not null && options.Duplex != DuplexMode.Simplex && configuration.SupportsDuplex == false)
         {
             unsupported.Add(nameof(PrintOptions.Duplex));
@@ -22,6 +52,15 @@ internal static class PrintOptionValidator
             unsupported.Add(nameof(PrintOptions.ColorMode));
         }
 
+        if (options.PageRanges is { Count: > 0 } && configuration.SupportsPageRanges == false)
+        {
+            unsupported.Add(nameof(PrintOptions.PageRanges));
+        }
+    }
+
+    // The paper, where it comes from and where it goes.
+    private static void CollectMedia(PrintOptions options, PrinterConfiguration configuration, List<string> unsupported)
+    {
         if (options.MediaSize is not null
             && configuration.MediaSizes.Count > 0
             && !configuration.MediaSizes.Contains(options.MediaSize, StringComparer.Ordinal))
@@ -49,7 +88,11 @@ internal static class PrintOptionValidator
         {
             unsupported.Add(nameof(PrintOptions.OutputBin));
         }
+    }
 
+    // How well the printer puts the ink down.
+    private static void CollectQuality(PrintOptions options, PrinterConfiguration configuration, List<string> unsupported)
+    {
         if (options.ResolutionDpi is int dpi
             && configuration.SupportedResolutionsDpi.Count > 0
             && !configuration.SupportedResolutionsDpi.Contains(dpi))
@@ -63,7 +106,11 @@ internal static class PrintOptionValidator
         {
             unsupported.Add(nameof(PrintOptions.Quality));
         }
+    }
 
+    // How the pages are arranged on the sheet.
+    private static void CollectLayout(PrintOptions options, PrinterConfiguration configuration, List<string> unsupported)
+    {
         if (options.NumberUp is int pages
             && configuration.NumberUpValues.Count > 0
             && !configuration.NumberUpValues.Contains(pages))
@@ -84,39 +131,10 @@ internal static class PrintOptionValidator
         {
             unsupported.Add(nameof(PrintOptions.Scaling));
         }
-
-        if (options.PageRanges is { Count: > 0 } && configuration.SupportsPageRanges == false)
-        {
-            unsupported.Add(nameof(PrintOptions.PageRanges));
-        }
-
-        if (unsupported.Count == 0)
-        {
-            return options;
-        }
-
-        if (options.OnUnsupported == UnsupportedOptionBehavior.Throw)
-        {
-            throw new NotSupportedException(
-                $"Printer '{configuration.PrinterId}' does not support {String.Join(", ", unsupported)}.");
-        }
-
-        dropped = unsupported;
-        return Without(options, unsupported);
     }
 
-    private static bool HasName(IReadOnlyList<PrinterMediaSource> sources, string name)
-    {
-        foreach (var source in sources)
-        {
-            if (String.Equals(source.Name, name, StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    private static bool HasName(IReadOnlyList<PrinterMediaSource> sources, string name) =>
+        sources.Any(source => String.Equals(source.Name, name, StringComparison.Ordinal));
 
     // A reported "false" is a capability statement, so it is not an empty configuration.
     private static bool IsEmpty(PrinterConfiguration configuration) =>

@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Buffers;
+using System.Text;
 
 namespace AdaptArch.Devices.Printing;
 
@@ -12,6 +13,10 @@ namespace AdaptArch.Devices.Printing;
 internal static class PrinterIdSyntax
 {
     private const string HexDigits = "0123456789ABCDEF";
+
+    // RFC 3986 "unreserved", as a set, so a scan over a value allocates nothing.
+    private static readonly SearchValues<char> Unreserved = SearchValues.Create(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~");
 
     /// <summary>
     /// The characters that end an authority in a URI. One of them inside an identifier is
@@ -42,17 +47,7 @@ internal static class PrinterIdSyntax
     /// </summary>
     public static string Encode(string value)
     {
-        var needed = false;
-        foreach (var character in value)
-        {
-            if (!IsUnreserved(character))
-            {
-                needed = true;
-                break;
-            }
-        }
-
-        if (!needed)
+        if (!value.AsSpan().ContainsAnyExcept(Unreserved))
         {
             return value;
         }
@@ -91,33 +86,9 @@ internal static class PrinterIdSyntax
         }
 
         List<byte> bytes = new(text.Length);
-        for (var i = 0; i < text.Length; i++)
+        if (!TryReadBytes(text, bytes))
         {
-            var character = text[i];
-            if (character != '%')
-            {
-                // A character above the ASCII range is kept as its own UTF-8 bytes.
-                if (character < 0x80)
-                {
-                    bytes.Add((byte)character);
-                }
-                else
-                {
-                    bytes.AddRange(Encoding.UTF8.GetBytes(character.ToString()));
-                }
-
-                continue;
-            }
-
-            if (i + 2 >= text.Length ||
-                !TryReadHexDigit(text[i + 1], out var high) ||
-                !TryReadHexDigit(text[i + 2], out var low))
-            {
-                return false;
-            }
-
-            bytes.Add((byte)((high << 4) | low));
-            i += 2;
+            return false;
         }
 
         try
@@ -131,16 +102,51 @@ internal static class PrinterIdSyntax
             return false;
         }
 
-        foreach (var character in value)
+        if (value.Any(static character => IsReservedDelimiter(character) || Char.IsControl(character)))
         {
-            if (IsReservedDelimiter(character) || Char.IsControl(character))
-            {
-                value = String.Empty;
-                return false;
-            }
+            value = String.Empty;
+            return false;
         }
 
         return value.Length > 0;
+    }
+
+    // Reads the escaped text into its bytes. An escape is a per cent sign and two
+    // hexadecimal digits, so the reader steps over three characters at a time.
+    private static bool TryReadBytes(ReadOnlySpan<char> text, List<byte> bytes)
+    {
+        var index = 0;
+        while (index < text.Length)
+        {
+            var character = text[index];
+            if (character != '%')
+            {
+                // A character above the ASCII range is kept as its own UTF-8 bytes.
+                if (character < 0x80)
+                {
+                    bytes.Add((byte)character);
+                }
+                else
+                {
+                    bytes.AddRange(Encoding.UTF8.GetBytes(character.ToString()));
+                }
+
+                index++;
+                continue;
+            }
+
+            if (index + 2 >= text.Length ||
+                !TryReadHexDigit(text[index + 1], out var high) ||
+                !TryReadHexDigit(text[index + 2], out var low))
+            {
+                return false;
+            }
+
+            bytes.Add((byte)((high << 4) | low));
+            index += 3;
+        }
+
+        return true;
     }
 
     private static bool TryReadHexDigit(char character, out int digit)
@@ -186,22 +192,9 @@ internal static class PrinterIdSyntax
         ReadOnlySpan<char> portText = default;
         if (authority[0] == '[')
         {
-            var close = authority.IndexOf(']');
-            if (close < 0)
+            if (!TrySplitBracketed(authority, out hostText, out portText))
             {
                 return false;
-            }
-
-            hostText = authority[1..close];
-            var rest = authority[(close + 1)..];
-            if (!rest.IsEmpty)
-            {
-                if (rest[0] != ':')
-                {
-                    return false;
-                }
-
-                portText = rest[1..];
             }
         }
         else
@@ -223,16 +216,41 @@ internal static class PrinterIdSyntax
             return false;
         }
 
-        if (!portText.IsEmpty)
+        if (!portText.IsEmpty && (!Int32.TryParse(portText, out port) || port < 1 || port > 65535))
         {
-            if (!Int32.TryParse(portText, out port) || port < 1 || port > 65535)
-            {
-                port = 0;
-                return false;
-            }
+            port = 0;
+            return false;
         }
 
         host = hostText.ToString();
+        return true;
+    }
+
+    // An IPv6 literal is written in brackets, and a port follows the closing bracket.
+    private static bool TrySplitBracketed(
+        ReadOnlySpan<char> authority, out ReadOnlySpan<char> hostText, out ReadOnlySpan<char> portText)
+    {
+        hostText = default;
+        portText = default;
+        var close = authority.IndexOf(']');
+        if (close < 0)
+        {
+            return false;
+        }
+
+        hostText = authority[1..close];
+        var rest = authority[(close + 1)..];
+        if (rest.IsEmpty)
+        {
+            return true;
+        }
+
+        if (rest[0] != ':')
+        {
+            return false;
+        }
+
+        portText = rest[1..];
         return true;
     }
 
@@ -240,5 +258,5 @@ internal static class PrinterIdSyntax
     /// Writes a host back into an authority, adding the brackets an IPv6 literal needs.
     /// </summary>
     public static string FormatHost(string host) =>
-        Uri.CheckHostName(host) == UriHostNameType.IPv6 ? String.Concat("[", host, "]") : host;
+        Uri.CheckHostName(host) == UriHostNameType.IPv6 ? $"[{host}]" : host;
 }

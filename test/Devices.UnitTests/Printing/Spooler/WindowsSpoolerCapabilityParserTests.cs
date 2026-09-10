@@ -186,13 +186,13 @@ public class WindowsSpoolerCapabilityParserTests
     [Fact]
     public void ReadDefaults_ReadsEveryFieldThatItsBitAnnounces()
     {
-        var fields = WindowsSpoolerCapabilityParser.DmPaperSize
+        const uint fields = WindowsSpoolerCapabilityParser.DmPaperSize
             | WindowsSpoolerCapabilityParser.DmDefaultSource
             | WindowsSpoolerCapabilityParser.DmOrientation
             | WindowsSpoolerCapabilityParser.DmPrintQuality;
 
         var defaults = WindowsSpoolerCapabilityParser.ReadDefaults(
-            fields, 2, 9, 4, 600, 0, A4AndLetter(), UpperAndManual());
+            new DeviceModeValues(fields, 2, 9, 4, 600, 0), A4AndLetter(), UpperAndManual());
 
         Assert.Equal("A4", defaults.MediaSize);
         Assert.Equal("Manual feed", defaults.MediaSource);
@@ -205,7 +205,7 @@ public class WindowsSpoolerCapabilityParserTests
     public void ReadDefaults_IgnoresAFieldWithNoBit()
     {
         var defaults = WindowsSpoolerCapabilityParser.ReadDefaults(
-            0, 2, 9, 4, 600, 300, A4AndLetter(), UpperAndManual());
+            new DeviceModeValues(0, 2, 9, 4, 600, 300), A4AndLetter(), UpperAndManual());
 
         Assert.Null(defaults.MediaSize);
         Assert.Null(defaults.MediaSource);
@@ -216,10 +216,10 @@ public class WindowsSpoolerCapabilityParserTests
     [Fact]
     public void ReadDefaults_ReportsNoNameForANumberNoListExplains()
     {
-        var fields = WindowsSpoolerCapabilityParser.DmPaperSize | WindowsSpoolerCapabilityParser.DmDefaultSource;
+        const uint fields = WindowsSpoolerCapabilityParser.DmPaperSize | WindowsSpoolerCapabilityParser.DmDefaultSource;
 
         var defaults = WindowsSpoolerCapabilityParser.ReadDefaults(
-            fields, 0, 256, 99, 0, 0, A4AndLetter(), UpperAndManual());
+            new DeviceModeValues(fields, 0, 256, 99, 0, 0), A4AndLetter(), UpperAndManual());
 
         Assert.Null(defaults.MediaSize);
         Assert.Null(defaults.MediaSource);
@@ -229,10 +229,10 @@ public class WindowsSpoolerCapabilityParserTests
     [Fact]
     public void ReadDefaults_FallsBackToTheVerticalResolutionForAQualityName()
     {
-        var fields = WindowsSpoolerCapabilityParser.DmPrintQuality | WindowsSpoolerCapabilityParser.DmYResolution;
+        const uint fields = WindowsSpoolerCapabilityParser.DmPrintQuality | WindowsSpoolerCapabilityParser.DmYResolution;
 
         var defaults = WindowsSpoolerCapabilityParser.ReadDefaults(
-            fields, 0, 0, 0, -1, 300, A4AndLetter(), UpperAndManual());
+            new DeviceModeValues(fields, 0, 0, 0, -1, 300), A4AndLetter(), UpperAndManual());
 
         Assert.Equal(300, defaults.ResolutionDpi);
     }
@@ -240,10 +240,10 @@ public class WindowsSpoolerCapabilityParserTests
     [Fact]
     public void ReadDefaults_ReportsNoResolutionWhenNeitherFieldHoldsOne()
     {
-        var fields = WindowsSpoolerCapabilityParser.DmPrintQuality | WindowsSpoolerCapabilityParser.DmYResolution;
+        const uint fields = WindowsSpoolerCapabilityParser.DmPrintQuality | WindowsSpoolerCapabilityParser.DmYResolution;
 
         var defaults = WindowsSpoolerCapabilityParser.ReadDefaults(
-            fields, 0, 0, 0, -4, 0, A4AndLetter(), UpperAndManual());
+            new DeviceModeValues(fields, 0, 0, 0, -4, 0), A4AndLetter(), UpperAndManual());
 
         Assert.Null(defaults.ResolutionDpi);
     }
@@ -254,7 +254,7 @@ public class WindowsSpoolerCapabilityParserTests
     public void ReadDefaults_TranslatesEveryOrientation(short value, PrintOrientation expected)
     {
         var defaults = WindowsSpoolerCapabilityParser.ReadDefaults(
-            WindowsSpoolerCapabilityParser.DmOrientation, value, 0, 0, 0, 0, [], []);
+            new DeviceModeValues(WindowsSpoolerCapabilityParser.DmOrientation, value, 0, 0, 0, 0), [], []);
 
         Assert.Equal(expected, defaults.Orientation);
     }
@@ -263,7 +263,7 @@ public class WindowsSpoolerCapabilityParserTests
     public void ReadDefaults_ReportsNoOrientationForAnUnknownValue()
     {
         var defaults = WindowsSpoolerCapabilityParser.ReadDefaults(
-            WindowsSpoolerCapabilityParser.DmOrientation, 7, 0, 0, 0, 0, [], []);
+            new DeviceModeValues(WindowsSpoolerCapabilityParser.DmOrientation, 7, 0, 0, 0, 0), [], []);
 
         Assert.Null(defaults.Orientation);
     }

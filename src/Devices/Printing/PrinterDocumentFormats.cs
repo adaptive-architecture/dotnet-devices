@@ -16,13 +16,13 @@ internal static class PrinterDocumentFormats
     // command source instead of the label.
     public static bool Carries(IReadOnlyList<string> formats, string contentType)
     {
-        if (Contains(formats, contentType))
+        if (formats.Contains(contentType, StringComparer.OrdinalIgnoreCase))
         {
             return true;
         }
 
         return IppDocumentFormat.IsRawLanguage(contentType)
-            && Contains(formats, IppDocumentFormat.CupsRaw);
+            && formats.Contains(IppDocumentFormat.CupsRaw, StringComparer.OrdinalIgnoreCase);
     }
 
     // The "pdl" TXT record is a comma-separated list of media types.
@@ -75,18 +75,5 @@ internal static class PrinterDocumentFormats
         }
 
         return contentType;
-    }
-
-    private static bool Contains(IReadOnlyList<string> formats, string value)
-    {
-        foreach (var format in formats)
-        {
-            if (String.Equals(format, value, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

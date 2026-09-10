@@ -137,19 +137,19 @@ internal static class PrinterSchemes
     /// template attributes. Reading the capabilities of a printer can narrow this further,
     /// but never widen it.
     /// </remarks>
-    public static PrintOptionSupport SupportedOptions(PrinterScheme scheme, bool isWindows)
+    public static PrintOptionSupports SupportedOptions(PrinterScheme scheme, bool isWindows)
     {
         if (scheme == PrinterScheme.Raw)
         {
-            return PrintOptionSupport.None;
+            return PrintOptionSupports.None;
         }
 
         if (scheme == PrinterScheme.Spooler)
         {
-            return isWindows ? WindowsDeviceModeOptions : PrintOptionSupport.All;
+            return isWindows ? WindowsDeviceModeOptions : PrintOptionSupports.All;
         }
 
-        return PrintOptionSupport.All;
+        return PrintOptionSupports.All;
     }
 
     // What a Windows device mode carries, plus the copies the driver prints as one
@@ -157,11 +157,11 @@ internal static class PrinterSchemes
     // pair with a name, and OutputBin, PageRanges and NumberUp have no device mode field.
     // Scaling is named here because the scale field carries PrintScaling.None; the fit
     // modes have no field, and the device mode mapper drops them.
-    private const PrintOptionSupport WindowsDeviceModeOptions =
-        PrintOptionSupport.JobName | PrintOptionSupport.Copies | PrintOptionSupport.Duplex
-        | PrintOptionSupport.ColorMode | PrintOptionSupport.Orientation | PrintOptionSupport.MediaSource
-        | PrintOptionSupport.MediaSize | PrintOptionSupport.ResolutionDpi | PrintOptionSupport.Quality
-        | PrintOptionSupport.Scaling;
+    private const PrintOptionSupports WindowsDeviceModeOptions =
+        PrintOptionSupports.JobName | PrintOptionSupports.Copies | PrintOptionSupports.Duplex
+        | PrintOptionSupports.ColorMode | PrintOptionSupports.Orientation | PrintOptionSupports.MediaSource
+        | PrintOptionSupports.MediaSize | PrintOptionSupports.ResolutionDpi | PrintOptionSupports.Quality
+        | PrintOptionSupports.Scaling;
 
     /// <summary>
     /// The order in which the manager considers the channels of one device. A lower

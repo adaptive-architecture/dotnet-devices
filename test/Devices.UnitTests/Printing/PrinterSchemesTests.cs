@@ -23,20 +23,20 @@ public class PrinterSchemesTests
         Assert.Equal(expected, PrinterSchemes.GivesPassthrough(scheme, isWindows));
 
     [Theory]
-    [InlineData(PrinterScheme.Raw, true, PrintOptionSupport.None)]
-    [InlineData(PrinterScheme.Raw, false, PrintOptionSupport.None)]
-    [InlineData(PrinterScheme.Ipp, true, PrintOptionSupport.All)]
-    [InlineData(PrinterScheme.Ipps, false, PrintOptionSupport.All)]
+    [InlineData(PrinterScheme.Raw, true, PrintOptionSupports.None)]
+    [InlineData(PrinterScheme.Raw, false, PrintOptionSupports.None)]
+    [InlineData(PrinterScheme.Ipp, true, PrintOptionSupports.All)]
+    [InlineData(PrinterScheme.Ipps, false, PrintOptionSupports.All)]
     // CUPS carries every option, and a Windows device mode carries what has a field.
-    [InlineData(PrinterScheme.Spooler, false, PrintOptionSupport.All)]
+    [InlineData(PrinterScheme.Spooler, false, PrintOptionSupports.All)]
     [InlineData(
         PrinterScheme.Spooler,
         true,
-        PrintOptionSupport.JobName | PrintOptionSupport.Copies | PrintOptionSupport.Duplex
-        | PrintOptionSupport.ColorMode | PrintOptionSupport.Orientation | PrintOptionSupport.MediaSource
-        | PrintOptionSupport.MediaSize | PrintOptionSupport.ResolutionDpi | PrintOptionSupport.Quality
-        | PrintOptionSupport.Scaling)]
-    public void SupportedOptions_ReadsTheSchemeAndThePlatform(PrinterScheme scheme, bool isWindows, PrintOptionSupport expected) =>
+        PrintOptionSupports.JobName | PrintOptionSupports.Copies | PrintOptionSupports.Duplex
+        | PrintOptionSupports.ColorMode | PrintOptionSupports.Orientation | PrintOptionSupports.MediaSource
+        | PrintOptionSupports.MediaSize | PrintOptionSupports.ResolutionDpi | PrintOptionSupports.Quality
+        | PrintOptionSupports.Scaling)]
+    public void SupportedOptions_ReadsTheSchemeAndThePlatform(PrinterScheme scheme, bool isWindows, PrintOptionSupports expected) =>
         Assert.Equal(expected, PrinterSchemes.SupportedOptions(scheme, isWindows));
 
     [Theory]

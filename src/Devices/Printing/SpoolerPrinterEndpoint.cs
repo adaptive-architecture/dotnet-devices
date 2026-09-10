@@ -32,7 +32,7 @@ public sealed class SpoolerPrinterEndpoint : PrinterEndpoint, IEquatable<Spooler
 
     internal static void ThrowIfNotAQueueName(string name, string parameterName)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name, parameterName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
         if (!IsValidName(name))
         {
             throw new ArgumentException("A print queue name has at most 127 characters and contains no control character and none of '/', '?' or '#'.", parameterName);

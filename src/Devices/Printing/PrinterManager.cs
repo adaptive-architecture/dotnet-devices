@@ -248,10 +248,7 @@ public sealed class PrinterManager : IPrinterManager
         }
 
         List<PrinterDeviceKey> aliases = [.. channel.Aliases, channel.Id.DeviceKey];
-        foreach (var alias in identity.Aliases)
-        {
-            aliases.Add(alias);
-        }
+        aliases.AddRange(identity.Aliases);
 
         var uuid = identity.Uuid;
         if (PrinterDeviceKey.IsUsableIdentity(uuid))
@@ -300,19 +297,7 @@ public sealed class PrinterManager : IPrinterManager
         return isPlaceholder ? reported : channel.Info.Name;
     }
 
-    private static IReadOnlyList<PrinterDeviceKey> Distinct(List<PrinterDeviceKey> keys)
-    {
-        List<PrinterDeviceKey> unique = new(keys.Count);
-        foreach (var key in keys)
-        {
-            if (!unique.Contains(key))
-            {
-                unique.Add(key);
-            }
-        }
-
-        return unique;
-    }
+    private static List<PrinterDeviceKey> Distinct(List<PrinterDeviceKey> keys) => [.. keys.Distinct()];
 
     private void Remember(PrinterDevice device)
     {
@@ -412,7 +397,7 @@ public sealed class PrinterManager : IPrinterManager
         var named = device.Channels.FirstOrDefault(channel => channel.Id == id);
         if (requirePassthrough)
         {
-            if (named is not null && named.GivesPassthrough)
+            if (named?.GivesPassthrough == true)
             {
                 return named;
             }
@@ -423,7 +408,7 @@ public sealed class PrinterManager : IPrinterManager
                     $"Its endpoints are {String.Join(", ", device.Channels.Select(static channel => channel.Endpoint))}.");
         }
 
-        if (named is not null && named.HasJobQueue)
+        if (named?.HasJobQueue == true)
         {
             return named;
         }

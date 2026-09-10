@@ -12,7 +12,7 @@
 /// printer reported.
 /// </remarks>
 [Flags]
-public enum PrintOptionSupport
+public enum PrintOptionSupports
 {
     /// <summary>No option is applied. The payload reaches the device unchanged.</summary>
     None = 0,

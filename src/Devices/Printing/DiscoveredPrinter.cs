@@ -66,7 +66,7 @@ public sealed class DiscoveredPrinter
     /// The value comes from the transport, which the library knows without asking, and is
     /// narrowed by <see cref="Configuration"/> when that was read.
     /// </remarks>
-    public PrintOptionSupport SupportedOptions { get; init; }
+    public PrintOptionSupports SupportedOptions { get; init; }
 
     /// <summary>
     /// Gets the keys of the devices this channel was reported to belong to.
@@ -114,7 +114,7 @@ public sealed class DiscoveredPrinter
 
     // A printer that reported nothing about a capability has not denied it, so only an
     // explicit "no" narrows the set. This is the rule PrintOptionValidator already uses.
-    internal static PrintOptionSupport Narrow(PrintOptionSupport supported, PrinterConfiguration? configuration)
+    internal static PrintOptionSupports Narrow(PrintOptionSupports supported, PrinterConfiguration? configuration)
     {
         if (configuration is null)
         {
@@ -123,17 +123,17 @@ public sealed class DiscoveredPrinter
 
         if (configuration.SupportsDuplex == false)
         {
-            supported &= ~PrintOptionSupport.Duplex;
+            supported &= ~PrintOptionSupports.Duplex;
         }
 
         if (configuration.SupportsColor == false)
         {
-            supported &= ~PrintOptionSupport.ColorMode;
+            supported &= ~PrintOptionSupports.ColorMode;
         }
 
         if (configuration.SupportsPageRanges == false)
         {
-            supported &= ~PrintOptionSupport.PageRanges;
+            supported &= ~PrintOptionSupports.PageRanges;
         }
 
         return supported;

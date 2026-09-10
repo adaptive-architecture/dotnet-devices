@@ -66,7 +66,7 @@ public class WindowsSpoolerDeviceModeMapperTests
             ResolutionDpi = 600,
         };
 
-        var expected = WindowsSpoolerCapabilityParser.DmOrientation
+        const uint expected = WindowsSpoolerCapabilityParser.DmOrientation
             | WindowsSpoolerCapabilityParser.DmPaperSize
             | WindowsSpoolerCapabilityParser.DmDefaultSource
             | WindowsSpoolerCapabilityParser.DmColor

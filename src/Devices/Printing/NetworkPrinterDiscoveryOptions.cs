@@ -74,30 +74,7 @@ public sealed class NetworkPrinterDiscoveryOptions
 
             foreach (var unicast in properties.UnicastAddresses)
             {
-                if (unicast.Address.AddressFamily != AddressFamily.InterNetwork)
-                {
-                    continue;
-                }
-
-                var addressBytes = unicast.Address.GetAddressBytes();
-                if (IPAddress.IsLoopback(unicast.Address) || IsLinkLocal(addressBytes))
-                {
-                    continue;
-                }
-
-                if (unicast.PrefixLength < 16 || unicast.PrefixLength > 30)
-                {
-                    continue;
-                }
-
-                var address = ReadUInt32(addressBytes);
-                var mask = 0xFFFFFFFFu << (32 - unicast.PrefixLength);
-                var network = address & mask;
-                var broadcast = network | ~mask;
-                for (var host = network + 1; host < broadcast && hosts.Count < maxHosts; host++)
-                {
-                    _ = hosts.Add(ToAddress(host));
-                }
+                AddSubnetHosts(hosts, unicast, maxHosts);
             }
         }
 
@@ -106,20 +83,40 @@ public sealed class NetworkPrinterDiscoveryOptions
         return result;
     }
 
-    private static bool IsLinkLocal(byte[] addressBytes) => addressBytes[0] == 169 && addressBytes[1] == 254;
-
-    private static bool HasGateway(IPInterfaceProperties properties)
+    // Walks the subnet of one address, between the network address and the broadcast
+    // address. An address the probe must not sweep adds nothing.
+    private static void AddSubnetHosts(HashSet<string> hosts, UnicastIPAddressInformation unicast, int maxHosts)
     {
-        foreach (var gateway in properties.GatewayAddresses)
+        if (unicast.Address.AddressFamily != AddressFamily.InterNetwork)
         {
-            if (gateway.Address.AddressFamily == AddressFamily.InterNetwork && !gateway.Address.Equals(IPAddress.Any))
-            {
-                return true;
-            }
+            return;
         }
 
-        return false;
+        var addressBytes = unicast.Address.GetAddressBytes();
+        if (IPAddress.IsLoopback(unicast.Address) || IsLinkLocal(addressBytes))
+        {
+            return;
+        }
+
+        if (unicast.PrefixLength < 16 || unicast.PrefixLength > 30)
+        {
+            return;
+        }
+
+        var address = ReadUInt32(addressBytes);
+        var mask = 0xFFFFFFFFu << (32 - unicast.PrefixLength);
+        var network = address & mask;
+        var broadcast = network | ~mask;
+        for (var host = network + 1; host < broadcast && hosts.Count < maxHosts; host++)
+        {
+            _ = hosts.Add(ToAddress(host));
+        }
     }
+
+    private static bool IsLinkLocal(byte[] addressBytes) => addressBytes[0] == 169 && addressBytes[1] == 254;
+
+    private static bool HasGateway(IPInterfaceProperties properties) => properties.GatewayAddresses.Any(
+        static gateway => gateway.Address.AddressFamily == AddressFamily.InterNetwork && !gateway.Address.Equals(IPAddress.Any));
 
     private static uint ReadUInt32(byte[] addressBytes) =>
         ((uint)addressBytes[0] << 24) | ((uint)addressBytes[1] << 16) | ((uint)addressBytes[2] << 8) | addressBytes[3];

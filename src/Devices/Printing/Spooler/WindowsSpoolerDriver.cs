@@ -601,12 +601,13 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
             var deviceMode = Marshal.PtrToStructure<WindowsSpoolerInterop.DevMode>(info.DevMode);
             return WindowsSpoolerCapabilityParser.ReadDefaults(
-                deviceMode.Fields,
-                deviceMode.Orientation,
-                deviceMode.PaperSize,
-                deviceMode.DefaultSource,
-                deviceMode.PrintQuality,
-                deviceMode.YResolution,
+                new DeviceModeValues(
+                    deviceMode.Fields,
+                    deviceMode.Orientation,
+                    deviceMode.PaperSize,
+                    deviceMode.DefaultSource,
+                    deviceMode.PrintQuality,
+                    deviceMode.YResolution),
                 media,
                 sources);
         }

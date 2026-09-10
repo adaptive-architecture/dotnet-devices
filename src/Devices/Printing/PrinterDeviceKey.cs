@@ -97,28 +97,14 @@ public readonly struct PrinterDeviceKey : IEquatable<PrinterDeviceKey>
             return false;
         }
 
-        foreach (var useless in UselessIdentities)
+        if (UselessIdentities.Contains(trimmed, StringComparer.OrdinalIgnoreCase))
         {
-            if (String.Equals(trimmed, useless, StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
+            return false;
         }
 
         // A value made only of the same repeated character, such as "0000" or "-----",
         // is a placeholder rather than an identity.
-        var first = trimmed[0];
-        var uniform = true;
-        foreach (var character in trimmed)
-        {
-            if (character != first)
-            {
-                uniform = false;
-                break;
-            }
-        }
-
-        return !uniform;
+        return trimmed.AsSpan().ContainsAnyExcept(trimmed[0]);
     }
 
     /// <summary>

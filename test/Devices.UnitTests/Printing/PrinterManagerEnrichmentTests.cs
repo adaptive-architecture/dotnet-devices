@@ -58,11 +58,11 @@ public class PrinterManagerEnrichmentTests
             new PrinterManagerOptions { ReadCapabilities = true }, TestContext.Current.CancellationToken);
 
         var channel = Assert.Single(Assert.Single(devices).Channels);
-        Assert.False(channel.SupportedOptions.HasFlag(PrintOptionSupport.Duplex));
-        Assert.False(channel.SupportedOptions.HasFlag(PrintOptionSupport.ColorMode));
-        Assert.False(channel.SupportedOptions.HasFlag(PrintOptionSupport.PageRanges));
+        Assert.False(channel.SupportedOptions.HasFlag(PrintOptionSupports.Duplex));
+        Assert.False(channel.SupportedOptions.HasFlag(PrintOptionSupports.ColorMode));
+        Assert.False(channel.SupportedOptions.HasFlag(PrintOptionSupports.PageRanges));
         // Everything the printer did not deny is still applied.
-        Assert.True(channel.SupportedOptions.HasFlag(PrintOptionSupport.Copies));
+        Assert.True(channel.SupportedOptions.HasFlag(PrintOptionSupports.Copies));
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public class PrinterManagerEnrichmentTests
 
         var devices = await manager.DiscoverAsync(null, TestContext.Current.CancellationToken);
 
-        Assert.Equal(PrintOptionSupport.None, Assert.Single(Assert.Single(devices).Channels).SupportedOptions);
+        Assert.Equal(PrintOptionSupports.None, Assert.Single(Assert.Single(devices).Channels).SupportedOptions);
     }
 
     [Fact]

@@ -91,19 +91,14 @@ internal static class WindowsSpoolerCapabilityParser
     // Reads the defaults out of a device mode. A field holds a value only when its
     // DM_ bit is set, and a number is reported as a name, so an unknown number is dropped.
     internal static DeviceModeDefaults ReadDefaults(
-        uint fields,
-        short orientation,
-        short paperSize,
-        short defaultSource,
-        short printQuality,
-        short yResolution,
+        DeviceModeValues values,
         IReadOnlyList<PrinterMedia> media,
         IReadOnlyList<PrinterMediaSource> sources) =>
         new(
-            (fields & DmPaperSize) == 0 ? null : MediaName(media, paperSize),
-            (fields & DmDefaultSource) == 0 ? null : SourceName(sources, defaultSource),
-            (fields & DmOrientation) == 0 ? null : Orientation(orientation),
-            ResolutionDpi(fields, printQuality, yResolution));
+            (values.Fields & DmPaperSize) == 0 ? null : MediaName(media, values.PaperSize),
+            (values.Fields & DmDefaultSource) == 0 ? null : SourceName(sources, values.DefaultSource),
+            (values.Fields & DmOrientation) == 0 ? null : Orientation(values.Orientation),
+            ResolutionDpi(values.Fields, values.PrintQuality, values.YResolution));
 
     private static string? MediaName(IReadOnlyList<PrinterMedia> media, short number)
     {
@@ -163,6 +158,16 @@ internal static class WindowsSpoolerCapabilityParser
         return null;
     }
 }
+
+// The fields of a device mode this parser reads. Fields announces which of the others
+// carries a value.
+internal readonly record struct DeviceModeValues(
+    uint Fields,
+    short Orientation,
+    short PaperSize,
+    short DefaultSource,
+    short PrintQuality,
+    short YResolution);
 
 // The defaults a device mode reports. A value is null when the device mode did not
 // carry it, or when it named a number that no capability list explains.

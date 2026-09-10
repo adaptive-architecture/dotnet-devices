@@ -23,13 +23,11 @@ internal static class IppRawAttributes
             return null;
         }
 
-        foreach (var attribute in response.PrinterAttributes[index])
+        foreach (var attribute in response.PrinterAttributes[index]
+            .Where(attribute => String.Equals(attribute.Name, name, StringComparison.Ordinal)))
         {
-            if (String.Equals(attribute.Name, name, StringComparison.Ordinal))
-            {
-                var text = GetText(attribute.Value);
-                return String.IsNullOrWhiteSpace(text) ? null : text;
-            }
+            var text = GetText(attribute.Value);
+            return String.IsNullOrWhiteSpace(text) ? null : text;
         }
 
         return null;

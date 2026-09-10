@@ -176,15 +176,8 @@ internal static class WindowsSpoolerDeviceModeMapper
             return null;
         }
 
-        foreach (var entry in media)
-        {
-            if (String.Equals(entry.Name, name, StringComparison.Ordinal))
-            {
-                return AsField(entry.WindowsPaperNumber);
-            }
-        }
-
-        return null;
+        var entry = media.FirstOrDefault(entry => String.Equals(entry.Name, name, StringComparison.Ordinal));
+        return entry is null ? null : AsField(entry.WindowsPaperNumber);
     }
 
     private static short? SourceNumber(IReadOnlyList<PrinterMediaSource> sources, string? name)
@@ -194,15 +187,8 @@ internal static class WindowsSpoolerDeviceModeMapper
             return null;
         }
 
-        foreach (var source in sources)
-        {
-            if (String.Equals(source.Name, name, StringComparison.Ordinal))
-            {
-                return AsField(source.WindowsBinNumber);
-            }
-        }
-
-        return null;
+        var source = sources.FirstOrDefault(source => String.Equals(source.Name, name, StringComparison.Ordinal));
+        return source is null ? null : AsField(source.WindowsBinNumber);
     }
 
     // DC_PAPERS and DC_BINS answer with WORD values, and the device mode field is signed,

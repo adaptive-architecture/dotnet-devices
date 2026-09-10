@@ -71,7 +71,7 @@ internal static class PrinterDeviceGrouper
         return devices;
     }
 
-    private static IReadOnlyList<PrinterStatusSource> ReadSources(
+    private static List<PrinterStatusSource> ReadSources(
         List<DiscoveredPrinter> members,
         IReadOnlyDictionary<PrinterId, IReadOnlyList<PrinterStatusSource>>? statusSources)
     {
@@ -88,13 +88,7 @@ internal static class PrinterDeviceGrouper
                 continue;
             }
 
-            foreach (var source in sources)
-            {
-                if (!found.Contains(source))
-                {
-                    found.Add(source);
-                }
-            }
+            found.AddRange(sources.Where(source => !found.Contains(source)));
         }
 
         found.Sort();

@@ -45,7 +45,7 @@ internal static class IppConfigurationMapper
             SupportsPageRanges = attributes.PageRangesSupported,
             MediaSizes = mediaSizes,
             // IPP reports no Windows paper number, so every entry carries the name only.
-            Media = mediaSizes.Select(static name => new PrinterMedia(name, null)).ToList(),
+            Media = mediaSizes.ConvertAll(static name => new PrinterMedia(name, null)),
             MediaSources = ReadMediaSources(attributes.MediaSourceSupported),
             MediaTypes = ReadNames(attributes.MediaTypeSupported?.Select(static type => type.Value)),
             OutputBins = ReadNames(attributes.OutputBinSupported?.Select(static bin => bin.Value)),
@@ -146,16 +146,7 @@ internal static class IppConfigurationMapper
             return [];
         }
 
-        List<string> result = [];
-        foreach (var name in names)
-        {
-            if (!String.IsNullOrWhiteSpace(name))
-            {
-                result.Add(name);
-            }
-        }
-
-        return result;
+        return [.. names.OfType<string>().Where(static name => !String.IsNullOrWhiteSpace(name))];
     }
 
     private static List<PrinterMediaSource> ReadMediaSources(MediaSource[]? sources)
@@ -165,17 +156,10 @@ internal static class IppConfigurationMapper
             return [];
         }
 
-        List<PrinterMediaSource> result = new(sources.Length);
-        foreach (var source in sources)
-        {
-            if (!String.IsNullOrWhiteSpace(source.Value))
-            {
-                // IPP names a tray; only the Windows driver knows a bin number for it.
-                result.Add(new PrinterMediaSource(source.Value, null));
-            }
-        }
-
-        return result;
+        // IPP names a tray; only the Windows driver knows a bin number for it.
+        return [.. sources
+            .Where(static source => !String.IsNullOrWhiteSpace(source.Value))
+            .Select(static source => new PrinterMediaSource(source.Value, null))];
     }
 
     private static List<PrintQuality> ReadQualities(IppPrintQuality[]? qualities)
