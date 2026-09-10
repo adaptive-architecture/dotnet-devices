@@ -10,21 +10,21 @@ services.AddPrinters();
 using var provider = services.BuildServiceProvider();
 
 var printFilesDirectory = Path.Combine(AppContext.BaseDirectory, "PrintFiles");
-Console.WriteLine("Printable files:");
-foreach (var file in SampleHelpers.GetPrintFiles(printFilesDirectory))
-{
-    Console.WriteLine($"- {file}");
-}
+Console.WriteLine($"Printable files: {String.Join(", ", SampleHelpers.GetPrintFiles(printFilesDirectory))}");
 
+// The menu starts with a discovery, so it replaces the old default listing.
 if (args.Length == 0)
 {
-    await PrinterManagerScenario.DiscoverAsync(provider).ConfigureAwait(false);
     PrintHelp();
+    await InteractiveScenario.RunAsync(provider, printFilesDirectory).ConfigureAwait(false);
     return;
 }
 
 switch (args[0])
 {
+    case "interactive":
+        await InteractiveScenario.RunAsync(provider, printFilesDirectory).ConfigureAwait(false);
+        return;
     case "print-manager":
         await RunPrinterManagerAsync(args).ConfigureAwait(false);
         return;
@@ -131,6 +131,8 @@ static void PrintHelp()
 {
     Console.WriteLine();
     Console.WriteLine("Usage:");
+    Console.WriteLine("  dotnet run -- interactive        (a menu; also the default)");
+    Console.WriteLine();
     Console.WriteLine("  dotnet run -- print-manager discover");
     Console.WriteLine("  dotnet run -- print-manager send  <printer-id> <file>");
     Console.WriteLine("  dotnet run -- print-manager watch <printer-id> <file>");
@@ -143,7 +145,8 @@ static void PrintHelp()
     Console.WriteLine("  dotnet run -- win-printer-test <queue-name> [--print]");
     Console.WriteLine();
     Console.WriteLine("<file> is a name from PrintFiles, above.");
-    Console.WriteLine("<printer-id> is a printer identifier, such as Network:192.168.0.152 or Spooler:EPSON_L6270_Series.");
-    Console.WriteLine("A bare value with no 'Kind:' prefix, such as 192.168.0.152, is treated as a network printer.");
+    Console.WriteLine("<printer-id> is a printer identifier URI, such as raw://192.168.0.152, ipp://192.168.0.152");
+    Console.WriteLine("or spooler://EPSON_L6270_Series. The scheme names the channel: raw, ipp, ipps, spooler.");
+    Console.WriteLine("A bare address, such as 192.168.0.152, is read as the raw channel of that host.");
     Console.WriteLine("'discover' prints the exact identifier to use for each printer it finds.");
 }

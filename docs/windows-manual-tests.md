@@ -17,7 +17,8 @@ testable.
 | Area | Test class | What it proves |
 | --- | --- | --- |
 | Printer status bits | `WindowsSpoolerStatusMapperTests` | Each `PRINTER_STATUS_*` bit maps to the correct `PrinterStatusState`, the precedence is correct when two bits are set together, and each bit is named correctly in `PrinterStatus.Detail`. The `PRINTER_ATTRIBUTE_WORK_OFFLINE` attribute maps to `Offline`. |
-| Unapplied options | `WindowsSpoolerDriverTests` | `UnappliedOptions` names every set `PrintOptions` property except `JobName`, so `PrintJobInfo.DroppedOptions` is correct. |
+| Device mode options | `WindowsSpoolerDeviceModeMapperTests` | Each option maps to the correct `DEVMODE` field and `DM_*` bit, a media or tray name is looked up in the numbers the queue reported, a resolution wins over a quality on `dmPrintQuality`, and every option that reached no field is named in `DeviceModeRequest.Dropped`, so `PrintJobInfo.DroppedOptions` is correct. |
+| Option support per channel | `PrinterSchemesTests` | `SupportedOptions` names what a Windows device mode carries, and everything the library models on CUPS and IPP. |
 | Job status bits | `WindowsSpoolerStatusMapperTests` | Each `JOB_STATUS_*` bit maps to the correct `PrintJobState`, with the same precedence check. |
 | Paper names | `WindowsSpoolerCapabilityParserTests` | `DC_PAPERNAMES` gives fixed 64-character blocks. The parser reads a short name with null padding, a name that fills all 64 characters with no terminator, an empty block, and several blocks in sequence. |
 | Resolutions | `WindowsSpoolerCapabilityParserTests` | `DC_ENUMRESOLUTIONS` gives pairs of integers. The parser reads a list of pairs, one pair, and an empty buffer. |
@@ -99,8 +100,21 @@ complete sequence: `OpenPrinter`, `StartDocPrinter`, `StartPagePrinter`, `WriteP
   send a job to a queue whose port is a file that cannot be written (for example a
   read-only path): the call must throw, and the Windows print queue window must show no
   job afterwards.
-- Set `Copies`, `Duplex` and `MediaSize` in the `PrintOptions` of the job. The
-  `PrintJobInfo.DroppedOptions` list must name all three, and `JobName` must not be in it.
+- Set `MediaType`, `OutputBin`, `PageRanges` and `NumberUp` in the `PrintOptions` of the
+  job. The `PrintJobInfo.DroppedOptions` list must name all four, because no `DEVMODE`
+  field can carry them, and `JobName` must not be in it.
+- Set `Duplex`, `ColorMode`, `Orientation`, `MediaSize` and `MediaSource` to values the
+  queue reports, and confirm `DroppedOptions` is empty. Then open the job in the Windows
+  print queue window, read its **Properties**, and confirm the values agree. A `MediaSize`
+  or `MediaSource` name that the queue never reported must come back in `DroppedOptions`.
+- Set `Copies = 3`. The print queue window must show **three** jobs, each with the same
+  document name, and the returned `PrintJobInfo.JobId` must be the first of them.
+  `PrintJobInfo.Detail` must read `Copy 1 of 3. Each copy is a separate spooler job.`
+- Set both `ResolutionDpi` and `Quality`. `DroppedOptions` must name `Quality` only, and
+  the job must carry the resolution.
+- Send a job with a `DEVMODE` to a queue whose driver reports a short device mode, if you
+  have one. The call must throw `InvalidOperationException` naming the reported size,
+  instead of writing over the driver-private tail.
 
 ### 4. A native AOT publish
 
@@ -139,6 +153,17 @@ Run `win-printer-test` on a queue that has a real printer driver.
 
 - The paper names print inside brackets, for example `[A4]`. Each name must be a complete
   word, not cut short and not full of stray characters.
+- Each paper name carries a Windows paper number, for example `[A4] = 9`. The number must
+  look like a `DMPAPER_*` value: `DMPAPER_LETTER` is 1 and `DMPAPER_A4` is 9. A driver with
+  its own sizes reports numbers at 256 and above, which is also correct.
+- The tray names print inside brackets too, each with its `DMBIN_*` number. A tray name has
+  at most 24 characters, so watch for a name that is cut short at that length.
+- The three defaults print below the lists: the default paper, the default tray, the
+  orientation and the resolution. Each must agree with the **Printing Preferences** dialog
+  of that queue. Change a default in the dialog, run the check again, and confirm that the
+  reported value follows.
+- A default that the device mode does not carry prints as empty. That is correct: the
+  driver reports nothing rather than a guess.
 - The resolutions must look reasonable for the printer.
 - The duplex and colour flags must agree with what the printer can do.
 
@@ -158,9 +183,39 @@ a queue name that cannot exist; confirm the process itself stays healthy afterwa
 
 ## What the driver does not do yet
 
-- **Only `JobName` reaches the spooler.** `PrintOptions.Copies`, `Duplex`, `ColorMode`,
-  `Orientation`, `MediaSource`, `MediaSize` and `ResolutionDpi` are **not** mapped into a
-  `DEVMODE`. A `RAW` job goes to the device unchanged, so these options change nothing
-  today. This is a known gap, recorded in a comment in `SubmitAsync`.
+- **`MediaType`, `OutputBin`, `PageRanges` and `NumberUp` reach nothing.** A `DEVMODE` has
+  no field for a page range, for pages per sheet or for an output bin, and `dmMediaType`
+  needs a `DMMEDIA_*` number that the spooler does not pair with a name. The driver always
+  names these four in `PrintJobInfo.DroppedOptions`.
+- **A short device mode is refused, not worked around.** `SubmitAsync` throws when a driver
+  reports a device mode smaller than `DEVMODEW`, because writing the fields back would
+  overwrite the driver-private tail behind it. No driver in use reports one.
 - **`GetJobAsync` lists the jobs and then selects one.** The `GetJobW` entry point can fetch
   one job directly. The current code is correct but does more work than it must.
+
+## Still to check by hand: the device identity of a queue
+
+`WindowsSpoolerDriver.GetIdentityAsync` reads `PRINTER_INFO_2.pPortName` through
+`OpenPrinter` and `GetPrinter`, and `SpoolerAliases.FromPortName` turns it into the key
+that joins a queue to the device behind it. Neither has run on Windows.
+
+The enumeration deliberately stays at level 4. `EnumPrinters` at level 2 opens every
+remote connection over RPC, so one unreachable print server would stall the whole
+discovery until the call times out. The port name is therefore read one queue at a time,
+and only when the caller sets `PrinterManagerOptions.ReadIdentity`.
+
+Check on a real Windows machine:
+
+1. A queue on a standard TCP/IP port. `ReadIdentity` should put the queue and the
+   `raw://<address>` channel of the same printer on **one** `PrinterDevice`.
+2. A queue on a `USB001` port. It should stay its own device: the port names no device.
+3. A queue on a Web Services port (`WSD-…`). It should stay its own device.
+4. A queue connected to another server (`\\server\queue`). It should stay its own device.
+5. A queue whose port was renamed away from the `IP_<address>` form. Nothing should be
+   guessed from the new name unless the name is itself an address.
+6. A print pool with several ports. The first port should be the one that is read.
+7. A queue whose server is switched off. `ReadIdentity` should report the other printers
+   normally and simply say nothing about this one.
+
+Also confirm that `PrinterInfo.IsDefault` and `PrinterInfo.IsShared`, which the same
+level 2 read can fill, match what the Windows printer settings show.

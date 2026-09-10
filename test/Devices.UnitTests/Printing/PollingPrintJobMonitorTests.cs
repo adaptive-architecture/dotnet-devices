@@ -6,7 +6,7 @@ namespace AdaptArch.Devices.UnitTests.Printing;
 
 public class PollingPrintJobMonitorTests
 {
-    private static readonly PrinterId Printer = PrinterId.FromNetwork("printer.local");
+    private static readonly PrinterId Printer = PrinterId.ForRaw("printer.local");
     private static readonly PrintJobMonitorOptions Fast = new() { PollInterval = TimeSpan.FromMilliseconds(1) };
 
     [Fact]
@@ -153,8 +153,8 @@ public class PollingPrintJobMonitorTests
         PollingPrintJobMonitor monitor = new(new FakeQueue());
 
         _ = Assert.Throws<ArgumentOutOfRangeException>(() => monitor.WatchJobAsync(
-            PrinterId.FromSpooler("lobby"), "1", new PrintJobMonitorOptions { PollInterval = TimeSpan.Zero }, TestContext.Current.CancellationToken));
+            PrinterId.ForSpooler("lobby"), "1", new PrintJobMonitorOptions { PollInterval = TimeSpan.Zero }, TestContext.Current.CancellationToken));
         _ = Assert.Throws<ArgumentOutOfRangeException>(() => monitor.WatchJobAsync(
-            PrinterId.FromSpooler("lobby"), "1", new PrintJobMonitorOptions { Timeout = TimeSpan.FromSeconds(-1) }, TestContext.Current.CancellationToken));
+            PrinterId.ForSpooler("lobby"), "1", new PrintJobMonitorOptions { Timeout = TimeSpan.FromSeconds(-1) }, TestContext.Current.CancellationToken));
     }
 }

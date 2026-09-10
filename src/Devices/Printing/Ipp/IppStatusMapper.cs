@@ -30,7 +30,7 @@ internal static class IppStatusMapper
             Detail = detail,
             Markers = IppMarkers.Read(raw),
         };
-        PrinterInfo info = new(id, attributes?.PrinterMakeAndModel ?? attributes?.PrinterName ?? id.Value)
+        PrinterInfo info = new(id, attributes?.PrinterMakeAndModel ?? attributes?.PrinterName ?? id.Authority)
         {
             Location = attributes?.PrinterLocation,
         };

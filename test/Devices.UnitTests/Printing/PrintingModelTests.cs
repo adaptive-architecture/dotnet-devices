@@ -23,7 +23,7 @@ public class PrintingModelTests
     [Fact]
     public void PrinterStatus_DefaultsToAcceptingJobs()
     {
-        var id = PrinterId.FromNetwork("host");
+        var id = PrinterId.ForRaw("host");
         PrinterStatus status = new(id, PrinterStatusState.Idle);
 
         Assert.Equal(id, status.PrinterId);
@@ -36,7 +36,7 @@ public class PrintingModelTests
     [Fact]
     public void PrinterConfiguration_DefaultsToEmptyCapabilities()
     {
-        var id = PrinterId.FromSpooler("Q");
+        var id = PrinterId.ForSpooler("Q");
         PrinterConfiguration configuration = new(id);
 
         Assert.Equal(id, configuration.PrinterId);
@@ -51,7 +51,7 @@ public class PrintingModelTests
     [Fact]
     public void PrintJobInfo_RecordsCreationTime()
     {
-        var id = PrinterId.FromUsb("dev");
+        var id = PrinterId.ForSpooler("dev");
         PrintJobInfo job = new("42", id, PrintJobState.Queued) { JobName = "Label" };
 
         Assert.Equal("42", job.JobId);
@@ -65,9 +65,9 @@ public class PrintingModelTests
     [Fact]
     public void DiscoveredPrinter_RequiresEndpointAndInfo()
     {
-        var id = PrinterId.FromNetwork("host");
+        var id = PrinterId.ForRaw("host");
         Assert.Throws<ArgumentNullException>(() => new DiscoveredPrinter(id, null, new PrinterInfo(id, "P")));
-        Assert.Throws<ArgumentNullException>(() => new DiscoveredPrinter(id, new NetworkPrinterEndpoint("host"), null));
+        Assert.Throws<ArgumentNullException>(() => new DiscoveredPrinter(id, NetworkPrinterEndpoint.Raw("host"), null));
     }
 
     [Fact]
@@ -90,9 +90,80 @@ public class PrintingModelTests
     }
 
     [Fact]
+    public void PrintOptions_LeavesEveryNewerOptionUnset()
+    {
+        PrintOptions options = new();
+
+        Assert.Null(options.MediaType);
+        Assert.Null(options.OutputBin);
+        Assert.Null(options.Quality);
+        Assert.Null(options.PageRanges);
+        Assert.Null(options.NumberUp);
+    }
+
+    [Fact]
+    public void PrintOptions_RefusesAPageCountBelowOne() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PrintOptions { NumberUp = 0 });
+
+    [Fact]
+    public void PrinterConfiguration_ReportsNothingItWasNotGiven()
+    {
+        PrinterConfiguration configuration = new(PrinterId.ForRaw("printer.local"));
+
+        Assert.Empty(configuration.Media);
+        Assert.Empty(configuration.MediaSources);
+        Assert.Empty(configuration.MediaTypes);
+        Assert.Empty(configuration.OutputBins);
+        Assert.Empty(configuration.Qualities);
+        Assert.Empty(configuration.NumberUpValues);
+        Assert.Null(configuration.SupportsPageRanges);
+        Assert.Null(configuration.DefaultMediaSource);
+        Assert.Null(configuration.DefaultOrientation);
+        Assert.Null(configuration.DefaultResolutionDpi);
+    }
+
+    [Fact]
+    public void PrinterMedia_KeepsTheNameAndTheWindowsNumber()
+    {
+        PrinterMedia media = new("A4", 9);
+
+        Assert.Equal("A4", media.Name);
+        Assert.Equal(9, media.WindowsPaperNumber);
+        Assert.Null(new PrinterMediaSource("tray-1", null).WindowsBinNumber);
+    }
+
+    [Fact]
+    public void PrinterMedia_RefusesABlankName()
+    {
+        Assert.Throws<ArgumentException>(() => new PrinterMedia(" ", 9));
+        Assert.Throws<ArgumentException>(() => new PrinterMediaSource(" ", 1));
+    }
+
+    [Fact]
+    public void PageRange_KeepsBothBoundsAndComparesByValue()
+    {
+        PageRange range = new(2, 5);
+
+        Assert.Equal(2, range.Lower);
+        Assert.Equal(5, range.Upper);
+        Assert.Equal(new PageRange(2, 5), range);
+        Assert.True(range == new PageRange(2, 5));
+        Assert.True(range != new PageRange(2, 6));
+        Assert.Equal(new PageRange(2, 5).GetHashCode(), range.GetHashCode());
+        Assert.Equal("2-5", range.ToString());
+    }
+
+    [Fact]
+    public void PageRange_RefusesARangeThatIsNotAPageRange()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PageRange(0, 5));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PageRange(5, 4));
+    }
+
+    [Fact]
     public void PrintJobInfo_HasNoProgressAndNoDroppedOptionsByDefault()
     {
-        PrintJobInfo job = new("42", PrinterId.FromNetwork("printer.local"), PrintJobState.Queued);
+        PrintJobInfo job = new("42", PrinterId.ForRaw("printer.local"), PrintJobState.Queued);
 
         Assert.Null(job.ImpressionsCompleted);
         Assert.Null(job.TotalImpressions);

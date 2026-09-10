@@ -8,7 +8,7 @@ namespace AdaptArch.Devices.UnitTests.Printing.Ipp;
 
 public class IppPrinterTests
 {
-    private static readonly NetworkPrinterEndpoint Endpoint = new("printer.local", 631);
+    private static readonly NetworkPrinterEndpoint Endpoint = NetworkPrinterEndpoint.Ipp("printer.local");
 
     [Fact]
     public async Task PrintAsync_ReturnsTheJobIdentifierThePrinterAssigned()

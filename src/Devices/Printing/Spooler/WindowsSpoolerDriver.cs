@@ -69,15 +69,71 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         }
     }
 
+    // winspool.h PRINTER_ATTRIBUTE_DEFAULT and PRINTER_ATTRIBUTE_SHARED.
+    private const uint PrinterAttributeDefault = 0x00000004;
+    private const uint PrinterAttributeShared = 0x00000008;
+
+    // The port name is what links a queue to the device behind it, and it lives in
+    // PRINTER_INFO_2. The enumeration deliberately stays at level 4: EnumPrinters at
+    // level 2 opens every remote connection over RPC, so one dead print server would
+    // stall the whole discovery until the call times out. Reading one queue at a time,
+    // only when the caller asked for identities, keeps that cost where it belongs.
+    public Task<PrinterIdentity?> GetIdentityAsync(string queueName, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var printerHandle = IntPtr.Zero;
+        var buffer = IntPtr.Zero;
+        try
+        {
+            OpenForUse(queueName, out printerHandle);
+
+            _ = WindowsSpoolerInterop.GetPrinter(printerHandle, 2, 0, 0, out var needed);
+            buffer = Marshal.AllocHGlobal(needed);
+            if (!WindowsSpoolerInterop.GetPrinter(printerHandle, 2, buffer, needed, out _))
+            {
+                ThrowLastError(nameof(WindowsSpoolerInterop.GetPrinter));
+            }
+
+            var info = Marshal.PtrToStructure<WindowsSpoolerInterop.PrinterInfo2>(buffer);
+            PrinterIdentity identity = new()
+            {
+                Name = info.Comment,
+                Location = info.Location,
+                DeviceUri = info.PortName,
+                Aliases = SpoolerAliases.FromPortName(info.PortName),
+                IsDefault = (info.Attributes & PrinterAttributeDefault) != 0,
+                IsShared = (info.Attributes & PrinterAttributeShared) != 0,
+            };
+            return Task.FromResult<PrinterIdentity?>(identity.IsEmpty ? null : identity);
+        }
+        catch (InvalidOperationException)
+        {
+            // A queue that cannot be opened tells nothing about its device. That is not
+            // a failure of the discovery that found it.
+            return Task.FromResult<PrinterIdentity?>(null);
+        }
+        finally
+        {
+            FreeIfSet(buffer);
+            if (printerHandle != IntPtr.Zero)
+            {
+                _ = WindowsSpoolerInterop.ClosePrinter(printerHandle);
+            }
+        }
+    }
+
     private static DiscoveredPrinter MapDiscovered(string name)
     {
-        var id = PrinterId.FromSpooler(name);
+        var id = PrinterId.ForSpooler(name);
         return new DiscoveredPrinter(id, new SpoolerPrinterEndpoint(name), new PrinterInfo(id, name)) { Source = DiscoverySource.Spooler };
     }
 
-    // Data type RAW: printer languages such as ZPL pass through unchanged. No option
-    // except JobName is mapped into a DEVMODE; the rest go to DroppedOptions.
-    // A failure after StartDocPrinter deletes the job, so no truncated document commits.
+    // Data type RAW: printer languages such as ZPL pass through unchanged. The mapped
+    // options travel in a DEVMODE built by the driver; the rest go to DroppedOptions.
+    // Copies are printed as one document each, because a RAW queue never reads dmCopies,
+    // and the reported job is the first of them.
     public Task<PrintJobInfo> SubmitAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsWindows())
@@ -90,20 +146,26 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
         ArgumentNullException.ThrowIfNull(payload);
 
+        var request = WindowsSpoolerDeviceModeMapper.Build(options, MediaFor(queueName, options), SourcesFor(queueName, options));
+        var copies = options?.Copies ?? 1;
+        var bytes = payload.Data.ToArray();
+
         var dataTypePtr = IntPtr.Zero;
         var jobNamePtr = IntPtr.Zero;
+        var deviceMode = IntPtr.Zero;
         var printerHandle = IntPtr.Zero;
-        var jobId = 0;
-        var pageStarted = false;
-        var written = false;
         try
         {
             dataTypePtr = Marshal.StringToHGlobalUni("RAW");
             jobNamePtr = Marshal.StringToHGlobalUni(options?.JobName ?? queueName);
+
+            // The device mode must exist before the printing handle is opened, because
+            // PRINTER_DEFAULTS is what carries it onto every job started on that handle.
+            deviceMode = BuildDeviceMode(queueName, request);
             var defaults = new WindowsSpoolerInterop.PrinterDefaults
             {
                 DataType = dataTypePtr,
-                DevMode = 0,
+                DevMode = deviceMode,
                 DesiredAccess = WindowsSpoolerInterop.PrinterAccessUse,
             };
 
@@ -121,6 +183,46 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 DataType = dataTypePtr,
             };
 
+            var firstJobId = 0;
+            for (var copy = 0; copy < copies; copy++)
+            {
+                var jobId = SubmitDocument(printerHandle, documentInfo, bytes);
+                if (copy == 0)
+                {
+                    firstJobId = jobId;
+                }
+            }
+
+            return Task.FromResult(new PrintJobInfo(firstJobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
+            {
+                JobName = options?.JobName,
+                Detail = copies == 1 ? null : $"Copy 1 of {copies}. Each copy is a separate spooler job.",
+                DroppedOptions = request.Dropped,
+            });
+        }
+        finally
+        {
+            if (printerHandle != IntPtr.Zero)
+            {
+                _ = WindowsSpoolerInterop.ClosePrinter(printerHandle);
+            }
+
+            FreeIfSet(deviceMode);
+            FreeIfSet(jobNamePtr);
+            FreeIfSet(dataTypePtr);
+        }
+    }
+
+    // One document: start, write, end. A failure after StartDocPrinter deletes the job, so
+    // no truncated document commits. A failure on a later copy leaves the copies before it
+    // in the queue, which is the same as a paper jam after the first copy.
+    private static int SubmitDocument(nint printerHandle, WindowsSpoolerInterop.DocInfo1 documentInfo, byte[] bytes)
+    {
+        var jobId = 0;
+        var pageStarted = false;
+        var written = false;
+        try
+        {
             jobId = WindowsSpoolerInterop.StartDocPrinter(printerHandle, 1, in documentInfo);
             if (jobId <= 0)
             {
@@ -133,14 +235,9 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             }
 
             pageStarted = true;
-            WriteAll(printerHandle, payload.Data);
+            WriteAll(printerHandle, bytes);
             written = true;
-
-            return Task.FromResult(new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.FromSpooler(queueName), PrintJobState.Queued)
-            {
-                JobName = options?.JobName,
-                DroppedOptions = UnappliedOptions(options),
-            });
+            return jobId;
         }
         finally
         {
@@ -158,25 +255,109 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
                 _ = WindowsSpoolerInterop.EndDocPrinter(printerHandle);
             }
+        }
+    }
 
+    // The name-to-number lists cost two spooler calls each, so they are read only when the
+    // job actually names a media size or a tray.
+    private static IReadOnlyList<PrinterMedia> MediaFor(string queueName, PrintOptions? options) =>
+        options?.MediaSize is null ? [] : ReadMedia(queueName);
+
+    private static IReadOnlyList<PrinterMediaSource> SourcesFor(string queueName, PrintOptions? options) =>
+        options?.MediaSource is null ? [] : ReadMediaSources(queueName);
+
+    // A DEVMODE has a driver-private tail that only the driver can fill, so the queue
+    // default is asked for first, the mapped fields are written over it, and a second call
+    // lets the driver reconcile what it was given. The answer is unmanaged memory the
+    // caller frees, or zero when the job asked for nothing a field can carry.
+    private static nint BuildDeviceMode(string queueName, DeviceModeRequest request)
+    {
+        if (request.IsEmpty)
+        {
+            return IntPtr.Zero;
+        }
+
+        var printerHandle = IntPtr.Zero;
+        var draft = IntPtr.Zero;
+        var accepted = IntPtr.Zero;
+        try
+        {
+            OpenForUse(queueName, out printerHandle);
+
+            // The answer is sizeof(DEVMODEW) plus the driver-private tail, so anything
+            // smaller than DEVMODEW is a refusal, not a short buffer.
+            var wholeSize = Marshal.SizeOf<WindowsSpoolerInterop.DevMode>();
+            var size = WindowsSpoolerInterop.DocumentProperties(0, printerHandle, queueName, 0, 0, 0);
+            if (size < wholeSize)
+            {
+                ThrowLastError(nameof(WindowsSpoolerInterop.DocumentProperties));
+            }
+
+            draft = Marshal.AllocHGlobal(size);
+            if (WindowsSpoolerInterop.DocumentProperties(0, printerHandle, queueName, draft, 0, WindowsSpoolerInterop.DmOutBuffer) < 0)
+            {
+                ThrowLastError(nameof(WindowsSpoolerInterop.DocumentProperties));
+            }
+
+            var deviceMode = Marshal.PtrToStructure<WindowsSpoolerInterop.DevMode>(draft);
+            if (deviceMode.Size < wholeSize)
+            {
+                // Writing the fields back would overwrite the tail that sits behind a
+                // device mode this short. No driver in use reports one.
+                throw new InvalidOperationException(
+                    $"The driver of '{queueName}' reported a {deviceMode.Size} byte device mode, and {wholeSize} bytes are needed.");
+            }
+
+            WriteRequest(ref deviceMode, request);
+            Marshal.StructureToPtr(deviceMode, draft, false);
+
+            // The driver reconciles the draft into a second buffer. One buffer for both
+            // directions would ask it to read and write the same bytes.
+            accepted = Marshal.AllocHGlobal(size);
+            if (WindowsSpoolerInterop.DocumentProperties(
+                    0, printerHandle, queueName, accepted, draft, WindowsSpoolerInterop.DmInBuffer | WindowsSpoolerInterop.DmOutBuffer) < 0)
+            {
+                ThrowLastError(nameof(WindowsSpoolerInterop.DocumentProperties));
+            }
+
+            var result = accepted;
+            accepted = IntPtr.Zero;
+            return result;
+        }
+        finally
+        {
+            FreeIfSet(accepted);
+            FreeIfSet(draft);
             if (printerHandle != IntPtr.Zero)
             {
                 _ = WindowsSpoolerInterop.ClosePrinter(printerHandle);
             }
-
-            FreeIfSet(jobNamePtr);
-            FreeIfSet(dataTypePtr);
         }
     }
 
-    // WritePrinter can write fewer bytes than asked. The copy pins without unsafe code.
-    private static void WriteAll(nint printerHandle, ReadOnlyMemory<byte> data)
+    // dmFields says which fields the driver must read, so the bits and the values are set
+    // together. A field the job did not ask for keeps the queue default.
+    private static void WriteRequest(ref WindowsSpoolerInterop.DevMode deviceMode, DeviceModeRequest request)
     {
-        var handle = GCHandle.Alloc(data.ToArray(), GCHandleType.Pinned);
+        deviceMode.Fields |= request.Fields;
+        deviceMode.Orientation = request.Orientation ?? deviceMode.Orientation;
+        deviceMode.Scale = request.Scale ?? deviceMode.Scale;
+        deviceMode.PaperSize = request.PaperSize ?? deviceMode.PaperSize;
+        deviceMode.DefaultSource = request.DefaultSource ?? deviceMode.DefaultSource;
+        deviceMode.PrintQuality = request.PrintQuality ?? deviceMode.PrintQuality;
+        deviceMode.YResolution = request.YResolution ?? deviceMode.YResolution;
+        deviceMode.Color = request.Color ?? deviceMode.Color;
+        deviceMode.Duplex = request.Duplex ?? deviceMode.Duplex;
+    }
+
+    // WritePrinter can write fewer bytes than asked. The pin needs no unsafe code.
+    private static void WriteAll(nint printerHandle, byte[] bytes)
+    {
+        var handle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
         try
         {
             var pointer = handle.AddrOfPinnedObject();
-            var remaining = data.Length;
+            var remaining = bytes.Length;
             while (remaining > 0)
             {
                 if (!WindowsSpoolerInterop.WritePrinter(printerHandle, pointer, remaining, out var written))
@@ -197,33 +378,6 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         finally
         {
             handle.Free();
-        }
-    }
-
-    // Every option this driver does not map into a DEVMODE.
-    internal static IReadOnlyList<string> UnappliedOptions(PrintOptions? options)
-    {
-        if (options is null)
-        {
-            return [];
-        }
-
-        List<string> names = [];
-        AddIfSet(names, options.Copies is not null, nameof(PrintOptions.Copies));
-        AddIfSet(names, options.Duplex is not null, nameof(PrintOptions.Duplex));
-        AddIfSet(names, options.ColorMode is not null, nameof(PrintOptions.ColorMode));
-        AddIfSet(names, options.Orientation is not null, nameof(PrintOptions.Orientation));
-        AddIfSet(names, options.MediaSource is not null, nameof(PrintOptions.MediaSource));
-        AddIfSet(names, options.MediaSize is not null, nameof(PrintOptions.MediaSize));
-        AddIfSet(names, options.ResolutionDpi is not null, nameof(PrintOptions.ResolutionDpi));
-        return names;
-    }
-
-    private static void AddIfSet(List<string> names, bool isSet, string name)
-    {
-        if (isSet)
-        {
-            names.Add(name);
         }
     }
 
@@ -253,7 +407,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
             var info = Marshal.PtrToStructure<WindowsSpoolerInterop.PrinterInfo2>(buffer);
             var state = WindowsSpoolerStatusMapper.MapPrinterStatus(info.Status, info.Attributes);
-            return Task.FromResult(new PrinterStatus(PrinterId.FromSpooler(queueName), state)
+            return Task.FromResult(new PrinterStatus(PrinterId.ForSpooler(queueName), state)
             {
                 IsAcceptingJobs = WindowsSpoolerStatusMapper.IsAcceptingJobs(info.Status, info.Attributes),
                 Detail = WindowsSpoolerStatusMapper.DescribePrinterStatus(info.Status, info.Attributes),
@@ -281,12 +435,28 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
 
-        var configuration = new PrinterConfiguration(PrinterId.FromSpooler(queueName))
+        var media = ReadMedia(queueName);
+        var mediaSources = ReadMediaSources(queueName);
+        var defaults = ReadDeviceModeDefaults(queueName, media, mediaSources);
+
+        List<string> mediaSizes = new(media.Count);
+        foreach (var entry in media)
+        {
+            mediaSizes.Add(entry.Name);
+        }
+
+        var configuration = new PrinterConfiguration(PrinterId.ForSpooler(queueName))
         {
             SupportsDuplex = QueryCapability(queueName, WindowsSpoolerInterop.DcDuplex, 0) == 1,
             SupportsColor = QueryCapability(queueName, WindowsSpoolerInterop.DcColorDevice, 0) == 1,
             SupportedResolutionsDpi = ReadResolutions(queueName),
-            MediaSizes = ReadPaperNames(queueName),
+            MediaSizes = mediaSizes,
+            Media = media,
+            MediaSources = mediaSources,
+            DefaultMediaSize = defaults.MediaSize,
+            DefaultMediaSource = defaults.MediaSource,
+            DefaultOrientation = defaults.Orientation,
+            DefaultResolutionDpi = defaults.ResolutionDpi,
         };
 
         return Task.FromResult(configuration);
@@ -332,19 +502,30 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         }
     }
 
-    private static IReadOnlyList<string> ReadPaperNames(string queueName)
+    private static IReadOnlyList<PrinterMedia> ReadMedia(string queueName)
     {
-        const int BlockLength = 64;
-        var count = QueryCapability(queueName, WindowsSpoolerInterop.DcPaperNames, 0);
+        var names = ReadNames(queueName, WindowsSpoolerInterop.DcPaperNames, WindowsSpoolerCapabilityParser.PaperNameBlockLength);
+        return WindowsSpoolerCapabilityParser.PairMedia(names, ReadWords(queueName, WindowsSpoolerInterop.DcPapers));
+    }
+
+    private static IReadOnlyList<PrinterMediaSource> ReadMediaSources(string queueName)
+    {
+        var names = ReadNames(queueName, WindowsSpoolerInterop.DcBinNames, WindowsSpoolerCapabilityParser.BinNameBlockLength);
+        return WindowsSpoolerCapabilityParser.PairMediaSources(names, ReadWords(queueName, WindowsSpoolerInterop.DcBins));
+    }
+
+    private static IReadOnlyList<string> ReadNames(string queueName, ushort capability, int blockLength)
+    {
+        var count = QueryCapability(queueName, capability, 0);
         if (count == 0)
         {
             return [];
         }
 
-        var buffer = Marshal.AllocHGlobal(count * BlockLength * sizeof(char));
+        var buffer = Marshal.AllocHGlobal(count * blockLength * sizeof(char));
         try
         {
-            var written = QueryCapability(queueName, WindowsSpoolerInterop.DcPaperNames, buffer);
+            var written = QueryCapability(queueName, capability, buffer);
             if (written == 0)
             {
                 return [];
@@ -352,13 +533,90 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
             // Clamp for the same reason as ReadResolutions above.
             written = Math.Min(written, count);
-            var chars = new char[written * BlockLength];
+            var chars = new char[written * blockLength];
             Marshal.Copy(buffer, chars, 0, chars.Length);
-            return WindowsSpoolerCapabilityParser.ParsePaperNames(chars, written);
+            return WindowsSpoolerCapabilityParser.ParseNames(chars, written, blockLength);
         }
         finally
         {
             Marshal.FreeHGlobal(buffer);
+        }
+    }
+
+    // DC_PAPERS and DC_BINS answer with WORD values, which Marshal.Copy reads as short.
+    private static IReadOnlyList<int> ReadWords(string queueName, ushort capability)
+    {
+        var count = QueryCapability(queueName, capability, 0);
+        if (count == 0)
+        {
+            return [];
+        }
+
+        var buffer = Marshal.AllocHGlobal(count * sizeof(short));
+        try
+        {
+            var written = QueryCapability(queueName, capability, buffer);
+            if (written == 0)
+            {
+                return [];
+            }
+
+            written = Math.Min(written, count);
+            var words = new short[written];
+            Marshal.Copy(buffer, words, 0, words.Length);
+            return WindowsSpoolerCapabilityParser.ParseWords(words);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+    }
+
+    // The device mode holds what the queue does when a job asks for nothing. Its pointer
+    // belongs to the GetPrinter buffer, so it is read before that buffer is freed.
+    private static DeviceModeDefaults ReadDeviceModeDefaults(
+        string queueName,
+        IReadOnlyList<PrinterMedia> media,
+        IReadOnlyList<PrinterMediaSource> sources)
+    {
+        var printerHandle = IntPtr.Zero;
+        var buffer = IntPtr.Zero;
+        try
+        {
+            OpenForUse(queueName, out printerHandle);
+
+            _ = WindowsSpoolerInterop.GetPrinter(printerHandle, 2, 0, 0, out var needed);
+            buffer = Marshal.AllocHGlobal(needed);
+            if (!WindowsSpoolerInterop.GetPrinter(printerHandle, 2, buffer, needed, out _))
+            {
+                ThrowLastError(nameof(WindowsSpoolerInterop.GetPrinter));
+            }
+
+            var info = Marshal.PtrToStructure<WindowsSpoolerInterop.PrinterInfo2>(buffer);
+            if (info.DevMode == IntPtr.Zero)
+            {
+                // A queue can report no device mode at all, which denies no default.
+                return new DeviceModeDefaults(null, null, null, null);
+            }
+
+            var deviceMode = Marshal.PtrToStructure<WindowsSpoolerInterop.DevMode>(info.DevMode);
+            return WindowsSpoolerCapabilityParser.ReadDefaults(
+                deviceMode.Fields,
+                deviceMode.Orientation,
+                deviceMode.PaperSize,
+                deviceMode.DefaultSource,
+                deviceMode.PrintQuality,
+                deviceMode.YResolution,
+                media,
+                sources);
+        }
+        finally
+        {
+            FreeIfSet(buffer);
+            if (printerHandle != IntPtr.Zero)
+            {
+                _ = WindowsSpoolerInterop.ClosePrinter(printerHandle);
+            }
         }
     }
 
@@ -397,7 +655,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             }
 
             var itemSize = Marshal.SizeOf<WindowsSpoolerInterop.JobInfo2>();
-            var printerId = PrinterId.FromSpooler(queueName);
+            var printerId = PrinterId.ForSpooler(queueName);
             List<PrintJobInfo> jobs = new(returned);
             for (var i = 0; i < returned; i++)
             {

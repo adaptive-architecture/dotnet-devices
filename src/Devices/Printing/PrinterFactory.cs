@@ -19,8 +19,6 @@ namespace AdaptArch.Devices.Printing;
 /// </remarks>
 public sealed class PrinterFactory : IPrinterFactory, IDisposable
 {
-    private const string UsbNotSupportedMessage = "USB printers are not supported yet.";
-
     private readonly HttpClient _httpClient;
     private readonly IppTransportOptions _options;
     private readonly IppPrinterStatusClient _ippStatusClient;
@@ -84,7 +82,7 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
     }
 
     /// <inheritdoc />
-    /// <exception cref="NotSupportedException">Thrown for a <see cref="UsbPrinterEndpoint"/>.</exception>
+    /// <exception cref="NotSupportedException">Thrown for an endpoint type no transport handles.</exception>
     /// <exception cref="ObjectDisposedException">Thrown after <see cref="Dispose"/>.</exception>
     public IPrinter Open(DiscoveredPrinter printer)
     {
@@ -93,12 +91,9 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
 
         if (printer.Endpoint is NetworkPrinterEndpoint network)
         {
-            if (network.Port == IppPrinterStatusClient.DefaultPort)
-            {
-                return new IppPrinter(network, _httpClient, null, _options);
-            }
-
-            return OpenRaw(network);
+            return network.Scheme is PrinterScheme.Ipp or PrinterScheme.Ipps
+                ? new IppPrinter(network, _httpClient, null, _options)
+                : OpenRaw(network);
         }
 
         if (printer.Endpoint is SpoolerPrinterEndpoint spooler)
@@ -106,47 +101,29 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
             return new SpoolerPrinter(spooler);
         }
 
-        if (printer.Endpoint is UsbPrinterEndpoint)
-        {
-            throw new NotSupportedException(UsbNotSupportedMessage);
-        }
-
         throw new NotSupportedException($"Endpoint type '{printer.Endpoint.GetType().Name}' is not supported.");
     }
 
     /// <inheritdoc />
     /// <remarks>
-    /// A network identifier first tries IPP on the well-known IPP port; when the printer
-    /// answers no IPP request at all, it falls back to the raw port 9100 channel.
+    /// The scheme of the identifier states the channel, so nothing is probed: the
+    /// endpoint is built from the identifier and opened. An identifier that holds an
+    /// identity instead of an address names no endpoint and has to be resolved through
+    /// <see cref="IPrinterManager"/> first.
     /// </remarks>
-    /// <exception cref="NotSupportedException">Thrown for a <see cref="PrinterIdKind.Usb"/> identifier.</exception>
+    /// <exception cref="NotSupportedException">Thrown for an identifier that holds a device identity.</exception>
     /// <exception cref="ObjectDisposedException">Thrown after <see cref="Dispose"/>.</exception>
-    /// <exception cref="System.Security.Authentication.AuthenticationException">Thrown when the TLS handshake fails and this factory validates certificates.</exception>
-    public async Task<IPrinter> OpenAsync(PrinterId id, CancellationToken cancellationToken)
+    public Task<IPrinter> OpenAsync(PrinterId id, CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (id.Kind == PrinterIdKind.Usb)
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!id.TryCreateEndpoint(out var endpoint) || endpoint is null)
         {
-            throw new NotSupportedException(UsbNotSupportedMessage);
+            throw new NotSupportedException(
+                $"'{id}' holds a device identity and not an address, so it names no endpoint. Resolve it through IPrinterManager first.");
         }
 
-        if (id.Kind == PrinterIdKind.Spooler)
-        {
-            return new SpoolerPrinter(new SpoolerPrinterEndpoint(id.Value));
-        }
-
-        NetworkPrinterEndpoint ippEndpoint = new(id.Value, IppPrinterStatusClient.DefaultPort);
-        var ippPrinter = new IppPrinter(ippEndpoint, _httpClient, null, _options);
-        try
-        {
-            _ = await ippPrinter.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-            return ippPrinter;
-        }
-        catch (Exception exception) when (exception is InvalidOperationException or InvalidDataException)
-        {
-            // No IPP answer, or a service on port 631 that is not IPP.
-            return OpenRaw(new NetworkPrinterEndpoint(id.Value, NetworkPrinterEndpoint.DefaultPort));
-        }
+        return Task.FromResult(Open(new DiscoveredPrinter(id, endpoint, new PrinterInfo(id, id.Authority))));
     }
 
     private RawPrinter OpenRaw(NetworkPrinterEndpoint endpoint) => new(endpoint, _snmpStatusClient, _ippStatusClient);

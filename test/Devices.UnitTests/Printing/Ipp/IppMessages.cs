@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Text;
+using AdaptArch.Devices.Printing.Ipp;
 using SharpIpp;
 using SharpIpp.Models.Requests;
 using SharpIpp.Protocol;
@@ -86,6 +87,19 @@ internal static class IppMessages
             new GetPrinterAttributesRequest { OperationAttributes = new() { PrinterUri = uri } },
             CancellationToken.None).ConfigureAwait(false);
         return response.PrinterAttributes;
+    }
+
+    // The raw response as well, for an attribute the typed model does not carry.
+    public static async Task<(PrinterDescriptionAttributes Attributes, IIppResponseMessage Raw)> DecodeWithRawAsync(byte[] body)
+    {
+        Uri uri = new("ipp://printer.local:631/ipp/print");
+        IppOperations operations = new(new HttpClient(new StubHandler(_ => Ok(body))));
+        var response = await operations.SendAsync(
+            static (client, request, token) => client.GetPrinterAttributesAsync(request, token),
+            new GetPrinterAttributesRequest { OperationAttributes = new() { PrinterUri = uri } },
+            uri,
+            CancellationToken.None).ConfigureAwait(false);
+        return (response.PrinterAttributes, operations.LastRawResponse);
     }
 
     internal sealed class StubHandler : HttpMessageHandler

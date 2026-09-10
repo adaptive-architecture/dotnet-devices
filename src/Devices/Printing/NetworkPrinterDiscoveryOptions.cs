@@ -18,6 +18,13 @@ public sealed class NetworkPrinterDiscoveryOptions
     public int Port { get; set; } = NetworkPrinterEndpoint.DefaultPort;
 
     /// <summary>
+    /// Gets or sets the channel the probe reports. Defaults to <see cref="PrinterScheme.Raw"/>,
+    /// which matches the default port. Set it to <see cref="PrinterScheme.Ipp"/> when the
+    /// probe targets the IPP port, so the identifier names the channel that answered.
+    /// </summary>
+    public PrinterScheme Scheme { get; set; } = PrinterScheme.Raw;
+
+    /// <summary>
     /// Gets or sets the per-host connection timeout. Defaults to one second.
     /// </summary>
     public TimeSpan ConnectTimeout { get; set; } = TimeSpan.FromSeconds(1);

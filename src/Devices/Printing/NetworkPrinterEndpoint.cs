@@ -1,8 +1,14 @@
 ﻿namespace AdaptArch.Devices.Printing;
 
 /// <summary>
-/// Endpoint of a printer reachable over TCP, typically via the raw port 9100 channel.
+/// Endpoint of a printer reachable over TCP: the raw channel, IPP, or IPP over TLS.
 /// </summary>
+/// <remarks>
+/// The endpoint carries its scheme rather than letting the port imply it. A port says
+/// nothing dependable: a printer can serve IPP on a port that is not 631, and reading the
+/// channel back out of the number is how a raw channel and an IPP channel came to be
+/// confused with each other.
+/// </remarks>
 public sealed class NetworkPrinterEndpoint : PrinterEndpoint, IEquatable<NetworkPrinterEndpoint>
 {
     /// <summary>
@@ -14,19 +20,51 @@ public sealed class NetworkPrinterEndpoint : PrinterEndpoint, IEquatable<Network
     /// Initializes a new instance of the <see cref="NetworkPrinterEndpoint"/> class.
     /// </summary>
     /// <param name="host">The host name or IP address of the printer.</param>
-    /// <param name="port">The TCP port of the printer. Defaults to 9100.</param>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="host"/> is not a valid host name or address.</exception>
-    public NetworkPrinterEndpoint(string host, int port = DefaultPort)
+    /// <param name="scheme">The channel scheme. One of <see cref="PrinterScheme.Raw"/>, <see cref="PrinterScheme.Ipp"/> and <see cref="PrinterScheme.Ipps"/>.</param>
+    /// <param name="port">The TCP port of the printer.</param>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="host"/> is not a valid host name or address, or <paramref name="scheme"/> addresses no host.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="port"/> is outside 1 to 65535.</exception>
+    public NetworkPrinterEndpoint(string host, PrinterScheme scheme, int port)
     {
         ThrowIfNotAHost(host);
+        if (!PrinterSchemes.IsNetwork(scheme))
+        {
+            throw new ArgumentException($"'{PrinterSchemes.Format(scheme)}' does not address a host.", nameof(scheme));
+        }
+
         ArgumentOutOfRangeException.ThrowIfLessThan(port, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(port, 65535);
         Host = host;
+        Scheme = scheme;
         Port = port;
     }
 
+    /// <summary>
+    /// Creates an endpoint for the raw TCP channel, which sends the payload unchanged.
+    /// </summary>
+    /// <param name="host">The host name or IP address of the printer.</param>
+    /// <param name="port">The TCP port. Defaults to 9100.</param>
+    public static NetworkPrinterEndpoint Raw(string host, int port = DefaultPort) =>
+        new(host, PrinterScheme.Raw, port);
+
+    /// <summary>
+    /// Creates an endpoint for the IPP channel.
+    /// </summary>
+    /// <param name="host">The host name or IP address of the printer.</param>
+    /// <param name="port">The TCP port. Defaults to 631.</param>
+    public static NetworkPrinterEndpoint Ipp(string host, int port = IppPrinterStatusClient.DefaultPort) =>
+        new(host, PrinterScheme.Ipp, port);
+
+    /// <summary>
+    /// Creates an endpoint for the IPP over TLS channel.
+    /// </summary>
+    /// <param name="host">The host name or IP address of the printer.</param>
+    /// <param name="port">The TCP port. Defaults to 631.</param>
+    public static NetworkPrinterEndpoint Ipps(string host, int port = IppPrinterStatusClient.DefaultPort) =>
+        new(host, PrinterScheme.Ipps, port);
+
     /// <inheritdoc />
-    public override PrinterIdKind Kind => PrinterIdKind.Network;
+    public override PrinterScheme Scheme { get; }
 
     // A path, a query or user information in the value would change the target.
     internal static void ThrowIfNotAHost(string host)
@@ -51,6 +89,7 @@ public sealed class NetworkPrinterEndpoint : PrinterEndpoint, IEquatable<Network
     /// <inheritdoc />
     public bool Equals(NetworkPrinterEndpoint? other) =>
         other is not null &&
+        Scheme == other.Scheme &&
         Port == other.Port &&
         String.Equals(Host, other.Host, StringComparison.OrdinalIgnoreCase);
 
@@ -58,8 +97,10 @@ public sealed class NetworkPrinterEndpoint : PrinterEndpoint, IEquatable<Network
     public override bool Equals(object? obj) => obj is NetworkPrinterEndpoint other && Equals(other);
 
     /// <inheritdoc />
-    public override int GetHashCode() => HashCode.Combine(StringComparer.OrdinalIgnoreCase.GetHashCode(Host), Port);
+    public override int GetHashCode() =>
+        HashCode.Combine((int)Scheme, StringComparer.OrdinalIgnoreCase.GetHashCode(Host), Port);
 
     /// <inheritdoc />
-    public override string ToString() => $"{Host}:{Port}";
+    public override string ToString() =>
+        $"{PrinterSchemes.Format(Scheme)}://{PrinterIdSyntax.FormatHost(Host)}:{Port}";
 }

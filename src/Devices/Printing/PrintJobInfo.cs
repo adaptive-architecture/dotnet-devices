@@ -68,7 +68,8 @@ public sealed class PrintJobInfo
     /// <summary>
     /// Gets or sets the options that did not reach the device. An option is listed when
     /// <see cref="UnsupportedOptionBehavior.Drop"/> removed it, or when the channel cannot
-    /// apply it at all, as the Windows spooler does for every option except the job name.
+    /// apply it at all, as the Windows spooler does for an option that no device mode
+    /// field can carry.
     /// </summary>
     public IReadOnlyList<string> DroppedOptions { get; set; } = [];
 }

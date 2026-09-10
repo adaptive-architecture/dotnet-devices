@@ -43,4 +43,17 @@ public interface IPrinter
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>The printer configuration.</returns>
     Task<PrinterConfiguration> GetConfigurationAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Asks the printer which device it is.
+    /// </summary>
+    /// <remarks>
+    /// This is what lets several channels be recognised as one device. A transport that
+    /// can ask overrides this; the others report <c>null</c>, which means "this channel
+    /// cannot say", not "the channels are different devices".
+    /// </remarks>
+    /// <param name="cancellationToken">Token to cancel the operation.</param>
+    /// <returns>What the printer reported, or <c>null</c> when the transport cannot ask.</returns>
+    Task<PrinterIdentity?> GetIdentityAsync(CancellationToken cancellationToken) =>
+        Task.FromResult<PrinterIdentity?>(null);
 }

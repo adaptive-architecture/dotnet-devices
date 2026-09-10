@@ -31,7 +31,7 @@ public sealed class SpoolerPrinter : IPrinter
         Endpoint = endpoint;
         _queueName = endpoint.Name;
         _driver = driver;
-        Id = PrinterId.FromSpooler(_queueName);
+        Id = PrinterId.ForSpooler(_queueName);
         Info = new PrinterInfo(Id, _queueName);
     }
 
@@ -63,6 +63,14 @@ public sealed class SpoolerPrinter : IPrinter
         job.DroppedOptions = [.. dropped, .. job.DroppedOptions];
         return job;
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// A print queue is not a device. What it reports is the device it prints to, read
+    /// from the CUPS device URI or the Windows port name.
+    /// </remarks>
+    public Task<PrinterIdentity?> GetIdentityAsync(CancellationToken cancellationToken) =>
+        _driver.GetIdentityAsync(_queueName, cancellationToken);
 
     /// <inheritdoc />
     public Task<PrinterStatus> GetStatusAsync(CancellationToken cancellationToken) =>

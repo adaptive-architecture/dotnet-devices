@@ -15,7 +15,7 @@ public class RawPrinterTests
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(10));
         var acceptTask = listener.AcceptTcpClientAsync(timeoutSource.Token);
-        RawPrinter printer = new(new NetworkPrinterEndpoint("127.0.0.1", port));
+        RawPrinter printer = new(NetworkPrinterEndpoint.Raw("127.0.0.1", port));
 
         var job = await printer.PrintAsync(
             PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
@@ -32,7 +32,7 @@ public class RawPrinterTests
     [Fact]
     public async Task GetConfigurationAsync_ReportsNothingKnown()
     {
-        RawPrinter printer = new(new NetworkPrinterEndpoint("127.0.0.1", 9100));
+        RawPrinter printer = new(NetworkPrinterEndpoint.Raw("127.0.0.1"));
 
         var configuration = await printer.GetConfigurationAsync(TestContext.Current.CancellationToken);
 
@@ -47,7 +47,7 @@ public class RawPrinterTests
         // Nothing binds 127.0.0.4, so both probes fail fast. The short SNMP timeout and
         // single attempt save the six seconds the default options would take.
         SnmpPrinterStatusOptions snmpOptions = new() { RequestTimeout = TimeSpan.FromMilliseconds(200), Retries = 0 };
-        RawPrinter printer = new(new NetworkPrinterEndpoint("127.0.0.4", 9100), snmpOptions);
+        RawPrinter printer = new(NetworkPrinterEndpoint.Raw("127.0.0.4"), snmpOptions);
 
         var status = await printer.GetStatusAsync(TestContext.Current.CancellationToken);
 

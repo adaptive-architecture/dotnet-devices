@@ -14,7 +14,7 @@ public abstract class PrinterEndpoint
     }
 
     /// <summary>
-    /// Gets the addressing scheme of this endpoint.
+    /// Gets the transport channel this endpoint is reached over.
     /// </summary>
-    public abstract PrinterIdKind Kind { get; }
+    public abstract PrinterScheme Scheme { get; }
 }

@@ -25,8 +25,13 @@ internal sealed class FakeSpoolerDriver : ISpoolerDriver
     {
         SubmittedQueues.Add(queueName);
         SubmittedPayloads.Add(payload);
-        return Task.FromResult(new PrintJobInfo("11", PrinterId.FromSpooler(queueName), PrintJobState.Queued) { DroppedOptions = DroppedOptions });
+        return Task.FromResult(new PrintJobInfo("11", PrinterId.ForSpooler(queueName), PrintJobState.Queued) { DroppedOptions = DroppedOptions });
     }
+
+    public PrinterIdentity? Identity { get; set; }
+
+    public Task<PrinterIdentity?> GetIdentityAsync(string queueName, CancellationToken cancellationToken) =>
+        Task.FromResult(Identity);
 
     public Task<PrinterConfiguration> GetConfigurationAsync(string queueName, CancellationToken cancellationToken)
     {
@@ -35,7 +40,7 @@ internal sealed class FakeSpoolerDriver : ISpoolerDriver
     }
 
     public Task<PrinterStatus> GetStatusAsync(string queueName, CancellationToken cancellationToken) =>
-        Task.FromResult(new PrinterStatus(PrinterId.FromSpooler(queueName), PrinterStatusState.Idle));
+        Task.FromResult(new PrinterStatus(PrinterId.ForSpooler(queueName), PrinterStatusState.Idle));
 
     public Task<IReadOnlyList<DiscoveredPrinter>> EnumeratePrintersAsync(CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<DiscoveredPrinter>>([]);

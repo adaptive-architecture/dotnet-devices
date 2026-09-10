@@ -2,23 +2,17 @@
 
 ## Toolchain
 
-All .NET operations **must** go through the `dotnetup`-managed toolchain. Never call the system `dotnet` directly.
+`dotnetup` is a user-level .NET SDK manager, and it resolves the SDK version this
+repository needs. All .NET operations **must** go through it. Never call the system
+`dotnet` directly.
 
 ```bash
-dotnetup dotnet build
+dotnetup dotnet build                    # build all projects
+dotnetup dotnet build --no-incremental   # as CI builds
 dotnetup dotnet test
 dotnetup dotnet restore
 dotnetup dotnet format
 dotnetup dotnet pack
-```
-
-`dotnetup` is a user-level .NET SDK manager. The wrapper resolves the correct SDK version for this repository.
-
-## Build
-
-```bash
-dotnetup dotnet build                    # Build all projects
-dotnetup dotnet build --no-incremental   # CI-style build without incremental
 ```
 
 ## Test
@@ -45,37 +39,50 @@ The `pipeline/unit-test.sh` script:
 
 Integration tests (when added later) require Docker. Set `TESTCONTAINERS_RYUK_DISABLED=true` in CI environments.
 
-## Formatting / Lint
+## Trim and native AOT
+
+```bash
+sh ./pipeline/publish-samples.sh    # -r runtime-identifier, -o output-directory
+```
+
+The script publishes `samples/Devices.Samples` three times — framework-dependent, trimmed
+self-contained, and native AOT — into `./artifacts/samples/<rid>/`. The `src/` projects set
+`IsAotCompatible`, and the sample is the only application that consumes them, so this script
+is where a trim or an AOT problem shows up. Warnings stay errors, so an `IL2xxx` or an
+`IL3xxx` warning fails the publish.
+
+The script passes `-p:BuildDocFx=true`. That keeps the `ProjectReference` inside
+`Devices.DependencyInjection`, which a `Release` build otherwise replaces with a
+`PackageReference` on `AdaptArch.Devices`. That package comes only from the local `./.nuget/`
+folder, which `pipeline/publish-packages.sh` fills.
+
+## Formatting and style
+
+`.editorconfig` enforces the style, and [AGENTS.md](../AGENTS.md) states the rules that a
+reviewer checks. A `pre-commit` hook (husky) formats on commit; restore the local tools with
+`dotnetup dotnet tool restore`.
 
 ```bash
 dotnetup dotnet format
 ```
 
-A `pre-commit` git hook (via husky) runs formatting automatically on commit. Local tools are restored with `dotnetup dotnet tool restore`.
-
 ## Documentation
 
-- `/docs` — this progressive-discovery documentation (architecture, packages, capabilities)
-- `docfx/` — the DocFX site rendered at GitHub Pages
+Each fact has one home:
 
-Serve the docs locally:
+- `docs/` — this documentation: the architecture, the packages, and the rules and reasons
+  behind the printing code. Written for a contributor.
+- `docfx/` — the published site: a short page for each device type, plus the API reference
+  DocFX generates from the XML documentation comments. Written for a consumer.
+- XML documentation comments — the per-member reference. Keep a longer explanation in
+  `docs/` and link to it, so the same text is not maintained twice.
 
 ```bash
 sh ./pipeline/serve-docs.sh
 ```
 
-`docfx/llm.txt` follows the llmstxt.org spec and is served at the site root. Keep it in sync when docs pages are added, removed, or renamed.
-
-## Code Style
-
-Enforced via `.editorconfig`:
-
-- C#: 4-space indent, UTF-8 BOM, LF line endings
-- XML/JSON: 2-space indent
-- Expression-bodied members preferred; no `this.` qualification; `System.*` usings first
-- Primary constructors disabled (IDE0290)
-- Switch expressions disabled (IDE0066)
-- **RCS1090** (`ConfigureAwait(false)` missing) is **error** level — always call `.ConfigureAwait(false)` on awaits
+`docfx/llm.txt` follows the llmstxt.org spec and is served at the site root. Keep it in sync
+when a docs page is added, removed or renamed.
 
 ## Adding a New Device / Feature
 

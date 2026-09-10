@@ -32,7 +32,7 @@ public class IppPrinterStatusClientTests
 
         var details = await client.GetDetailsAsync("printer.local", CancellationToken.None);
 
-        Assert.Equal("printer.local", details.Info.Id.Value);
+        Assert.Equal("printer.local", details.Info.Id.Authority);
         Assert.Equal("EPSON L6270 Series", details.Info.Name);
         Assert.Equal(PrinterStatusState.Idle, details.Status.State);
         Assert.True(details.Status.IsAcceptingJobs);

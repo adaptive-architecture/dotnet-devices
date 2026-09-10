@@ -1,4 +1,6 @@
-﻿using System.Text;
+﻿using System.Globalization;
+using System.Linq;
+using System.Text;
 using AdaptArch.Devices.Printing;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -9,35 +11,140 @@ internal static class PrinterManagerScenario
 {
     internal static async Task DiscoverAsync(ServiceProvider provider)
     {
-        var printers = await BrowseAsync(provider).ConfigureAwait(false);
-        if (printers.Count == 0)
+        var devices = await BrowseAsync(provider).ConfigureAwait(false);
+        if (devices.Count == 0)
         {
             // Nothing advertised itself, so probe every local address.
-            printers = await ProbeAsync(provider).ConfigureAwait(false);
+            devices = await ProbeAsync(provider).ConfigureAwait(false);
         }
 
-        if (printers.Count == 0)
+        if (devices.Count == 0)
         {
             Console.WriteLine("No printers found on the local network.");
             return;
         }
 
         var manager = provider.GetRequiredService<IPrinterManager>();
-        foreach (var printer in printers)
+        foreach (var device in devices)
         {
-            Console.WriteLine($"- {printer.Info.Name} — {printer.Id} ({printer.Endpoint}) [{printer.Source}]");
-            await PrintManagerStatusAsync(manager, printer.Id).ConfigureAwait(false);
+            Describe(device);
+            await PrintManagerStatusAsync(manager, device.Id).ConfigureAwait(false);
         }
     }
 
-    internal static async Task<IReadOnlyList<DiscoveredPrinter>> BrowseAsync(ServiceProvider provider)
+    // One device, then the channels that reach it, grouped by transport.
+    private static void Describe(PrinterDevice device)
+    {
+        var details = device.Details;
+        Console.WriteLine($"- {details.Name} — {device.Id}");
+        Console.WriteLine($"    device      : {device.Key}");
+        var makeAndModel = String.Join(' ', new[] { details.Manufacturer, details.Model }.Where(static part => !String.IsNullOrWhiteSpace(part)));
+        if (makeAndModel.Length > 0)
+        {
+            Console.WriteLine($"    make/model  : {makeAndModel}");
+        }
+
+        if (details.SerialNumber is not null)
+        {
+            Console.WriteLine($"    serial      : {details.SerialNumber}");
+        }
+
+        if (details.Location is not null)
+        {
+            Console.WriteLine($"    location    : {details.Location}");
+        }
+
+        Console.WriteLine($"    found by    : {String.Join(", ", details.ContributedBy)}");
+        if (details.StatusSources.Count > 0)
+        {
+            Console.WriteLine($"    answered by : {String.Join(", ", details.StatusSources)}");
+        }
+
+        foreach ((var transport, var channels) in device.ChannelsByTransport)
+        {
+            foreach (var channel in channels)
+            {
+                Console.WriteLine($"    {transport,-8}: {channel.Id} ({channel.Endpoint})");
+                Console.WriteLine($"        options : {channel.SupportedOptions}");
+                Console.WriteLine($"        {(channel.GivesPassthrough ? "sends the bytes unchanged" : "may convert the job")}"
+                    + $", {(channel.HasJobQueue ? "job can be watched" : "no job queue")}");
+                if (channel.Configuration is not null)
+                {
+                    Describe(channel.Configuration);
+                }
+            }
+        }
+    }
+
+    private static void Describe(PrinterConfiguration configuration)
+    {
+        Console.WriteLine($"        duplex  : {Describe(configuration.SupportsDuplex)}, colour: {Describe(configuration.SupportsColor)}"
+            + $", ranges: {Describe(configuration.SupportsPageRanges)}");
+        if (configuration.SupportedResolutionsDpi.Count > 0)
+        {
+            Console.WriteLine($"        dpi     : {String.Join(", ", configuration.SupportedResolutionsDpi)}");
+        }
+
+        WriteList("media", configuration.Media.Select(Describe));
+        WriteList("trays", configuration.MediaSources.Select(Describe));
+        WriteList("types", configuration.MediaTypes);
+        WriteList("bins", configuration.OutputBins);
+        WriteList("quality", configuration.Qualities.Select(static quality => quality.ToString()));
+        WriteList("n-up", configuration.NumberUpValues.Select(static pages => pages.ToString(CultureInfo.InvariantCulture)));
+        WriteList("formats", configuration.SupportedDocumentFormats);
+        WriteDefaults(configuration);
+    }
+
+    // What the printer does when a job asks for nothing.
+    private static void WriteDefaults(PrinterConfiguration configuration)
+    {
+        List<string> defaults = [];
+        AddDefault(defaults, "media", configuration.DefaultMediaSize);
+        AddDefault(defaults, "tray", configuration.DefaultMediaSource);
+        AddDefault(defaults, "orientation", configuration.DefaultOrientation?.ToString());
+        AddDefault(defaults, "dpi", configuration.DefaultResolutionDpi?.ToString(CultureInfo.InvariantCulture));
+        WriteList("default", defaults);
+    }
+
+    private static void AddDefault(List<string> defaults, string name, string value)
+    {
+        if (!String.IsNullOrWhiteSpace(value))
+        {
+            defaults.Add($"{name}={value}");
+        }
+    }
+
+    // The Windows spooler is the only channel that reports a device mode number.
+    private static string Describe(PrinterMedia media) =>
+        media.WindowsPaperNumber is int number ? $"{media.Name} ({number})" : media.Name;
+
+    private static string Describe(PrinterMediaSource source) =>
+        source.WindowsBinNumber is int number ? $"{source.Name} ({number})" : source.Name;
+
+    // An empty list means the printer reported nothing, so the line is left out.
+    private static void WriteList(string label, IEnumerable<string> values)
+    {
+        var text = String.Join(", ", values);
+        if (!String.IsNullOrEmpty(text))
+        {
+            Console.WriteLine($"        {label,-8}: {text}");
+        }
+    }
+
+    // A capability the printer did not report is not a capability it denied.
+    private static string Describe(bool? value) => value is null ? "not reported" : value.Value ? "yes" : "no";
+
+    internal static async Task<IReadOnlyList<PrinterDevice>> BrowseAsync(ServiceProvider provider)
     {
         Console.WriteLine("Asking the local network for printers over mDNS, and checking the print spooler...");
         var manager = provider.GetRequiredService<IPrinterManager>();
         using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(30));
         try
         {
-            return await manager.DiscoverAsync(null, timeoutSource.Token).ConfigureAwait(false);
+            // Both reads are opt-in because each costs one request per channel. They are
+            // what merges the channels of one printer and fills in its capabilities.
+            PrinterManagerOptions options = new() { ReadIdentity = true, ReadCapabilities = true };
+            return await manager.DiscoverAsync(options, timeoutSource.Token).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -46,7 +153,7 @@ internal static class PrinterManagerScenario
         }
     }
 
-    internal static async Task<IReadOnlyList<DiscoveredPrinter>> ProbeAsync(ServiceProvider provider)
+    internal static async Task<IReadOnlyList<PrinterDevice>> ProbeAsync(ServiceProvider provider)
     {
         var hosts = SampleHelpers.GetLocalSubnetHosts();
         Console.WriteLine($"No printer answered. Probing {hosts.Count} local hosts on TCP port 9100...");
@@ -63,6 +170,8 @@ internal static class PrinterManagerScenario
                 ConnectTimeout = TimeSpan.FromMilliseconds(500),
                 MaxDegreeOfParallelism = 64,
             },
+            ReadIdentity = true,
+            ReadCapabilities = true,
         };
 
         try

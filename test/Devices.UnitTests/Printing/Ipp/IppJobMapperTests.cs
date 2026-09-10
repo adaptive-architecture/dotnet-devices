@@ -35,7 +35,7 @@ public class IppJobMapperTests
             JobStateReasons = [],
         };
 
-        var job = IppJobMapper.Map(PrinterId.FromNetwork("printer.local"), attributes);
+        var job = IppJobMapper.Map(PrinterId.ForRaw("printer.local"), attributes);
 
         Assert.NotNull(job);
         Assert.Equal("42", job.JobId);
@@ -50,6 +50,6 @@ public class IppJobMapperTests
     {
         JobDescriptionAttributes attributes = new() { JobState = JobState.Pending };
 
-        Assert.Null(IppJobMapper.Map(PrinterId.FromNetwork("printer.local"), attributes));
+        Assert.Null(IppJobMapper.Map(PrinterId.ForRaw("printer.local"), attributes));
     }
 }

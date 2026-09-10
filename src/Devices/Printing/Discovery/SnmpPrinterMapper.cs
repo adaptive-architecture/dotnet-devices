@@ -62,7 +62,9 @@ internal static class SnmpPrinterMapper
             values.TryAdd(variable.Id.Oid, variable.Data);
         }
 
-        var id = PrinterId.FromNetwork(host);
+        // SNMP is a status protocol, not a channel a job can be sent over, so the
+        // details it reads are stamped with the raw channel of the same host.
+        var id = PrinterId.ForRaw(host);
         var name = GetText(values, PrinterMibOids.PrinterName)
             ?? GetText(values, PrinterMibOids.SystemName)
             ?? GetText(values, PrinterMibOids.SystemDescription)

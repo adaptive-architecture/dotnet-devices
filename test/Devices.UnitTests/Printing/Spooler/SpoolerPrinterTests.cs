@@ -9,7 +9,7 @@ public class SpoolerPrinterTests
     private static readonly SpoolerPrinterEndpoint Endpoint = new("lobby");
 
     private static PrinterConfiguration Simplex() =>
-        new(PrinterId.FromSpooler("lobby")) { SupportsDuplex = false, MediaSizes = ["iso_a4_210x297mm"] };
+        new(PrinterId.ForSpooler("lobby")) { SupportsDuplex = false, MediaSizes = ["iso_a4_210x297mm"] };
 
     [Fact]
     public async Task PrintAsync_PassesTheQueueNameAndThePayloadToTheDriver()

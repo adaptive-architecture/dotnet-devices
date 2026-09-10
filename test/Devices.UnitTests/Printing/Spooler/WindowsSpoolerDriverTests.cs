@@ -45,17 +45,5 @@ public class WindowsSpoolerDriverTests
     public async Task CancelJobAsync_ThrowsOnANonWindowsPlatform() =>
         await Assert.ThrowsAsync<PlatformNotSupportedException>(
             () => _driver.CancelJobAsync("lobby", "1", TestContext.Current.CancellationToken));
-
-    [Fact]
-    public void UnappliedOptions_NamesEverySetOptionExceptJobName()
-    {
-        PrintOptions options = new() { Copies = 2, MediaSize = "iso_a4_210x297mm", JobName = "label", OnUnsupported = UnsupportedOptionBehavior.Drop };
-
-        Assert.Equal([nameof(PrintOptions.Copies), nameof(PrintOptions.MediaSize)], WindowsSpoolerDriver.UnappliedOptions(options));
-    }
-
-    [Fact]
-    public void UnappliedOptions_IsEmptyWithoutOptions() =>
-        Assert.Empty(WindowsSpoolerDriver.UnappliedOptions(null));
 }
 #pragma warning restore CA1416

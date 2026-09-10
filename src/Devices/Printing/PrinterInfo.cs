@@ -46,4 +46,30 @@ public sealed class PrinterInfo
     /// Gets a value indicating whether the printer is shared.
     /// </summary>
     public bool IsShared { get; init; }
+
+    /// <summary>
+    /// Gets the device UUID the printer reported, without any <c>urn:uuid:</c> prefix,
+    /// or <c>null</c> when it reported none.
+    /// </summary>
+    public string? Uuid { get; init; }
+
+    /// <summary>
+    /// Gets the serial number the printer reported, or <c>null</c> when it reported none.
+    /// </summary>
+    public string? SerialNumber { get; init; }
+
+    /// <summary>
+    /// Gets the manufacturer, when known.
+    /// </summary>
+    public string? Manufacturer { get; init; }
+
+    /// <summary>
+    /// Gets the model, when known.
+    /// </summary>
+    public string? Model { get; init; }
+
+    /// <summary>
+    /// Gets the printer command languages the device accepts, when reported.
+    /// </summary>
+    public IReadOnlyList<string> CommandSets { get; init; } = [];
 }

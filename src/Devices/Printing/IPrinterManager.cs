@@ -7,18 +7,30 @@
 public interface IPrinterManager
 {
     /// <summary>
-    /// Runs every configured discovery source and combines the printers they found.
+    /// Runs every configured discovery source and reports the devices they found.
     /// </summary>
+    /// <remarks>
+    /// One physical printer is one <see cref="PrinterDevice"/>, however many ways it can
+    /// be reached. Its channels are on <see cref="PrinterDevice.Channels"/>, grouped by
+    /// transport on <see cref="PrinterDevice.ChannelsByTransport"/>.
+    /// <para>
+    /// Two channels are put on one device only when a source vouched that they reach the
+    /// same device, or when they share an address. Two printers of the same model with
+    /// the same name stay two devices. Set
+    /// <see cref="PrinterManagerOptions.ReadIdentity"/> to ask each channel which device
+    /// it belongs to, at the cost of one request per channel.
+    /// </para>
+    /// </remarks>
     /// <param name="options">The discovery scope. When <c>null</c>, defaults apply.</param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
-    /// <returns>The printers found by the sources that succeeded.</returns>
+    /// <returns>The devices found by the sources that succeeded.</returns>
     /// <exception cref="PrinterDiscoveryException">Thrown when every configured source failed. <see cref="PrinterDiscoveryException.Failures"/> holds the error of each source.</exception>
-    Task<IReadOnlyList<DiscoveredPrinter>> DiscoverAsync(PrinterManagerOptions? options, CancellationToken cancellationToken);
+    Task<IReadOnlyList<PrinterDevice>> DiscoverAsync(PrinterManagerOptions? options, CancellationToken cancellationToken);
 
     /// <summary>
     /// Prints to a printer identified by <paramref name="id"/>.
     /// </summary>
-    /// <param name="id">The printer identifier.</param>
+    /// <param name="id">The identifier of a channel, or of a device.</param>
     /// <param name="payload">The raw bytes and content type to print.</param>
     /// <param name="options">Optional per-job printing options.</param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>

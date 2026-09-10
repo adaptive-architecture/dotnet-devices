@@ -1,19 +1,15 @@
 # Documentation
 
-This directory provides progressive discovery of the `dotnet-devices` repository. Start with the overview, then dive into specifics as needed.
+This directory gives progressive discovery of the `dotnet-devices` repository. Start with
+the overview, then read the specifics you need.
 
-## Start Here
+- [Architecture](architecture.md) — repository layout, platform strategy, naming
+- [Packages](packages.md) — the NuGet packages and the approved runtime dependencies
+- [Capabilities](capabilities.md) — what the library does today
+- [Printers](printers.md) — the printer abstractions, and the reasons behind them
+- [Development](development.md) — build, test, documentation and contribution workflow
+- [Windows manual tests](windows-manual-tests.md) — the spooler interop that no automated
+  test can run
 
-- [Architecture](architecture.md) — repository layout, platform strategy, naming conventions
-- [Packages](packages.md) — NuGet packages, how they are built and published
-- [Capabilities](capabilities.md) — what the library does today and planned device support
-- [Printers](printers.md) — printer abstractions: payloads, transports, discovery, queues
-- [Development](development.md) — build, test, docs, and contribution workflow
-- [Windows manual tests](windows-manual-tests.md) — the spooler interop that no automated test can run
-
-## Quick Commands
-
-- Build: `dotnetup dotnet build`
-- Test: `dotnetup dotnet test`
-- Format: `dotnetup dotnet format`
-- Docs: `sh ./pipeline/serve-docs.sh`
+The published site at [adaptive-architecture.github.io/dotnet-devices](https://adaptive-architecture.github.io/dotnet-devices/)
+holds the user-facing pages and the generated API reference.

@@ -6,8 +6,8 @@ namespace AdaptArch.Devices.UnitTests.Printing.Ipp;
 
 public class IppPrintJobQueueTests
 {
-    private static readonly NetworkPrinterEndpoint Endpoint = new("printer.local", 631);
-    private static readonly PrinterId Printer = PrinterId.FromNetwork("printer.local");
+    private static readonly NetworkPrinterEndpoint Endpoint = NetworkPrinterEndpoint.Ipp("printer.local");
+    private static readonly PrinterId Printer = PrinterId.ForRaw("printer.local");
 
     [Fact]
     public async Task GetJobsAsync_ReturnsOneEntryForEachJob()

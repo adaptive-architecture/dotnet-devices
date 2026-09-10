@@ -23,8 +23,8 @@ public class MdnsPrinterDiscoveryTests
             .DiscoverAsync(NewOptions(), TestContext.Current.CancellationToken);
 
         var printer = Assert.Single(printers);
-        Assert.Equal("192.168.1.50", printer.Id.Value);
-        Assert.Equal(PrinterIdKind.Network, printer.Id.Kind);
+        Assert.Equal("192.168.1.50", printer.Id.Authority);
+        Assert.Equal(PrinterScheme.Ipp, printer.Id.Scheme);
         Assert.Equal("HP LaserJet 400", printer.Info.Name);
         Assert.Equal("Second floor", printer.Info.Location);
         Assert.Equal("application/postscript", printer.Info.DriverName);
@@ -67,7 +67,7 @@ public class MdnsPrinterDiscoveryTests
         var printers = await discovery
             .DiscoverAsync(NewOptions(), TestContext.Current.CancellationToken);
 
-        Assert.Equal("printer-3.local", Assert.Single(printers).Id.Value);
+        Assert.Equal("printer-3.local", Assert.Single(printers).Id.Authority);
     }
 
     [Fact]
@@ -91,9 +91,8 @@ public class MdnsPrinterDiscoveryTests
     }
 
     // One service name covers every protocol, so the browse reports one printer, on the
-    // raw channel: the only endpoint TcpPrinterTransport can print to.
     [Fact]
-    public async Task DiscoverAsync_InstanceOnAllServiceTypes_ReturnsOnePrinterOnRawPort()
+    public async Task DiscoverAsync_InstanceOnAllServiceTypes_ReportsEveryChannelItCanPrintTo()
     {
         FakeUdpChannel channel = new(
             MdnsResponses.Printer("Multi", MdnsPrinterDiscoveryOptions.IppServiceType, "multi.local", 631, "192.168.1.53", ["ty=Multi"]),
@@ -104,12 +103,17 @@ public class MdnsPrinterDiscoveryTests
         var printers = await discovery
             .DiscoverAsync(NewOptions(), TestContext.Current.CancellationToken);
 
-        var printer = Assert.Single(printers);
-        Assert.Equal(NetworkPrinterEndpoint.DefaultPort, Assert.IsType<NetworkPrinterEndpoint>(printer.Endpoint).Port);
+        // The raw channel and the IPP channel are both reported, most preferred first.
+        // LPD is left out: this library writes no LPD, so it is not a channel a job can
+        // take. All of them share one device key, because all name one host.
+        Assert.Equal(2, printers.Count);
+        Assert.Equal([9100, 631], printers.Select(static p => ((NetworkPrinterEndpoint)p.Endpoint).Port));
+        Assert.Equal([PrinterScheme.Raw, PrinterScheme.Ipp], printers.Select(static p => p.Id.Scheme));
+        Assert.Single(printers.Select(static p => p.Id.DeviceKey).Distinct());
     }
 
     [Fact]
-    public async Task DiscoverAsync_LpdOnlyPrinter_KeepsLpdPort()
+    public async Task DiscoverAsync_LpdOnlyPrinter_IsNotReported()
     {
         FakeUdpChannel channel = new(MdnsResponses.Printer(
             "Old", MdnsPrinterDiscoveryOptions.LpdServiceType, "old.local", 515, "192.168.1.54", []));
@@ -118,7 +122,36 @@ public class MdnsPrinterDiscoveryTests
         var printers = await discovery
             .DiscoverAsync(NewOptions(), TestContext.Current.CancellationToken);
 
-        Assert.Equal(515, Assert.IsType<NetworkPrinterEndpoint>(Assert.Single(printers).Endpoint).Port);
+        // Advertising only LPD means this library cannot reach the printer at all, and
+        // offering an endpoint no transport writes would be worse than reporting none.
+        Assert.Empty(printers);
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_ReadsTheUuidAndSharesItAcrossTheChannelsOfOnePrinter()
+    {
+        const string Uuid = "e3248000-80ce-11db-8000-3c2af4a0d21d";
+        FakeUdpChannel channel = new(
+            MdnsResponses.Printer("Multi", MdnsPrinterDiscoveryOptions.IppServiceType, "multi.local", 631, "192.168.1.53",
+                ["ty=Multi", $"UUID={Uuid}", "usb_MFG=EPSON", "usb_MDL=L6270"]),
+            // The raw service carries no UUID, which is what real printers do.
+            MdnsResponses.Printer("Multi", MdnsPrinterDiscoveryOptions.PdlDatastreamServiceType, "multi.local", 9100, "192.168.1.53", ["ty=Multi"]));
+        MdnsPrinterDiscovery discovery = new(new FakeMdnsChannelFactory(channel));
+
+        var printers = await discovery
+            .DiscoverAsync(NewOptions(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, printers.Count);
+        Assert.All(printers, printer =>
+        {
+            Assert.True(printer.Id.IsDeviceIdentity);
+            Assert.Equal(Uuid, printer.Info.Uuid);
+            Assert.Equal("EPSON", printer.Info.Manufacturer);
+            Assert.Equal("L6270", printer.Info.Model);
+            // The address stays reachable as an alias.
+            Assert.Contains(PrinterDeviceKey.ForHost("192.168.1.53"), printer.Aliases);
+        });
+        Assert.Single(printers.Select(static p => p.Id.DeviceKey).Distinct());
     }
 
     [Fact]
@@ -132,7 +165,7 @@ public class MdnsPrinterDiscoveryTests
         var printers = await discovery
             .DiscoverAsync(NewOptions(), TestContext.Current.CancellationToken);
 
-        Assert.Equal(["192.168.1.60", "192.168.1.70"], printers.Select(printer => printer.Id.Value));
+        Assert.Equal(["192.168.1.60", "192.168.1.70"], printers.Select(printer => printer.Id.Authority));
     }
 
     [Fact]
@@ -159,7 +192,7 @@ public class MdnsPrinterDiscoveryTests
         var printers = await discovery
             .DiscoverAsync(NewOptions(), TestContext.Current.CancellationToken);
 
-        Assert.Equal("192.168.1.55", Assert.Single(printers).Id.Value);
+        Assert.Equal("192.168.1.55", Assert.Single(printers).Id.Authority);
     }
 
     [Fact]
@@ -173,7 +206,7 @@ public class MdnsPrinterDiscoveryTests
         var printers = await discovery
             .DiscoverAsync(NewOptions(), TestContext.Current.CancellationToken);
 
-        Assert.Equal("192.168.1.56", Assert.Single(printers).Id.Value);
+        Assert.Equal("192.168.1.56", Assert.Single(printers).Id.Authority);
     }
 
     // An address that no other host can connect to must not replace the target name.
@@ -193,7 +226,7 @@ public class MdnsPrinterDiscoveryTests
         var printers = await discovery
             .DiscoverAsync(NewOptions(), TestContext.Current.CancellationToken);
 
-        Assert.Equal("odd.local", Assert.Single(printers).Id.Value);
+        Assert.Equal("odd.local", Assert.Single(printers).Id.Authority);
     }
 
     // RFC 6763 §6.4: when a key appears more than one time, the first one counts.
@@ -224,7 +257,7 @@ public class MdnsPrinterDiscoveryTests
         var printers = await discovery
             .DiscoverAsync(options, TestContext.Current.CancellationToken);
 
-        Assert.Equal("192.168.1.60", Assert.Single(printers).Id.Value);
+        Assert.Equal("192.168.1.60", Assert.Single(printers).Id.Authority);
     }
 
     [Fact]

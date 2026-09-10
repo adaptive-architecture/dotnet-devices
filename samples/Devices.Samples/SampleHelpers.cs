@@ -19,33 +19,98 @@ internal static class SampleHelpers
         return answer is not null && answer.Trim().Equals("y", StringComparison.OrdinalIgnoreCase);
     }
 
-    // Splits on the first colon only: an IPv6 literal such as "::1" has more.
-    internal static PrinterId ParsePrinterId(string value)
+    // Prints a numbered list and reads one number. Returns -1 for a cancel or a bad entry.
+    internal static int Choose(string title, IReadOnlyList<string> items)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value);
-
-        var separator = value.IndexOf(':');
-        if (separator > 0)
+        if (items.Count == 0)
         {
-            var prefix = value[..separator];
-            var rest = value[(separator + 1)..];
-            if (prefix.Equals("Network", StringComparison.OrdinalIgnoreCase))
+            Console.WriteLine($"{title}: nothing to choose from.");
+            return -1;
+        }
+
+        Console.WriteLine(title);
+        for (var index = 0; index < items.Count; index++)
+        {
+            Console.WriteLine($"  {index + 1}) {items[index]}");
+        }
+
+        Console.Write("Number (empty to cancel): ");
+        var answer = Console.ReadLine();
+        if (!Int32.TryParse(answer, NumberStyles.Integer, CultureInfo.InvariantCulture, out var choice)
+            || choice < 1 || choice > items.Count)
+        {
+            Console.WriteLine("Cancelled.");
+            return -1;
+        }
+
+        return choice - 1;
+    }
+
+    // Three states: true the printer reports the format, false it reports other formats
+    // only, null it reports nothing. A printer that reports nothing did not refuse.
+    internal static bool? Accepts(PrinterDevice device, string contentType)
+    {
+        var reported = false;
+        foreach (var channel in device.Channels)
+        {
+            var formats = channel.Configuration?.SupportedDocumentFormats ?? [];
+            if (formats.Count == 0)
             {
-                return PrinterId.FromNetwork(rest);
+                continue;
             }
 
-            if (prefix.Equals("Spooler", StringComparison.OrdinalIgnoreCase))
+            reported = true;
+            if (formats.Contains(contentType, StringComparer.OrdinalIgnoreCase))
             {
-                return PrinterId.FromSpooler(rest);
-            }
-
-            if (prefix.Equals("Usb", StringComparison.OrdinalIgnoreCase))
-            {
-                return PrinterId.FromUsb(rest);
+                return true;
             }
         }
 
-        return PrinterId.FromNetwork(value);
+        // IEEE 1284 names the languages the firmware reads, such as ZPL, PDF or PCL.
+        var commandSet = GetCommandSet(contentType);
+        foreach (var command in device.Details.CommandSets)
+        {
+            reported = true;
+            if (command.Contains(commandSet, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return reported ? false : null;
+    }
+
+    private static string GetCommandSet(string contentType)
+    {
+        if (contentType == PrinterContentTypes.Zpl)
+        {
+            return "ZPL";
+        }
+
+        if (contentType == PrinterContentTypes.Epl)
+        {
+            return "EPL";
+        }
+
+        if (contentType == PrinterContentTypes.Pdf)
+        {
+            return "PDF";
+        }
+
+        if (contentType == PrinterContentTypes.Png)
+        {
+            return "PNG";
+        }
+
+        return contentType;
+    }
+
+    // An identifier is a URI. A bare address is still accepted, and read as the raw
+    // channel of that host, because typing one is convenient.
+    internal static PrinterId ParsePrinterId(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        return PrinterId.TryParse(value, out var id) ? id : PrinterId.ForRaw(value);
     }
 
     internal static void AppendMarkers(StringBuilder line, IReadOnlyList<PrinterMarker> markers)
@@ -91,6 +156,11 @@ internal static class SampleHelpers
             return PrinterContentTypes.Png;
         }
 
+        if (extension is ".jpg" or ".jpeg")
+        {
+            return PrinterContentTypes.Jpeg;
+        }
+
         if (extension == ".pdf")
         {
             return PrinterContentTypes.Pdf;
@@ -98,6 +168,25 @@ internal static class SampleHelpers
 
         throw new NotSupportedException($"Files with extension '{extension}' are not supported.");
     }
+
+    // The print files directory can hold a working file, such as a GIMP .xcf, that no
+    // printer reads. Such a file must not appear in a menu.
+    internal static bool CanPrint(string fileName)
+    {
+        try
+        {
+            _ = GetContentType(fileName);
+            return true;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    // A colour choice only means something for an image the printer renders.
+    internal static bool IsImage(string contentType) =>
+        contentType == PrinterContentTypes.Png || contentType == PrinterContentTypes.Jpeg;
 
     internal static string DescribeJobReading(PrintJobInfo reading)
     {

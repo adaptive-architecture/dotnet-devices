@@ -25,13 +25,26 @@ public sealed class SpoolerPrintJobQueue : IPrintJobQueue
 
     /// <inheritdoc />
     public Task<IReadOnlyList<PrintJobInfo>> GetJobsAsync(PrinterId printerId, CancellationToken cancellationToken) =>
-        _driver.GetJobsAsync(printerId.Value, cancellationToken);
+        _driver.GetJobsAsync(QueueName(printerId), cancellationToken);
 
     /// <inheritdoc />
     public Task<PrintJobInfo?> GetJobAsync(PrinterId printerId, string jobId, CancellationToken cancellationToken) =>
-        _driver.GetJobAsync(printerId.Value, jobId, cancellationToken);
+        _driver.GetJobAsync(QueueName(printerId), jobId, cancellationToken);
 
     /// <inheritdoc />
     public Task<bool> CancelJobAsync(PrinterId printerId, string jobId, CancellationToken cancellationToken) =>
-        _driver.CancelJobAsync(printerId.Value, jobId, cancellationToken);
+        _driver.CancelJobAsync(QueueName(printerId), jobId, cancellationToken);
+
+    // A queue is addressed by its name, so an identifier that holds an identity instead
+    // has to be resolved through IPrinterManager before it reaches a driver.
+    private static string QueueName(PrinterId printerId)
+    {
+        if (!printerId.TryGetQueueName(out var name))
+        {
+            throw new NotSupportedException(
+                $"'{printerId}' does not name a print queue. Resolve it through IPrinterManager first.");
+        }
+
+        return name;
+    }
 }

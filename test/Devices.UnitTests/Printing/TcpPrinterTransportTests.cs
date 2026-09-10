@@ -18,7 +18,7 @@ public class TcpPrinterTransportTests
 
         var readTask = ReadOnceAsync(listener, timeoutSource.Token);
         TcpPrinterTransport transport = new();
-        NetworkPrinterEndpoint endpoint = new("127.0.0.1", port);
+        var endpoint = NetworkPrinterEndpoint.Raw("127.0.0.1", port);
         var payload = PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl);
 
         await transport.WriteAsync(endpoint, payload, timeoutSource.Token);
@@ -32,8 +32,7 @@ public class TcpPrinterTransportTests
     {
         TcpPrinterTransport transport = new();
 
-        Assert.True(transport.CanHandle(new NetworkPrinterEndpoint("host")));
-        Assert.False(transport.CanHandle(new UsbPrinterEndpoint(1, 2)));
+        Assert.True(transport.CanHandle(NetworkPrinterEndpoint.Raw("host")));
         Assert.False(transport.CanHandle(new SpoolerPrinterEndpoint("Q")));
     }
 
@@ -44,7 +43,7 @@ public class TcpPrinterTransportTests
         var payload = PrinterPayload.FromBytes(new byte[] { 0x00 }, PrinterContentTypes.OctetStream);
 
         await Assert.ThrowsAsync<NotSupportedException>(() =>
-            transport.WriteAsync(new UsbPrinterEndpoint(1, 2), payload, CancellationToken.None));
+            transport.WriteAsync(new SpoolerPrinterEndpoint("Q"), payload, CancellationToken.None));
     }
 
     [Fact]
@@ -56,7 +55,7 @@ public class TcpPrinterTransportTests
         await canceledSource.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            transport.WriteAsync(new NetworkPrinterEndpoint("127.0.0.1", 9100), payload, canceledSource.Token));
+            transport.WriteAsync(NetworkPrinterEndpoint.Raw("127.0.0.1"), payload, canceledSource.Token));
     }
 
     // The listener never reads, and the payload is larger than both socket buffers.
@@ -73,7 +72,7 @@ public class TcpPrinterTransportTests
         var payload = PrinterPayload.FromBytes(new byte[32 * 1024 * 1024], PrinterContentTypes.OctetStream);
 
         await Assert.ThrowsAsync<TimeoutException>(() =>
-            transport.WriteAsync(new NetworkPrinterEndpoint("127.0.0.1", port), payload, timeoutSource.Token));
+            transport.WriteAsync(NetworkPrinterEndpoint.Raw("127.0.0.1", port), payload, timeoutSource.Token));
 
         using var accepted = await acceptTask;
     }
