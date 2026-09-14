@@ -220,7 +220,8 @@ public sealed class TiffConverter : IPrintPayloadConverter
     public async Task<IReadOnlyList<byte[]>> ConvertAsync(
         byte[] data, PrintConversionContext context, CancellationToken cancellationToken)
     {
-        // context.Dpi is the resolution to render at, and PageRange.Select turns
+        // context.Dpi is what the job asked for, or 300. Clamp it to what the engine
+        // renders well. PageRange.Select turns
         // context.PageRanges into the zero-based pages to keep.
         var pages = PageRange.Select(PageCountOf(data), context.PageRanges);
         return await RenderPngPagesAsync(data, pages, context.Dpi, cancellationToken);
@@ -229,6 +230,8 @@ public sealed class TiffConverter : IPrintPayloadConverter
 ```
 
 The converter runs before the job reaches the spooler, so a file it refuses spools nothing.
+The resolution is passed on as the caller asked for it, because a band that suits one engine
+is not a rule for another: each converter clamps to what it renders well.
 A converter returns pages in `context.TargetContentType`, which is `image/png` today.
 
 `PrinterManagerOptions.Converters` scopes a converter to one manager.

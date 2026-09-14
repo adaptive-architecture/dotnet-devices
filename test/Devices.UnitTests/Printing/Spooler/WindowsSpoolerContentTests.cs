@@ -43,12 +43,14 @@ public class WindowsSpoolerContentTests
         Assert.Equal(expected, WindowsSpoolerContent.FileExtension(contentType));
     }
 
+    // The request passes through: what an engine can render is the business of the
+    // converter, so a limit of one engine must not reduce the request given to another.
     [Theory]
     [InlineData(null, 300)]
     [InlineData(300, 300)]
-    [InlineData(72, 150)]
-    [InlineData(1200, 600)]
-    public void RenderDpi_ClampsToTheRenderableBand(int? resolutionDpi, int expected)
+    [InlineData(72, 72)]
+    [InlineData(1200, 1200)]
+    public void RenderDpi_KeepsTheResolutionTheJobAskedFor(int? resolutionDpi, int expected)
     {
         Assert.Equal(expected, WindowsSpoolerContent.RenderDpi(resolutionDpi));
     }

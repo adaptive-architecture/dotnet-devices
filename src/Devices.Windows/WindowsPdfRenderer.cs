@@ -20,6 +20,12 @@ internal static class WindowsPdfRenderer
     // so a poster-size page cannot exhaust the memory of an inkjet job.
     private const uint MaxRenderPixels = 4960;
 
+    // What this engine renders well: below the first a page turns to mush, above the
+    // second an A4 page needs more memory than an inkjet job should hold. The band is
+    // stated here, and not on the spooler path, because it describes this engine only.
+    private const int MinDpi = 150;
+    private const int MaxDpi = 600;
+
     // Renders the selected pages in document order, one PNG per page. PageRanges is
     // the 1-based option the caller set; null prints the whole document.
     internal static async Task<IReadOnlyList<byte[]>> RenderAsync(
@@ -36,6 +42,7 @@ internal static class WindowsPdfRenderer
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        dpi = Math.Clamp(dpi, MinDpi, MaxDpi);
 
         try
         {

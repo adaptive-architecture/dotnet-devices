@@ -7,13 +7,10 @@ namespace AdaptArch.Devices.Printing.Spooler;
 // names that path needs. P/Invoke-free on purpose, so the routing is testable on any platform.
 internal static class WindowsSpoolerContent
 {
-    // A PDF page is rendered in-box at this resolution when the job names none.
+    // A document page is converted at this resolution when the job names none. What a
+    // converter can actually do is the business of that converter, so nothing is clamped
+    // here: a limit of one engine must not quietly reduce the request given to another.
     internal const int DefaultRenderDpi = 300;
-
-    // Rendering is bounded on both sides: below this a page turns to mush, above
-    // this an A4 page needs more memory than an inkjet job should hold.
-    internal const int MinRenderDpi = 150;
-    internal const int MaxRenderDpi = 600;
 
     // The registered kind of the format decides the path, so a format an application
     // declared takes the same route as a built-in one of that kind.
@@ -33,22 +30,8 @@ internal static class WindowsSpoolerContent
         return SpoolerContentKind.Raw;
     }
 
-    // The job resolution wins when set; a PDF carries no resolution of its own.
-    internal static int RenderDpi(int? resolutionDpi)
-    {
-        var dpi = resolutionDpi ?? DefaultRenderDpi;
-        if (dpi < MinRenderDpi)
-        {
-            return MinRenderDpi;
-        }
-
-        if (dpi > MaxRenderDpi)
-        {
-            return MaxRenderDpi;
-        }
-
-        return dpi;
-    }
+    // The job resolution wins when set; a document carries no resolution of its own.
+    internal static int RenderDpi(int? resolutionDpi) => resolutionDpi ?? DefaultRenderDpi;
 
     // GDI+ reads the file header to pick its decoder, so this only names the temporary
     // file. A plain media subtype becomes the suffix, which keeps ".png" and ".jpeg" as
