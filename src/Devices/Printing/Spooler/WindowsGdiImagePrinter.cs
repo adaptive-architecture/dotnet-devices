@@ -32,7 +32,7 @@ internal static class WindowsGdiImagePrinter
         ArgumentNullException.ThrowIfNull(job);
         ArgumentException.ThrowIfNullOrWhiteSpace(job.QueueName);
         ArgumentNullException.ThrowIfNull(pages);
-        ArgumentException.ThrowIfNullOrWhiteSpace(job.Extension);
+        ArgumentNullException.ThrowIfNull(job.Extension);
         ArgumentException.ThrowIfNullOrWhiteSpace(job.JobName);
         if (pages.Count == 0)
         {
@@ -259,6 +259,9 @@ internal static class WindowsGdiImagePrinter
 // driver to the page draw, so one record keeps every signature short.
 internal sealed record WindowsGdiJob(
     string QueueName,
+
+    // The suffix of the temporary file GDI+ loads, empty when the media type names none.
+    // GDI+ decodes by header, so the suffix decides nothing.
     string Extension,
     string JobName,
     nint DeviceMode,

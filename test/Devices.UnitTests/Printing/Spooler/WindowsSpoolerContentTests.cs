@@ -29,6 +29,20 @@ public class WindowsSpoolerContentTests
         Assert.Equal(SpoolerContentKind.Raw, WindowsSpoolerContent.Classify("image/tiff"));
     }
 
+    // GDI+ decodes by header, so the suffix only names the temporary file. It must never
+    // claim a format the bytes are not.
+    [Theory]
+    [InlineData("image/png", ".png")]
+    [InlineData("IMAGE/JPEG", ".jpeg")]
+    [InlineData("image/tiff", ".tiff")]
+    [InlineData("image/svg+xml", "")]
+    [InlineData("image/vnd.adobe.photoshop", "")]
+    [InlineData("image/png; charset=binary", "")]
+    public void FileExtension_FollowsTheMediaSubtypeOrNamesNothing(string contentType, string expected)
+    {
+        Assert.Equal(expected, WindowsSpoolerContent.FileExtension(contentType));
+    }
+
     [Theory]
     [InlineData(null, 300)]
     [InlineData(300, 300)]

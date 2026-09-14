@@ -1,9 +1,10 @@
-﻿using AdaptArch.Devices.Printing;
+﻿using System.Linq;
+using AdaptArch.Devices.Printing;
 
 namespace AdaptArch.Devices.Printing.Spooler;
 
-// Decides which Windows spooler path a payload takes, and derives the numbers the
-// PDF path needs. P/Invoke-free on purpose, so the routing is testable on any platform.
+// Decides which Windows spooler path a payload takes, and derives the numbers and the
+// names that path needs. P/Invoke-free on purpose, so the routing is testable on any platform.
 internal static class WindowsSpoolerContent
 {
     // A PDF page is rendered in-box at this resolution when the job names none.
@@ -47,6 +48,19 @@ internal static class WindowsSpoolerContent
         }
 
         return dpi;
+    }
+
+    // GDI+ reads the file header to pick its decoder, so this only names the temporary
+    // file. A plain media subtype becomes the suffix, which keeps ".png" and ".jpeg" as
+    // they were and gives a format an application registered its own name. Anything else
+    // — a vendor tree, a "+xml" form, a parameter — leaves the name bare instead of
+    // claiming a format the bytes are not.
+    internal static string FileExtension(string contentType)
+    {
+        var subtype = contentType[(contentType.IndexOf('/', StringComparison.Ordinal) + 1)..];
+        return subtype.Length > 0 && subtype.All(Char.IsAsciiLetterOrDigit)
+            ? $".{subtype.ToLowerInvariant()}"
+            : String.Empty;
     }
 
     // Zero-based page indexes in ascending order with no duplicates. An unset list

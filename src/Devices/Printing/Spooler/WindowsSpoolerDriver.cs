@@ -200,7 +200,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         {
             deviceMode = BuildDeviceMode(queueName, imageRequest);
             var jobId = WindowsGdiImagePrinter.PrintPages(
-                new WindowsGdiJob(queueName, ".png", jobName, deviceMode, copies, options?.Orientation, options?.Scaling),
+                new WindowsGdiJob(queueName, WindowsSpoolerContent.FileExtension(PrinterContentTypes.Png), jobName, deviceMode, copies, options?.Orientation, options?.Scaling),
                 rendered);
 
             return new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
@@ -235,7 +235,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         {
             deviceMode = BuildDeviceMode(queueName, imageRequest);
             var jobId = WindowsGdiImagePrinter.Print(
-                new WindowsGdiJob(queueName, ImageExtension(payload.ContentType), jobName, deviceMode, copies, options?.Orientation, options?.Scaling),
+                new WindowsGdiJob(queueName, WindowsSpoolerContent.FileExtension(payload.ContentType), jobName, deviceMode, copies, options?.Orientation, options?.Scaling),
                 bytes);
 
             return Task.FromResult(new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
@@ -290,9 +290,6 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
         return kept;
     }
-
-    private static string ImageExtension(string contentType) =>
-        String.Equals(contentType, PrinterContentTypes.Png, StringComparison.OrdinalIgnoreCase) ? ".png" : ".jpg";
 
     // A document format prints as images, so it needs a converter. Without one the job
     // fails here, before it exists, instead of spooling silence. PDF names the package
