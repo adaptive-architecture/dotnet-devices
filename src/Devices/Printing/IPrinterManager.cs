@@ -30,13 +30,13 @@ public interface IPrinterManager
     /// <summary>
     /// Prints to a printer identified by <paramref name="id"/>.
     /// </summary>
-    /// <param name="id">The identifier of a channel, or of a device.</param>
-    /// <param name="payload">The raw bytes and content type to print.</param>
+    /// <param name="id">The identifier of a channel, or of a device. It picks between the channels that suit the payload, and never overrules the payload.</param>
+    /// <param name="payload">The raw bytes and content type to print. A printer language such as ZPL takes a channel that sends the bytes unchanged; every other format takes a channel with a job queue.</param>
     /// <param name="options">Optional per-job printing options.</param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>The submitted job.</returns>
     /// <exception cref="InvalidOperationException">Thrown when <paramref name="id"/> is unknown, even after a fresh discovery.</exception>
-    /// <exception cref="NotSupportedException">Thrown when <see cref="PrintOptions.RequirePassthrough"/> is set and the printer has no channel that sends the payload unchanged.</exception>
+    /// <exception cref="NotSupportedException">Thrown when every channel of the printer reported that it does not read the content type of <paramref name="payload"/>.</exception>
     Task<PrintJobInfo> PrintAsync(PrinterId id, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken);
 
     /// <summary>

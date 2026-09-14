@@ -558,9 +558,9 @@ internal static class InteractiveScenario
 
         Console.WriteLine($"{target.Printer.Id} is a CUPS queue, which gives no promise to keep the bytes.");
         Console.WriteLine("A queue made with 'lpadmin -m raw' passes them on; a queue with a driver");
-        Console.WriteLine("converts the job instead. CUPS reports nothing that tells the two apart, so");
-        Console.WriteLine("the send below asks for no guarantee. A printer language is still submitted");
-        Console.WriteLine("as application/vnd.cups-raw, which is what a raw queue needs.");
+        Console.WriteLine("converts the job instead. CUPS reports nothing that tells the two apart.");
+        Console.WriteLine("A printer language is still submitted as application/vnd.cups-raw, which is");
+        Console.WriteLine("what a raw queue needs.");
     }
 
     // The printer reads the bytes itself, so ask it first whether it knows the format.
@@ -600,8 +600,8 @@ internal static class InteractiveScenario
         }
     }
 
-    // RequirePassthrough is asked for only where the channel can keep it. A CUPS queue
-    // would be refused by the manager, so the send states the risk instead of the promise.
+    // The channel is named by its own identifier, so the manager sends to that channel
+    // and to no other. The risk is stated above, because a CUPS queue gives no promise.
     private static async Task SendRawAsync(
         ServiceProvider provider, Channel target, string directory, string fileName, string contentType)
     {
@@ -614,7 +614,7 @@ internal static class InteractiveScenario
             var submitted = await manager.PrintAsync(
                 target.Printer.Id,
                 PrinterPayload.FromBytes(bytes, contentType),
-                new PrintOptions { RequirePassthrough = target.Printer.GivesPassthrough, JobName = fileName },
+                new PrintOptions { JobName = fileName },
                 timeoutSource.Token).ConfigureAwait(false);
             Console.WriteLine($"Job {submitted.JobId} submitted ({submitted.State}).");
             if (submitted.DroppedOptions.Count > 0)
@@ -631,9 +631,9 @@ internal static class InteractiveScenario
         }
         catch (NotSupportedException exception)
         {
-            // The refusal is the guarantee working: no channel of this printer keeps it.
-            Console.WriteLine("Nothing was sent, because no channel of this printer sends the");
-            Console.WriteLine("bytes unchanged. A filtering channel could print the source instead.");
+            // The refusal is the check working: this printer reported it reads other
+            // formats only, so the bytes would print as nothing or as source text.
+            Console.WriteLine("Nothing was sent, because this printer does not read the format.");
             Console.WriteLine($"Reason: {exception.Message}");
         }
         catch (InvalidOperationException exception)

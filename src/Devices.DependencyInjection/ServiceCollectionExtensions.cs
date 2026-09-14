@@ -17,11 +17,15 @@ public static class ServiceCollectionExtensions
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configure">An optional callback that sets the IPP transport policy: the certificate trust, the plain IPP fallback, and the connect timeout.</param>
+    /// <param name="configureManager">An optional callback that sets the printer manager policy: the transports it may open, and the discovery scope it uses by default.</param>
     /// <returns>The service collection for chaining.</returns>
-    public static IServiceCollection AddDevices(this IServiceCollection services, Action<IppTransportOptions>? configure = null)
+    public static IServiceCollection AddDevices(
+        this IServiceCollection services,
+        Action<IppTransportOptions>? configure = null,
+        Action<PrinterManagerOptions>? configureManager = null)
     {
         ArgumentNullException.ThrowIfNull(services);
-        return services.AddPrinters(configure);
+        return services.AddPrinters(configure, configureManager);
     }
 
     /// <summary>
@@ -32,8 +36,17 @@ public static class ServiceCollectionExtensions
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configure">An optional callback that sets the IPP transport policy: the certificate trust, the plain IPP fallback, and the connect timeout.</param>
+    /// <param name="configureManager">
+    /// An optional callback that sets the printer manager policy. Set
+    /// <see cref="PrinterManagerOptions.Transports"/> to limit the manager to some
+    /// transports, for example <c>[PrinterScheme.Spooler]</c> to print through the
+    /// operating system only. Discovery still finds every channel.
+    /// </param>
     /// <returns>The service collection for chaining.</returns>
-    public static IServiceCollection AddPrinters(this IServiceCollection services, Action<IppTransportOptions>? configure = null)
+    public static IServiceCollection AddPrinters(
+        this IServiceCollection services,
+        Action<IppTransportOptions>? configure = null,
+        Action<PrinterManagerOptions>? configureManager = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddSingleton<IPrinterTransport, TcpPrinterTransport>();
@@ -64,6 +77,14 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<IppHttpClientHolder>().Client,
             provider.GetRequiredService<IppTransportOptions>()));
         services.TryAddSingleton<IPrintJobMonitor, PollingPrintJobMonitor>();
+
+        // Registered, so the manager constructor that takes it is the one resolved.
+        services.TryAddSingleton(_ =>
+        {
+            PrinterManagerOptions options = new();
+            configureManager?.Invoke(options);
+            return options;
+        });
         services.TryAddSingleton<IPrinterManager, PrinterManager>();
         return services;
     }

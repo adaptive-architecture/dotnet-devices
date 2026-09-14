@@ -209,6 +209,16 @@ internal static class FakePrinters
         };
     }
 
+    public static DiscoveredPrinter Reading(string host, params string[] formats)
+    {
+        var id = PrinterId.ForIpp(host);
+        PrinterInfo info = new(id, host) { DriverName = String.Join(",", formats) };
+        return new DiscoveredPrinter(id, NetworkPrinterEndpoint.Ipp(host), info)
+        {
+            Source = DiscoverySource.Mdns,
+        };
+    }
+
     // A queue that reported which device it prints to, the way a CUPS device URI does.
     public static DiscoveredPrinter Queue(string queueName, params PrinterDeviceKey[] aliases)
     {

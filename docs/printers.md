@@ -568,41 +568,81 @@ address translation, two devices can share a host, and the library cannot tell. 
 
 ### Choosing a channel for a call
 
-The channel named by the identifier is used when it does what the call needs. Otherwise
-another channel of the same device is used, which is a real gain: a printer found through
-the spooler can be printed to over its raw channel. Every call prefers a channel with a job
-queue, so the job can be watched after it is sent. The order is `ipps`, `ipp`, `spooler`,
-`raw`.
+**The payload chooses the channel, not a flag.** `PrintAsync` reads
+`payload.ContentType` and picks the channel that suits it. There is nothing to switch on,
+because a caller who sends ZPL never wants the bytes rewritten.
 
-`RequirePassthrough` picks a channel that sends the payload bytes to the device unchanged,
-and throws `NotSupportedException` when the device has no such channel:
+The rules run in this order:
 
-| Channel | Keeps the promise |
+1. **A channel that reported it does not read the content type is dropped.** A channel that
+   reported nothing has refused nothing, so it stays. `PrinterDevice.Accepts` is the
+   judgement, and `NotSupportedException` is thrown only when every channel refused.
+2. **A printer language takes a channel that sends the bytes unchanged.** ZPL, EPL, CPCL
+   and ESC/POS are read by the printer firmware, so a channel that converts the job prints
+   the command source instead of the label.
+3. **Every other format takes a channel with a job queue**, so the job can be watched after
+   it is sent.
+4. **The identifier breaks the tie** between the channels that suit the payload. It never
+   overrules the payload: a device with no reported identity names itself with the
+   identifier of its preferred channel, so the two cannot be told apart.
+5. **The most preferred channel is the fallback** when no channel suits the payload. The
+   order is `ipps`, `ipp`, `spooler`, `raw`.
+
+This is a real gain: a printer found through the spooler is printed to over its raw
+channel, without the caller having to look for that channel.
+
+| Channel | Sends the bytes unchanged |
 | --- | --- |
 | `raw` | Yes |
 | `spooler` on Windows | Printer languages: yes (`RAW` data type). PNG/JPEG: no, they are rasterised with GDI. |
 | `spooler` on Linux and macOS (CUPS) | No |
 | `ipp`, `ipps` | No |
 
-**CUPS is refused even though the library sends `application/vnd.cups-raw`.** That format
-stops CUPS from re-typing the job, which is necessary but not sufficient. A queue with a
-driver, and a driverless (IPP Everywhere) queue, still convert the job into a format the
-device reads. Only a CUPS *raw* queue passes the bytes to the backend untouched, and CUPS
-reports no dependable attribute that tells a raw queue apart, so the library does not
-promise what it cannot verify. A caller who knows the queue is raw should print **without**
-`RequirePassthrough`: the document format is correct either way, and the property only
-controls whether the manager makes a guarantee first.
+**A CUPS-only device still gets the label.** CUPS gives no promise: only a raw queue passes
+the bytes to the backend untouched, a queue with a driver or a driverless (IPP Everywhere)
+queue converts the job, and CUPS reports no dependable attribute that tells the two apart.
+Rule 5 therefore sends over the CUPS queue anyway, as `application/vnd.cups-raw`, which is
+the format a raw queue needs and which stops CUPS from re-typing the job. Sending is better
+than refusing, because refusing helps nobody and the format is correct either way.
 
 ```csharp
 var label = devices.First(d => d.Details.Name.Contains("Zebra", StringComparison.Ordinal));
 
 PrinterPayload payload = PrinterPayload.FromString("^XA^FO50,50^ADN,36,20^FDHello^FS^XZ", PrinterContentTypes.Zpl);
-await manager.PrintAsync(
-    label.Id,
-    payload,
-    new PrintOptions { RequirePassthrough = true },
-    cancellationToken).ConfigureAwait(false);
+await manager.PrintAsync(label.Id, payload, null, cancellationToken).ConfigureAwait(false);
 ```
+
+`GetStatusAsync` and `WatchJobAsync` carry no payload, so they always prefer a channel with
+a job queue.
+
+### Limiting the transports
+
+`PrinterManagerOptions.Transports` lists the transports the manager may open, and it is read
+from the options the manager was **built** with, never from the argument of `DiscoverAsync`:
+a print carries no options, and the scope of one discovery is not a policy for every call.
+
+```csharp
+services.AddPrinters(configureManager: options => options.Transports = [PrinterScheme.Spooler]);
+```
+
+- **Membership is permission.** A channel on a transport the list leaves out is never
+  opened, whatever the payload or the identifier would have ranked. A device that no allowed
+  transport reaches throws `NotSupportedException`, and the message names the allowed set.
+- **Position is preference, but only between the channels that suit the call equally.** The
+  five rules above still run first. An order that outranked them would put IPP before the
+  raw channel for a label, which is the defect this design exists to prevent.
+- **Discovery is not affected.** An excluded channel is still found, still listed in
+  `PrinterDevice.Channels`, and still contributes what it reported to `PrinterDevice.Details`.
+  That is what lets an application learn everything about a printer and still print through
+  one transport.
+- **`WatchJobAsync` counts allowed channels only.** A queue on a transport the manager may
+  not open is not a queue it can read.
+
+The default is every transport, in the order `ipps`, `ipp`, `spooler`, `raw`.
+
+Because the manager keeps these options, `DiscoverAsync(null, ...)` and the implicit
+re-discovery inside `PrintAsync` both use them. A manager built with `IncludeMdns = false`
+therefore never browses, even when a cache miss forces a fresh discovery.
 
 ### Resolving an identifier
 

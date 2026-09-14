@@ -146,23 +146,4 @@ public sealed class PrintOptions
     /// <see cref="UnsupportedOptionBehavior.Send"/>.
     /// </summary>
     public UnsupportedOptionBehavior OnUnsupported { get; set; } = UnsupportedOptionBehavior.Send;
-
-    /// <summary>
-    /// Gets or sets a value that says the device must receive the payload bytes unchanged.
-    /// </summary>
-    /// <remarks>
-    /// Set this for a printer language such as ZPL, EPL, CPCL or ESC/POS. A raw TCP channel
-    /// and the Windows spooler with the <c>RAW</c> data type send the bytes through unchanged.
-    /// IPP, IPPS and CUPS do not give this promise. A CUPS raw queue does send the bytes
-    /// through, and the library submits a printer language as <c>application/vnd.cups-raw</c>
-    /// so that it can, but CUPS reports nothing that tells a raw queue from a queue with a
-    /// driver, which still converts the job. The promise is therefore refused for CUPS.
-    /// A caller who knows the queue is raw should print without this property: the format
-    /// the library sends is correct either way.
-    /// The printer manager reads this property and chooses a channel that keeps the promise, or
-    /// throws <see cref="NotSupportedException"/> when the printer has no such channel. The
-    /// printer types do not read it: a caller that opens a printer directly has already chosen
-    /// the channel.
-    /// </remarks>
-    public bool RequirePassthrough { get; set; }
 }
