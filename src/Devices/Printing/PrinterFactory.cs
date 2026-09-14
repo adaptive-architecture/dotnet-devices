@@ -72,6 +72,12 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
     {
     }
 
+    /// <summary>
+    /// Gets the formats every printer this factory opens knows, and the converters they
+    /// may use. Defaults to <see cref="PrintFormatPolicy.Default"/>.
+    /// </summary>
+    public PrintFormatPolicy Formats { get; init; } = PrintFormatPolicy.Default;
+
     private PrinterFactory(HttpClient httpClient, IppTransportOptions options, bool ownsClient)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -92,13 +98,13 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
         if (printer.Endpoint is NetworkPrinterEndpoint network)
         {
             return network.Scheme is PrinterScheme.Ipp or PrinterScheme.Ipps
-                ? new IppPrinter(network, _httpClient, null, _options)
+                ? new IppPrinter(network, _httpClient, null, _options) { Formats = Formats }
                 : OpenRaw(network);
         }
 
         if (printer.Endpoint is SpoolerPrinterEndpoint spooler)
         {
-            return new SpoolerPrinter(spooler);
+            return new SpoolerPrinter(spooler) { Formats = Formats };
         }
 
         throw new NotSupportedException($"Endpoint type '{printer.Endpoint.GetType().Name}' is not supported.");

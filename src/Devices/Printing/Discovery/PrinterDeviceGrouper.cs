@@ -14,10 +14,12 @@ internal static class PrinterDeviceGrouper
     /// </summary>
     /// <param name="channels">The channels every discovery source reported.</param>
     /// <param name="statusSources">The read-only protocols that answered, by channel identifier.</param>
+    /// <param name="formats">The formats each device answers about, or <c>null</c> for the default policy.</param>
     /// <returns>The devices, ordered by key.</returns>
     public static IReadOnlyList<PrinterDevice> Group(
         IReadOnlyList<DiscoveredPrinter> channels,
-        IReadOnlyDictionary<PrinterId, IReadOnlyList<PrinterStatusSource>>? statusSources = null)
+        IReadOnlyDictionary<PrinterId, IReadOnlyList<PrinterStatusSource>>? statusSources = null,
+        PrintFormatPolicy? formats = null)
     {
         ArgumentNullException.ThrowIfNull(channels);
         if (channels.Count == 0)
@@ -64,7 +66,10 @@ internal static class PrinterDeviceGrouper
             // The strongest key in the whole set names the device, not whichever member
             // the union happened to settle on.
             var key = sets.Best(representative);
-            devices.Add(new PrinterDevice(key, members, ReadSources(members, statusSources)));
+            devices.Add(new PrinterDevice(key, members, ReadSources(members, statusSources))
+            {
+                Formats = formats ?? PrintFormatPolicy.Default,
+            });
         }
 
         devices.Sort(static (left, right) => String.CompareOrdinal(left.Key.ToString(), right.Key.ToString()));

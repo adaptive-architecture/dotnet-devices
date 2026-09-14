@@ -21,6 +21,13 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
     private const string WindowsOnlyMessage = "The Windows spooler driver needs Windows.";
 
+    private readonly PrintFormatPolicy _formats;
+
+    public WindowsSpoolerDriver(PrintFormatPolicy? formats = null)
+    {
+        _formats = formats ?? PrintFormatPolicy.Default;
+    }
+
     public Task<IReadOnlyList<DiscoveredPrinter>> EnumeratePrintersAsync(CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsWindows())
@@ -152,12 +159,12 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
         ArgumentNullException.ThrowIfNull(payload);
 
-        if (WindowsSpoolerContent.Classify(payload.ContentType) == SpoolerContentKind.Pdf)
+        if (WindowsSpoolerContent.Classify(payload.ContentType, _formats) == SpoolerContentKind.Document)
         {
-            return SubmitPdfAsync(queueName, payload, options, cancellationToken);
+            return SubmitDocumentAsync(queueName, payload, options, cancellationToken);
         }
 
-        if (WindowsSpoolerContent.Classify(payload.ContentType) == SpoolerContentKind.Image)
+        if (WindowsSpoolerContent.Classify(payload.ContentType, _formats) == SpoolerContentKind.Image)
         {
             return SubmitImageAsync(queueName, payload, options, cancellationToken);
         }
@@ -165,11 +172,11 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         return SubmitRawAsync(queueName, payload, options, cancellationToken);
     }
 
-    // One GDI document for the whole PDF: every selected page is rendered to PNG
-    // first, so a corrupt file fails before any job exists. PageRanges is honoured
-    // here, unlike on every other Windows path, because a page range names rendered
-    // pages rather than a device mode field.
-    private static async Task<PrintJobInfo> SubmitPdfAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
+    // One GDI document for the whole file: every selected page is converted to an image
+    // first, so a corrupt file fails before any job exists. PageRanges is honoured here,
+    // unlike on every other Windows path, because a page range names converted pages
+    // rather than a device mode field.
+    private async Task<PrintJobInfo> SubmitDocumentAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -180,8 +187,9 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         var bytes = payload.Data.ToArray();
         var jobName = options?.JobName ?? queueName;
 
-        var rendered = await RenderPdfAsync(
+        var rendered = await ConvertAsync(
             queueName,
+            payload.ContentType,
             bytes,
             WindowsSpoolerContent.RenderDpi(options?.ResolutionDpi),
             options?.PageRanges,
@@ -211,7 +219,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // rasterises it. Orientation and scaling are applied by the layout math, not by
     // the device mode, so both are kept out of DroppedOptions and out of the mode.
     // Copies travel as dmCopies, which the GDI path honours, so one job prints all.
-    private static Task<PrintJobInfo> SubmitImageAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
+    private Task<PrintJobInfo> SubmitImageAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -286,23 +294,34 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     private static string ImageExtension(string contentType) =>
         String.Equals(contentType, PrinterContentTypes.Png, StringComparison.OrdinalIgnoreCase) ? ".png" : ".jpg";
 
-    // The renderer is set by AdaptArch.Devices.Windows. Without that package a PDF
-    // fails here, before any job exists, instead of spooling silence.
-    private static Task<IReadOnlyList<byte[]>> RenderPdfAsync(
+    // A document format prints as images, so it needs a converter. Without one the job
+    // fails here, before it exists, instead of spooling silence. PDF names the package
+    // that carries the built-in converter, because that is the common case.
+    private async Task<IReadOnlyList<byte[]>> ConvertAsync(
         string queueName,
-        byte[] pdf,
+        string contentType,
+        byte[] data,
         int dpi,
         IReadOnlyList<PageRange>? ranges,
         CancellationToken cancellationToken)
     {
-        var render = SpoolerPdfRendering.RenderAsync;
-        if (render is null)
+        var converter = _formats.ConverterFor(contentType);
+        if (converter is null)
         {
             throw new NotSupportedException(
-                $"The Windows spooler cannot print PDF without the AdaptArch.Devices.Windows package: reference it and call WindowsPrinting.EnableSpoolerPdfPrinting(). Queue '{queueName}' spooled nothing.");
+                $"The Windows spooler cannot print '{contentType}' without a converter for it: add one to PrinterManagerOptions.Converters. " +
+                $"For PDF, reference AdaptArch.Devices.Windows and call WindowsPrinting.EnableSpoolerPdfPrinting(). Queue '{queueName}' spooled nothing.");
         }
 
-        return render(pdf, dpi, ranges, cancellationToken);
+        PrintConversionContext context = new(contentType, PrinterContentTypes.Png, dpi, ranges, queueName);
+        var pages = await converter.ConvertAsync(data, context, cancellationToken).ConfigureAwait(false);
+        if (pages.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"The converter of '{contentType}' returned no page, so queue '{queueName}' spooled nothing.");
+        }
+
+        return pages;
     }
 
     private Task<PrintJobInfo> SubmitRawAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)

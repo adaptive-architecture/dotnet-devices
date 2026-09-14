@@ -8,8 +8,8 @@ namespace AdaptArch.Devices.UnitTests.Printing.Spooler;
 public class WindowsSpoolerContentTests
 {
     [Theory]
-    [InlineData("application/pdf", "Pdf")]
-    [InlineData("APPLICATION/PDF", "Pdf")]
+    [InlineData("application/pdf", "Document")]
+    [InlineData("APPLICATION/PDF", "Document")]
     [InlineData("image/png", "Image")]
     [InlineData("image/jpeg", "Image")]
     [InlineData("application/vnd.zebra-zpl", "Raw")]
@@ -18,6 +18,15 @@ public class WindowsSpoolerContentTests
     public void Classify_RoutesByContentType(string contentType, string expected)
     {
         Assert.Equal(expected, WindowsSpoolerContent.Classify(contentType).ToString());
+    }
+
+    [Fact]
+    public void Classify_ReadsTheFormatsTheApplicationRegistered()
+    {
+        PrintFormatPolicy policy = new([new PrinterFormat("image/tiff", PrinterFormatKind.Image)], null);
+
+        Assert.Equal(SpoolerContentKind.Image, WindowsSpoolerContent.Classify("image/tiff", policy));
+        Assert.Equal(SpoolerContentKind.Raw, WindowsSpoolerContent.Classify("image/tiff"));
     }
 
     [Theory]

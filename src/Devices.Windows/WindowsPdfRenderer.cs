@@ -1,10 +1,11 @@
 ﻿using System.Runtime.InteropServices.WindowsRuntime;
 using System.Runtime.Versioning;
+using AdaptArch.Devices.Printing;
 using Windows.Data.Pdf;
 using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
 
-namespace AdaptArch.Devices.Printing.Spooler;
+namespace AdaptArch.Devices.Windows;
 
 // Renders PDF pages to PNG with the in-box Windows.Data.Pdf engine, so the spooler
 // PDF path needs no extra package. The targeting pack is build-time metadata only,
@@ -48,7 +49,7 @@ internal static class WindowsPdfRenderer
                 throw new InvalidOperationException("The PDF has no pages to print.");
             }
 
-            var selected = WindowsSpoolerContent.SelectPages((int)document.PageCount, ranges);
+            var selected = PageRange.Select((int)document.PageCount, ranges);
             if (selected.Count == 0)
             {
                 throw new InvalidOperationException("The page ranges select no page of this PDF.");

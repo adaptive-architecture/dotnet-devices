@@ -186,6 +186,23 @@ public class PrinterDeviceTests
         Assert.False(device.Accepts(channel, PrinterContentTypes.Png));
     }
 
+    [Fact]
+    public void Accepts_ReadsTheCommandSetOfAFormatTheApplicationRegistered()
+    {
+        // The printer reports the languages its firmware reads, and the application says
+        // which media type the token stands for. Without that format the token means
+        // nothing, so the same printer answers "not known" instead of "yes".
+        var channel = Ipp("192.168.1.5", static info => info.CommandSets = ["STAR"]);
+        PrinterDevice known = new(PrinterDeviceKey.ForHost("192.168.1.5"), [channel])
+        {
+            Formats = new PrintFormatPolicy([new PrinterFormat("application/vnd.star-line", PrinterFormatKind.RawLanguage, "STAR")], null),
+        };
+        PrinterDevice unknown = new(PrinterDeviceKey.ForHost("192.168.1.5"), [channel]);
+
+        Assert.True(known.Accepts(channel, "application/vnd.star-line"));
+        Assert.False(unknown.Accepts(channel, "application/vnd.star-line"));
+    }
+
     // Nearly every channel lists octet-stream, and CUPS re-types such a job as text/plain.
     [Fact]
     public void Accepts_DoesNotReadOctetStreamAsAnAnswer()

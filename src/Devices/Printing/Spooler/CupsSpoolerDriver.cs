@@ -17,23 +17,25 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
 
     private readonly HttpClient _httpClient;
     private readonly Uri _baseUri;
+    private readonly PrintFormatPolicy _formats;
 
-    public CupsSpoolerDriver()
-        : this(SharedClient.Value, DefaultBaseUri)
+    public CupsSpoolerDriver(PrintFormatPolicy? formats = null)
+        : this(SharedClient.Value, DefaultBaseUri, formats)
     {
     }
 
     public CupsSpoolerDriver(HttpClient httpClient)
-        : this(httpClient, DefaultBaseUri)
+        : this(httpClient, DefaultBaseUri, null)
     {
     }
 
-    internal CupsSpoolerDriver(HttpClient httpClient, Uri baseUri)
+    internal CupsSpoolerDriver(HttpClient httpClient, Uri baseUri, PrintFormatPolicy? formats = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(baseUri);
         _httpClient = httpClient;
         _baseUri = baseUri;
+        _formats = formats ?? PrintFormatPolicy.Default;
     }
 
     public async Task<IReadOnlyList<DiscoveredPrinter>> EnumeratePrintersAsync(CancellationToken cancellationToken)
@@ -94,7 +96,7 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
             _httpClient,
             QueueUri(queueName),
             PrinterId.ForSpooler(queueName),
-            new IppSubmission(payload, IppDocumentFormat.ForCups(payload.ContentType), options, []),
+            new IppSubmission(payload, IppDocumentFormat.ForCups(payload.ContentType, _formats), options, []),
             cancellationToken);
     }
 

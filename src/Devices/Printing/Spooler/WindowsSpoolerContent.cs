@@ -14,15 +14,17 @@ internal static class WindowsSpoolerContent
     internal const int MinRenderDpi = 150;
     internal const int MaxRenderDpi = 600;
 
-    internal static SpoolerContentKind Classify(string contentType)
+    // The registered kind of the format decides the path, so a format an application
+    // declared takes the same route as a built-in one of that kind.
+    internal static SpoolerContentKind Classify(string contentType, PrintFormatPolicy? formats = null)
     {
-        if (String.Equals(contentType, PrinterContentTypes.Pdf, StringComparison.OrdinalIgnoreCase))
+        var kind = (formats ?? PrintFormatPolicy.Default).KindOf(contentType);
+        if (kind == PrinterFormatKind.Document)
         {
-            return SpoolerContentKind.Pdf;
+            return SpoolerContentKind.Document;
         }
 
-        if (String.Equals(contentType, PrinterContentTypes.Png, StringComparison.OrdinalIgnoreCase)
-            || String.Equals(contentType, PrinterContentTypes.Jpeg, StringComparison.OrdinalIgnoreCase))
+        if (kind == PrinterFormatKind.Image)
         {
             return SpoolerContentKind.Image;
         }
@@ -49,48 +51,15 @@ internal static class WindowsSpoolerContent
 
     // Zero-based page indexes in ascending order with no duplicates. An unset list
     // prints the whole document; a range past the end contributes nothing.
-    internal static IReadOnlyList<int> SelectPages(int pageCount, IReadOnlyList<PageRange>? ranges)
-    {
-        if (pageCount <= 0)
-        {
-            return [];
-        }
-
-        if (ranges is null || ranges.Count == 0)
-        {
-            List<int> all = new(pageCount);
-            for (var i = 0; i < pageCount; i++)
-            {
-                all.Add(i);
-            }
-
-            return all;
-        }
-
-        // A collection expression over a set emits a compiler wrapper type that the
-        // trimmer cannot keep intact, with no analyzer warning. A plain list is safe.
-        SortedSet<int> selected = [];
-        foreach (var range in ranges)
-        {
-            var lower = Math.Max(range.Lower, 1);
-            var upper = Math.Min(range.Upper, pageCount);
-            for (var page = lower; page <= upper; page++)
-            {
-                selected.Add(page - 1);
-            }
-        }
-
-        List<int> ordered = new(selected.Count);
-        ordered.AddRange(selected);
-        return ordered;
-    }
+    internal static IReadOnlyList<int> SelectPages(int pageCount, IReadOnlyList<PageRange>? ranges) =>
+        PageRange.Select(pageCount, ranges);
 }
 
-// How the Windows spooler prints one payload: drawn by the driver through GDI
-// after an in-box render, drawn by the driver directly, or passed through as RAW.
+// How the Windows spooler prints one payload: converted to images and then drawn by
+// the driver, drawn by the driver directly, or passed through as RAW.
 internal enum SpoolerContentKind
 {
     Raw,
     Image,
-    Pdf,
+    Document,
 }
