@@ -9,18 +9,15 @@
 /// On the Windows print spooler, <see cref="JobName"/>, <see cref="Duplex"/>,
 /// <see cref="ColorMode"/>, <see cref="Orientation"/>, <see cref="MediaSource"/>,
 /// <see cref="MediaSize"/>, <see cref="ResolutionDpi"/> and <see cref="Quality"/> travel
-/// in a device mode the print driver builds, and <see cref="Copies"/> is printed as one
-/// document for each copy, because a queue with the <c>RAW</c> data type does not read the
-/// copy count. <see cref="MediaType"/>, <see cref="OutputBin"/>, <see cref="PageRanges"/>
+/// in a device mode the print driver builds. Printer languages use the <c>RAW</c> data
+/// type, which never reads the copy count, so <see cref="Copies"/> is printed as one
+/// document for each copy there. PNG and JPEG images are drawn onto a GDI printer
+/// device context instead, which honours <see cref="Copies"/> as <c>dmCopies</c> in one
+/// job and applies <see cref="Orientation"/> and <see cref="Scaling"/> when the image
+/// is laid out, including the reversed orientations and the fit modes that have no
+/// device mode field. <see cref="MediaType"/>, <see cref="OutputBin"/>, <see cref="PageRanges"/>
 /// and <see cref="NumberUp"/> have no device mode field, so they are reported in
-/// <see cref="PrintJobInfo.DroppedOptions"/>. <see cref="Scaling"/> reaches the device
-/// mode scale field only as <see cref="PrintScaling.None"/>, which is 100 per cent, and an
-/// <see cref="Orientation"/> of <see cref="PrintOrientation.ReverseLandscape"/> or
-/// <see cref="PrintOrientation.ReversePortrait"/> has no device mode value, so both are
-/// dropped the same way. A <see cref="MediaSize"/> or
-/// <see cref="MediaSource"/> name that the queue did not report has no device mode number
-/// either, and is dropped the same way. IPP printers and the CUPS spooler driver on Linux
-/// and macOS honour every property.
+/// <see cref="PrintJobInfo.DroppedOptions"/>.
 /// </remarks>
 public sealed class PrintOptions
 {

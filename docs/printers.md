@@ -358,7 +358,18 @@ system spooler through one of two drivers, chosen at run time:
   server, so this driver is the one part of the library that calls native code.
 
 The Windows driver builds a `DEVMODE` for the job with `DocumentProperties` and carries it
-onto the job through `PRINTER_DEFAULTS`. Two rules decide what a field can hold:
+onto the job. Printer languages use the `RAW` data type and pass the bytes through
+unchanged; PNG and JPEG images are drawn onto a GDI printer device context with GDI+
+so the driver rasterises the page, using only the system `gdi32.dll` and `gdiplus.dll`
+and no extra NuGet package. PDF pages render to PNG first with the in-box Windows
+engine, then print as one GDI document through the same path. That renderer lives in
+the separate `AdaptArch.Devices.Windows` package (a `-windows` target is the only one
+that can see the engine), and the application lights it up with
+`WindowsPrinting.EnableSpoolerPdfPrinting()`; without that call a PDF job fails with
+`NotSupportedException` before anything spools. It runs on Windows 10 version 1607
+and later, including Windows 11, which is the floor .NET 10 itself requires; the
+`gdi32`/`gdiplus` entry points it calls ship in-box on all of them. Two rules decide
+what a device mode field can hold:
 
 - `MediaSize` and `MediaSource` are names, and a `DEVMODE` field holds a number, so the name
   is looked up in the media and tray lists the queue reports. A name that the queue did not
@@ -370,15 +381,18 @@ onto the job through `PRINTER_DEFAULTS`. Two rules decide what a field can hold:
 `Copies` is applied by printing the document one time for each copy, because a queue with
 the `RAW` data type never reads `dmCopies`. Each copy is a separate spooler job and the
 returned `PrintJobInfo` names the first of them, so a failure on a later copy leaves the
-earlier copies in the queue — which is what a paper jam also does.
+earlier copies in the queue — which is what a paper jam also does. Image jobs are the
+exception: the GDI path honours `dmCopies`, so one job prints every copy.
 
 `MediaType`, `OutputBin`, `PageRanges` and `NumberUp` have no `DEVMODE` field, so the driver
 always reports them in `PrintJobInfo.DroppedOptions`, whatever `OnUnsupported` says. Two
-more options are carried only in part. `dmScale` is a percentage and not a fit mode, so
-`Scaling` reaches it as `PrintScaling.None`, which is 100 per cent, and `Auto`, `AutoFit`,
-`Fill` and `Fit` are dropped. `dmOrientation` holds `DMORIENT_PORTRAIT` and
-`DMORIENT_LANDSCAPE` and nothing else, so an `Orientation` of `ReverseLandscape` or
-`ReversePortrait` is dropped as well. IPP and CUPS carry all of them. The
+more options are carried only in part for printer languages. `dmScale` is a percentage
+and not a fit mode, so `Scaling` reaches it as `PrintScaling.None`, which is 100 per cent,
+and `Auto`, `AutoFit`, `Fill` and `Fit` are dropped. `dmOrientation` holds
+`DMORIENT_PORTRAIT` and `DMORIENT_LANDSCAPE` and nothing else, so an `Orientation` of
+`ReverseLandscape` or `ReversePortrait` is dropped as well. Image jobs lay out with GDI
+instead and honour every orientation and every scaling mode, so neither is dropped there.
+IPP and CUPS carry all of them. The
 defaults on `PrinterConfiguration` come from the same device mode.
 `WindowsSpoolerDeviceModeMapper` holds the whole name-to-number mapping and calls no native
 code, so the unit tests on Linux prove it.
@@ -508,7 +522,7 @@ capabilities when those were read.
 | Channel | Applies |
 | --- | --- |
 | `raw` | Nothing. The payload reaches the device unchanged. |
-| `spooler` on Windows | `JobName`, `Copies`, `Duplex`, `ColorMode`, `Orientation`, `MediaSource`, `MediaSize`, `ResolutionDpi` and `Quality`. The rest have no device mode field and are reported in `PrintJobInfo.DroppedOptions`. |
+| `spooler` on Windows | `JobName`, `Copies`, `Duplex`, `ColorMode`, `Orientation`, `MediaSource`, `MediaSize`, `ResolutionDpi` and `Quality`. Printer languages report the rest in `PrintJobInfo.DroppedOptions`; image jobs apply every `Orientation` and every `Scaling` with GDI instead of the device mode. |
 | `spooler` on CUPS, `ipp`, `ipps` | Everything the library models, narrowed by what the printer reported. |
 
 A capability the printer did not report is not one it denied, so only an explicit `false`
@@ -566,7 +580,7 @@ and throws `NotSupportedException` when the device has no such channel:
 | Channel | Keeps the promise |
 | --- | --- |
 | `raw` | Yes |
-| `spooler` on Windows (`RAW` data type) | Yes |
+| `spooler` on Windows | Printer languages: yes (`RAW` data type). PNG/JPEG: no, they are rasterised with GDI. |
 | `spooler` on Linux and macOS (CUPS) | No |
 | `ipp`, `ipps` | No |
 
@@ -725,8 +739,12 @@ of the label.
 The `interactive` scenario calls it and warns before it wastes paper. A printer that
 reports nothing did not refuse; it only did not answer.
 
-To print a PDF on a printer that has no PDF interpreter, send it through the spooler queue
-instead. The queue driver rasterises the document.
+To print a PDF on a printer that has no PDF interpreter, send it through the CUPS
+spooler queue instead. The queue driver rasterises the document. On Windows, print
+it through the spooler with the `AdaptArch.Devices.Windows` package enabled: each page
+renders to PNG with the in-box engine and prints as one GDI document. Sending PDF
+bytes as `RAW` reaches a firmware that reads only its own page language and prints
+nothing while the spooler still reports success.
 
 ### Building the sample with trimming and native AOT
 

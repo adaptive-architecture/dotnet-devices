@@ -5,6 +5,7 @@
   <Folder Name="/src/">
     <Project Path="src/Devices/Devices.csproj" />
     <Project Path="src/Devices.DependencyInjection/Devices.DependencyInjection.csproj" />
+    <Project Path="src/Devices.Windows/Devices.Windows.csproj" />
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/Devices.UnitTests/Devices.UnitTests.csproj" />

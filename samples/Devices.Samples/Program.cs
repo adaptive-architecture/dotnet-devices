@@ -5,6 +5,15 @@ using Microsoft.Extensions.DependencyInjection;
 Console.WriteLine("AdaptArch.Devices samples");
 Console.WriteLine($"Current OS: {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
 
+// The Windows package is referenced on Windows only (see the sample project file),
+// so the call needs the same compile-time guard as the reference.
+#if WINDOWS10_0_19041_0_OR_GREATER
+if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240, 0))
+{
+    AdaptArch.Devices.Windows.WindowsPrinting.EnableSpoolerPdfPrinting();
+}
+#endif
+
 ServiceCollection services = new();
 services.AddPrinters();
 using var provider = services.BuildServiceProvider();

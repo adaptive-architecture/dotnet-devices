@@ -56,6 +56,14 @@ The script passes `-p:BuildDocFx=true`. That keeps the `ProjectReference` inside
 `PackageReference` on `AdaptArch.Devices`. That package comes only from the local `./.nuget/`
 folder, which `pipeline/publish-packages.sh` fills.
 
+A green trim publish is not proof the trimmed binary runs: a collection expression
+that spreads into an interface-typed target (for example `return [.. selected];`)
+emits a compiler wrapper type the trimmer silently breaks, with no analyzer warning,
+and the failure surfaces only at run time as `TypeLoadException`. Prefer an explicit
+`List<T>` with `Add`/`AddRange` for such targets; spreads into a `List<T>` target
+lower to `AddRange` and are safe. When in doubt, exercise the trimmed binary, not
+just the publish.
+
 ## Formatting and style
 
 `.editorconfig` enforces the style, and [AGENTS.md](../AGENTS.md) states the rules that a

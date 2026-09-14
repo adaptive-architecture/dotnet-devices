@@ -59,8 +59,13 @@ public sealed class SpoolerPrinter : IPrinter
         }
 
         // The driver can drop options of its own, but never one already removed here.
+        // A collection expression over two lists emits a compiler wrapper type that the
+        // trimmer cannot keep intact, with no analyzer warning. A plain list is safe.
         var job = await _driver.SubmitAsync(_queueName, payload, effectiveOptions, cancellationToken).ConfigureAwait(false);
-        job.DroppedOptions = [.. dropped, .. job.DroppedOptions];
+        List<string> allDropped = new(dropped.Count + job.DroppedOptions.Count);
+        allDropped.AddRange(dropped);
+        allDropped.AddRange(job.DroppedOptions);
+        job.DroppedOptions = allDropped;
         return job;
     }
 

@@ -145,6 +145,26 @@ internal static class InteractiveScenario
         options.Orientation = orientation;
         options.Scaling = scaling;
 
+        // A queue job is converted on the way, except on a Windows spooler image path
+        // that the driver rasterises, so a format the channel denies prints wrong or
+        // blank instead of nothing. Ask before wasting the paper.
+        var accepts = target.Device.Accepts(target.Printer, contentType);
+        if (accepts == false)
+        {
+            SampleHelpers.WriteWarning($"{target.Printer.Id} does not report {contentType}. The page may come out blank.");
+            WriteAdvertised(target.Printer, String.Empty);
+            if (!SampleHelpers.Confirm($"Send '{fileName}' anyway, to see what the printer does?"))
+            {
+                Console.WriteLine("Cancelled; nothing was sent.");
+                return;
+            }
+        }
+        else if (accepts is null)
+        {
+            SampleHelpers.WriteWarning(
+                $"{target.Printer.Id} reports no format, so it is not known whether it reads {contentType}.");
+        }
+
         if (!SampleHelpers.Confirm($"Send '{fileName}' as {contentType} to {target.Printer.Id}?"))
         {
             Console.WriteLine("Cancelled; nothing was sent.");
@@ -216,6 +236,11 @@ internal static class InteractiveScenario
                 PrinterPayload.FromBytes(bytes, contentType),
                 options,
                 timeoutSource.Token).ConfigureAwait(false);
+        }
+        catch (NotSupportedException exception)
+        {
+            Console.WriteLine($"Nothing was sent: {exception.Message}");
+            return;
         }
         catch (InvalidOperationException exception)
         {
@@ -344,13 +369,28 @@ internal static class InteractiveScenario
         }
 
         WarnUnreported(target.Printer, job.Options);
+        var contentType = SampleHelpers.GetContentType(job.FileName);
+        var accepts = target.Device.Accepts(target.Printer, contentType);
+        if (accepts == false)
+        {
+            SampleHelpers.WriteWarning($"   skipped {job.FileName}: this queue does not read {contentType}.");
+            WriteAdvertised(target.Printer, "   ");
+            return;
+        }
+
+        if (accepts is null)
+        {
+            SampleHelpers.WriteWarning(
+                $"   {job.FileName}: this queue reports no format, so it is not known whether it reads {contentType}.");
+        }
+
         job.Options.JobName = $"{job.FileName} — {job.Description}";
         await SendAndWatchAsync(
             provider,
             target.Printer.Id,
             directory,
             job.FileName,
-            SampleHelpers.GetContentType(job.FileName),
+            contentType,
             job.Options).ConfigureAwait(false);
     }
 
