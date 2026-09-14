@@ -8,6 +8,7 @@
 | :--- | :--- |
 | `AdaptArch.Devices` | Core cross-platform device abstractions (printers, scanners, peripherals). Three reviewed runtime dependencies, listed below. |
 | `AdaptArch.Devices.DependencyInjection` | `Microsoft.Extensions.DependencyInjection` registrations for `AdaptArch.Devices` (`AddDevices`, `AddPrinters`). |
+| `AdaptArch.Devices.Windows` | Windows-only extensions for `AdaptArch.Devices`: spooler PDF rendering through the in-box engine. No runtime NuGet dependency of its own. |
 
 Framework integrations (DI/hosting/logging) ship as separate packages, so consumers take only
 what they use.
@@ -28,6 +29,26 @@ Approved dependencies of `AdaptArch.Devices`:
 
 No library is exposed in the public API surface: each one stays behind a client class, so
 any of them can be replaced without a breaking change.
+
+Windows image printing deliberately adds no package: PNG and JPEG jobs are drawn with
+GDI+ through `gdi32.dll` and `gdiplus.dll`, which are system components, so there is
+nothing to review.
+
+### Windows-only package instead of a Windows-only dependency
+
+PDF on the Windows spooler renders with `Windows.Data.Pdf`, which only a `-windows`
+target can see. Referencing the Windows SDK targeting pack from the cross-platform
+core is not supported (restore fails with NU1213, and suppressing that warning was
+rejected), so the renderer lives in `AdaptArch.Devices.Windows`
+(`net10.0-windows10.0.19041.0`) instead. That package brings no runtime NuGet
+dependency of its own: the `-windows` TFM resolves the SDK projection implicitly,
+and the calls only run on Windows 10 and later, where the engine ships in-box. The
+core package keeps no Windows SDK reference and stays dependency-free; the Windows
+package sets one internal hook (`SpoolerPdfRendering.RenderAsync`, via
+`InternalsVisibleTo`) when the application calls
+`WindowsPrinting.EnableSpoolerPdfPrinting()`. Without that call a PDF job fails
+with `NotSupportedException` before anything spools. The hook is a plain delegate,
+so both sides stay trim- and AOT-safe with no reflection.
 
 ### Approved exception: a prerelease SNMP dependency
 

@@ -89,7 +89,6 @@ In each case, check the `Detail` text too. It must name the bit you expect, for 
 Run `win-printer-test <queue-name> --print`. It sends a small `RAW` job through the
 complete sequence: `OpenPrinter`, `StartDocPrinter`, `StartPagePrinter`, `WritePrinter`,
 `EndPagePrinter`, `EndDocPrinter`, `ClosePrinter`.
-
 - The job must reach the device or the output file.
 - The job identifier the scenario prints must agree with the identifier in the Windows
   print queue window.
@@ -219,3 +218,17 @@ Check on a real Windows machine:
 
 Also confirm that `PrinterInfo.IsDefault` and `PrinterInfo.IsShared`, which the same
 level 2 read can fill, match what the Windows printer settings show.
+
+### 9. A PDF through the spooler
+
+The `test-run` sample prints `document.pdf` through the spooler queue. It needs the
+`AdaptArch.Devices.Windows` package with `WindowsPrinting.EnableSpoolerPdfPrinting()`
+(the sample calls it on Windows); without that call the job fails with
+`NotSupportedException` before anything spools.
+
+- Every page of the PDF must print, in order, as one job in the queue window.
+- A multi-page PDF with `PageRanges` must print only the selected pages.
+- A password-protected or corrupt PDF must fail with `InvalidOperationException`
+  naming the file, and leave no job in the queue.
+- Compare with the same file sent over IPP: a printer whose `document-format-supported`
+  lists no PDF ejects a blank page there, which is the firmware answering, not this library.

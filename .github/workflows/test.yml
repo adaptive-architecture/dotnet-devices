@@ -49,11 +49,13 @@ jobs:
         run: |
           dotnet tool install --global dotnet-sonarscanner
 
-      # WindowsSpoolerDriver.cs and WindowsSpoolerInterop.cs reach the Windows print
-      # spooler through P/Invoke. This runner is ubuntu-latest, so no test here can
-      # execute that code; docs/windows-manual-tests.md lists the checks a person
-      # must run on Windows instead. Excluded from coverage only, not from analysis:
-      # Sonar still inspects both files for issues.
+      # The files below reach the Windows print spooler, GDI or the Windows SDK
+      # projection, all through P/Invoke or a -windows only API. This runner is
+      # ubuntu-latest, so no test here can execute that code;
+      # docs/windows-manual-tests.md lists the checks a person must run on Windows
+      # instead. Excluded from coverage only, not from analysis: Sonar still
+      # inspects every file for issues. The Windows code that is pure logic
+      # (the layout, the parsers and the mappers) stays in, and the tests cover it.
       - name: SonarQube Begin
         run: >-
           dotnet sonarscanner begin /k:"adaptive-architecture_dotnet-devices"
@@ -63,7 +65,7 @@ jobs:
           /d:sonar.cs.opencover.reportsPaths="./coverage/coverage.opencover.*.xml"
           /d:sonar.scanner.scanAll=false
           /d:sonar.exclusions="**/assets/**/*,**/coverage/**/*,**/docfx/**/*,**/docs/**/*,**/samples/**/*,**/bin/**/*,**/obj/**/*"
-          /d:sonar.coverage.exclusions="**/Spooler/WindowsSpoolerDriver.cs,**/Spooler/WindowsSpoolerInterop.cs"
+          /d:sonar.coverage.exclusions="**/Spooler/WindowsSpoolerDriver.cs,**/Spooler/WindowsSpoolerInterop.cs,**/Spooler/WindowsGdiImagePrinter.cs,**/Spooler/WindowsGdiInterop.cs,**/src/Devices.Windows/**/*"
           /d:sonar.scanner.skipJreProvisioning=true
 
       - name: Build

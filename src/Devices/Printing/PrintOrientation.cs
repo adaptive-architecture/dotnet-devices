@@ -4,9 +4,10 @@
 /// Page orientation of a print job, which is also how the page is rotated on the media.
 /// </summary>
 /// <remarks>
-/// IPP carries all four values as <c>orientation-requested</c>. A Windows device mode
-/// holds portrait and landscape only, so the two reversed values are reported in
-/// <see cref="PrintJobInfo.DroppedOptions"/> there.
+/// IPP carries all four values as <c>orientation-requested</c>. On Windows, printer
+/// languages travel in a device mode that holds portrait and landscape only, so the
+/// two reversed values are reported in <see cref="PrintJobInfo.DroppedOptions"/> there,
+/// while PNG and JPEG images are rotated with GDI and honour all four.
 /// </remarks>
 public enum PrintOrientation
 {

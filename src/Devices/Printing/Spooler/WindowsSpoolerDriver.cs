@@ -134,6 +134,12 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // options travel in a DEVMODE built by the driver; the rest go to DroppedOptions.
     // Copies are printed as one document each, because a RAW queue never reads dmCopies,
     // and the reported job is the first of them.
+    //
+    // PNG and JPEG take a second path below: they are drawn onto a GDI printer device
+    // context so the driver rasterises the page. Sent as RAW, they would reach a
+    // firmware that reads only its own page language and print nothing, while the
+    // spooler still reports success. PDF takes a third path: each page is rendered
+    // to PNG with the in-box Windows engine first, then printed as one GDI document.
     public Task<PrintJobInfo> SubmitAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsWindows())
@@ -145,6 +151,163 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
         ArgumentNullException.ThrowIfNull(payload);
+
+        if (WindowsSpoolerContent.Classify(payload.ContentType) == SpoolerContentKind.Pdf)
+        {
+            return SubmitPdfAsync(queueName, payload, options, cancellationToken);
+        }
+
+        if (WindowsSpoolerContent.Classify(payload.ContentType) == SpoolerContentKind.Image)
+        {
+            return SubmitImageAsync(queueName, payload, options, cancellationToken);
+        }
+
+        return SubmitRawAsync(queueName, payload, options, cancellationToken);
+    }
+
+    // One GDI document for the whole PDF: every selected page is rendered to PNG
+    // first, so a corrupt file fails before any job exists. PageRanges is honoured
+    // here, unlike on every other Windows path, because a page range names rendered
+    // pages rather than a device mode field.
+    private static async Task<PrintJobInfo> SubmitPdfAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var request = WindowsSpoolerDeviceModeMapper.Build(options, MediaFor(queueName, options), SourcesFor(queueName, options));
+        var imageRequest = WithoutImageLayout(request);
+        var dropped = WithoutGdiDropped(request.Dropped, true);
+        var copies = options?.Copies ?? 1;
+        var bytes = payload.Data.ToArray();
+        var jobName = options?.JobName ?? queueName;
+
+        var rendered = await RenderPdfAsync(
+            queueName,
+            bytes,
+            WindowsSpoolerContent.RenderDpi(options?.ResolutionDpi),
+            options?.PageRanges,
+            cancellationToken).ConfigureAwait(false);
+
+        var deviceMode = IntPtr.Zero;
+        try
+        {
+            deviceMode = BuildDeviceMode(queueName, imageRequest);
+            var jobId = WindowsGdiImagePrinter.PrintPages(
+                new WindowsGdiJob(queueName, ".png", jobName, deviceMode, copies, options?.Orientation, options?.Scaling),
+                rendered);
+
+            return new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
+            {
+                JobName = options?.JobName,
+                DroppedOptions = dropped,
+            };
+        }
+        finally
+        {
+            FreeIfSet(deviceMode);
+        }
+    }
+
+    // One GDI job: the image is drawn onto a printer device context and the driver
+    // rasterises it. Orientation and scaling are applied by the layout math, not by
+    // the device mode, so both are kept out of DroppedOptions and out of the mode.
+    // Copies travel as dmCopies, which the GDI path honours, so one job prints all.
+    private static Task<PrintJobInfo> SubmitImageAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var request = WindowsSpoolerDeviceModeMapper.Build(options, MediaFor(queueName, options), SourcesFor(queueName, options));
+        var imageRequest = WithoutImageLayout(request);
+        var dropped = WithoutGdiDropped(request.Dropped, false);
+        var copies = options?.Copies ?? 1;
+        var bytes = payload.Data.ToArray();
+        var jobName = options?.JobName ?? queueName;
+
+        var deviceMode = IntPtr.Zero;
+        try
+        {
+            deviceMode = BuildDeviceMode(queueName, imageRequest);
+            var jobId = WindowsGdiImagePrinter.Print(
+                new WindowsGdiJob(queueName, ImageExtension(payload.ContentType), jobName, deviceMode, copies, options?.Orientation, options?.Scaling),
+                bytes);
+
+            return Task.FromResult(new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
+            {
+                JobName = options?.JobName,
+                DroppedOptions = dropped,
+            });
+        }
+        finally
+        {
+            FreeIfSet(deviceMode);
+        }
+    }
+
+    // The device mode never carries the two options the image layout math owns.
+    // Leaving them in would rotate and scale twice: once in the mode, once on
+    // the page.
+    private static DeviceModeRequest WithoutImageLayout(DeviceModeRequest request) =>
+        new(
+            request.Fields & ~(WindowsSpoolerCapabilityParser.DmOrientation | WindowsSpoolerCapabilityParser.DmScale),
+            null,
+            null,
+            request.PaperSize,
+            request.DefaultSource,
+            request.PrintQuality,
+            request.YResolution,
+            request.Color,
+            request.Duplex,
+            WithoutGdiDropped(request.Dropped, false));
+
+    // Orientation and scaling are laid out on the GDI page, never in the device
+    // mode. PageRanges is additionally honoured by the PDF render, which selects
+    // pages rather than naming a mode field.
+    private static List<string> WithoutGdiDropped(IReadOnlyList<string> dropped, bool honorPageRanges)
+    {
+        List<string> kept = new(dropped.Count);
+        foreach (var name in dropped)
+        {
+            if (String.Equals(name, nameof(PrintOptions.Orientation), StringComparison.Ordinal)
+                || String.Equals(name, nameof(PrintOptions.Scaling), StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (honorPageRanges && String.Equals(name, nameof(PrintOptions.PageRanges), StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            kept.Add(name);
+        }
+
+        return kept;
+    }
+
+    private static string ImageExtension(string contentType) =>
+        String.Equals(contentType, PrinterContentTypes.Png, StringComparison.OrdinalIgnoreCase) ? ".png" : ".jpg";
+
+    // The renderer is set by AdaptArch.Devices.Windows. Without that package a PDF
+    // fails here, before any job exists, instead of spooling silence.
+    private static Task<IReadOnlyList<byte[]>> RenderPdfAsync(
+        string queueName,
+        byte[] pdf,
+        int dpi,
+        IReadOnlyList<PageRange>? ranges,
+        CancellationToken cancellationToken)
+    {
+        var render = SpoolerPdfRendering.RenderAsync;
+        if (render is null)
+        {
+            throw new NotSupportedException(
+                $"The Windows spooler cannot print PDF without the AdaptArch.Devices.Windows package: reference it and call WindowsPrinting.EnableSpoolerPdfPrinting(). Queue '{queueName}' spooled nothing.");
+        }
+
+        return render(pdf, dpi, ranges, cancellationToken);
+    }
+
+    private Task<PrintJobInfo> SubmitRawAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
 
         var request = WindowsSpoolerDeviceModeMapper.Build(options, MediaFor(queueName, options), SourcesFor(queueName, options));
         var copies = options?.Copies ?? 1;

@@ -6,6 +6,7 @@
   <ItemGroup>
     <PackageVersion Include="AdaptArch.Devices" Version="0.1.0" />
     <PackageVersion Include="AdaptArch.Devices.DependencyInjection" Version="0.1.0" />
+    <PackageVersion Include="AdaptArch.Devices.Windows" Version="0.1.0" />
     <PackageVersion Include="Lextm.SharpSnmpLib" Version="13.0.0-beta.3" />
     <PackageVersion Include="Makaretu.Dns.New" Version="3.1.2" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />

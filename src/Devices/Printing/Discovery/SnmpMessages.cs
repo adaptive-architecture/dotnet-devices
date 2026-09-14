@@ -89,7 +89,9 @@ internal static class SnmpMessages
                 $"The SNMP agent reported error status {pdu.ErrorStatus} at index {pdu.ErrorIndex}.");
         }
 
-        return new SnmpReply(pdu.RequestId, [.. pdu.Variables]);
+        // A collection expression over the variable list emits a compiler wrapper type
+        // that the trimmer cannot keep intact, with no analyzer warning. A plain list is safe.
+        return new SnmpReply(pdu.RequestId, new List<Variable>(pdu.Variables));
     }
 
     private static List<Variable> ToVariables(IReadOnlyList<string> oids)

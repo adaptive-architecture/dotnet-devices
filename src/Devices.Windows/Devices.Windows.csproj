@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Windows-specific extensions for AdaptArch.Devices: spooler PDF rendering through the in-box Windows engine.</Description>
+    <!-- The -windows TFM brings the Windows SDK projection (Windows.Data.Pdf) with no
+      package reference of its own. This project compiles on any OS and runs on Windows only. -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <!-- Linux and macOS restore the Windows reference packs from NuGet, so the solution,
+      the samples and the tests build and run on every platform. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- The target platform version only selects the API surface to compile against.
+      The minimum stays at the version that first shipped Windows.Data.Pdf, so a consumer
+      on an older Windows 10 gets no CA1416 warning. -->
+    <SupportedOSPlatformVersion>10.0.10240.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(CONFIGURATION)' == 'Debug' Or '$(BuildDocFx)' == 'true'">
+    <ProjectReference Include="..\Devices\Devices.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(CONFIGURATION)' == 'Release' And '$(BuildDocFx)' != 'true'">
+    <PackageReference Include="AdaptArch.Devices" />
+  </ItemGroup>
+
+</Project>

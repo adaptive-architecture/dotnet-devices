@@ -15,6 +15,22 @@ dotnetup dotnet format
 dotnetup dotnet pack
 ```
 
+### Build on Linux and macOS
+
+`src/Devices.Windows` targets `net10.0-windows10.0.19041.0`, and the solution builds it on
+every operating system. The project sets `EnableWindowsTargeting`, which makes the restore
+take the Windows reference packs from NuGet. Without that property the build stops with
+`NETSDK1100`, and the whole solution fails, not only that one project.
+
+The version in the target framework only selects the Windows SDK API surface to compile
+against; a bare `net10.0-windows` gives no WinRT projection, so `Windows.Data.Pdf` does not
+resolve. `SupportedOSPlatformVersion` keeps the minimum at the version that first shipped
+that engine, so a consumer on an older Windows 10 gets no CA1416 warning.
+
+The code compiles everywhere but runs on Windows only. The sample keeps its own
+operating-system conditions: on Linux and macOS it stays plain `net10.0`, it does not
+reference the Windows package, and it leaves the spooler PDF hook unset.
+
 ## Test
 
 Tests run on Microsoft.Testing.Platform (MTP), opted in via `global.json`
@@ -37,6 +53,16 @@ The `pipeline/unit-test.sh` script:
 - Emits coverage in JSON, LCOV, and OpenCover formats under `coverage/`
   (one timestamped report per test project via `--results-directory ./coverage`)
 
+The CI runner is Linux, so no test there executes the Windows P/Invoke paths
+(`WindowsSpoolerDriver`, `WindowsSpoolerInterop`, `WindowsGdiImagePrinter`,
+`WindowsGdiInterop`) or the `AdaptArch.Devices.Windows` package. Those are listed in
+`sonar.coverage.exclusions` in `.github/workflows/test.yml`, so they do not count as
+uncovered. The exclusion is for coverage only: Sonar still inspects the files, and
+[windows-manual-tests.md](windows-manual-tests.md) states the checks a person runs on
+Windows. The Windows code that is pure logic — the layout, the parsers and the mappers —
+stays in the coverage, and the tests cover it. Add a new Windows-only file to that list
+only when a test on Linux cannot reach it.
+
 Integration tests (when added later) require Docker. Set `TESTCONTAINERS_RYUK_DISABLED=true` in CI environments.
 
 ## Trim and native AOT
@@ -55,6 +81,14 @@ The script passes `-p:BuildDocFx=true`. That keeps the `ProjectReference` inside
 `Devices.DependencyInjection`, which a `Release` build otherwise replaces with a
 `PackageReference` on `AdaptArch.Devices`. That package comes only from the local `./.nuget/`
 folder, which `pipeline/publish-packages.sh` fills.
+
+A green trim publish is not proof the trimmed binary runs: a collection expression
+that spreads into an interface-typed target (for example `return [.. selected];`)
+emits a compiler wrapper type the trimmer silently breaks, with no analyzer warning,
+and the failure surfaces only at run time as `TypeLoadException`. Prefer an explicit
+`List<T>` with `Add`/`AddRange` for such targets; spreads into a `List<T>` target
+lower to `AddRange` and are safe. When in doubt, exercise the trimmed binary, not
+just the publish.
 
 ## Formatting and style
 

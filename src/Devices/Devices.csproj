@@ -25,4 +25,9 @@
     <PackageReference Include="SharpIppNext" />
   </ItemGroup>
 
+  <!-- AdaptArch.Devices.Windows sets the spooler PDF hook; it sees no other internals. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="AdaptArch.Devices.Windows" />
+  </ItemGroup>
+
 </Project>

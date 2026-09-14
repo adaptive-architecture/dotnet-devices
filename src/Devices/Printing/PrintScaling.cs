@@ -5,10 +5,10 @@
 /// <c>print-scaling</c>.
 /// </summary>
 /// <remarks>
-/// IPP printers and the CUPS spooler driver carry every value. The Windows spooler
-/// device mode holds a scale percentage and no fit mode, so it applies
-/// <see cref="None"/> as 100 per cent and reports every other value in
-/// <see cref="PrintJobInfo.DroppedOptions"/>.
+/// IPP printers and the CUPS spooler driver carry every value. On Windows, printer
+/// languages apply <see cref="None"/> as a 100 per cent device mode scale and report
+/// every other value in <see cref="PrintJobInfo.DroppedOptions"/>, while PNG and JPEG
+/// images are laid out with GDI and honour every value.
 /// </remarks>
 public enum PrintScaling
 {
