@@ -219,7 +219,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // rasterises it. Orientation and scaling are applied by the layout math, not by
     // the device mode, so both are kept out of DroppedOptions and out of the mode.
     // Copies travel as dmCopies, which the GDI path honours, so one job prints all.
-    private Task<PrintJobInfo> SubmitImageAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
+    private static Task<PrintJobInfo> SubmitImageAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 

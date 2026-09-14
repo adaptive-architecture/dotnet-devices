@@ -31,15 +31,6 @@ public sealed class IppPrinter : IPrinter, IDisposable
     }
 
     /// <summary>
-    /// Gets the formats this printer knows. Defaults to <see cref="PrintFormatPolicy.Default"/>.
-    /// </summary>
-    /// <remarks>
-    /// A printer language is sent unchanged, so which content types count as one decides
-    /// what this printer negotiates with an IPP server.
-    /// </remarks>
-    public PrintFormatPolicy Formats { get; init; } = PrintFormatPolicy.Default;
-
-    /// <summary>
     /// Initializes a new instance of the <see cref="IppPrinter"/> class with an internally
     /// managed <see cref="HttpClient"/> built from <paramref name="options"/>.
     /// </summary>
@@ -89,6 +80,15 @@ public sealed class IppPrinter : IPrinter, IDisposable
 
     /// <inheritdoc />
     public PrinterInfo Info { get; }
+
+    /// <summary>
+    /// Gets the formats this printer knows. Defaults to <see cref="PrintFormatPolicy.Default"/>.
+    /// </summary>
+    /// <remarks>
+    /// A printer language is sent unchanged, so which content types count as one decides
+    /// what this printer negotiates with an IPP server.
+    /// </remarks>
+    public PrintFormatPolicy Formats { get; init; } = PrintFormatPolicy.Default;
 
     /// <inheritdoc />
     /// <exception cref="NotSupportedException">Thrown when an option is not supported by the printer and <see cref="PrintOptions.OnUnsupported"/> is <see cref="UnsupportedOptionBehavior.Throw"/>.</exception>
