@@ -15,6 +15,17 @@ dotnetup dotnet format
 dotnetup dotnet pack
 ```
 
+### Build on Linux and macOS
+
+`src/Devices.Windows` targets `net10.0-windows10.0.19041.0`, and the solution builds it on
+every operating system. The project sets `EnableWindowsTargeting`, which makes the restore
+take the Windows reference packs from NuGet. Without that property the build stops with
+`NETSDK1100`, and the whole solution fails, not only that one project.
+
+The code compiles everywhere but runs on Windows only. The sample keeps its own
+operating-system conditions: on Linux and macOS it stays plain `net10.0`, it does not
+reference the Windows package, and it leaves the spooler PDF hook unset.
+
 ## Test
 
 Tests run on Microsoft.Testing.Platform (MTP), opted in via `global.json`
