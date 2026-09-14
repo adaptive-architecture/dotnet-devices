@@ -53,6 +53,16 @@ The `pipeline/unit-test.sh` script:
 - Emits coverage in JSON, LCOV, and OpenCover formats under `coverage/`
   (one timestamped report per test project via `--results-directory ./coverage`)
 
+The CI runner is Linux, so no test there executes the Windows P/Invoke paths
+(`WindowsSpoolerDriver`, `WindowsSpoolerInterop`, `WindowsGdiImagePrinter`,
+`WindowsGdiInterop`) or the `AdaptArch.Devices.Windows` package. Those are listed in
+`sonar.coverage.exclusions` in `.github/workflows/test.yml`, so they do not count as
+uncovered. The exclusion is for coverage only: Sonar still inspects the files, and
+[windows-manual-tests.md](windows-manual-tests.md) states the checks a person runs on
+Windows. The Windows code that is pure logic — the layout, the parsers and the mappers —
+stays in the coverage, and the tests cover it. Add a new Windows-only file to that list
+only when a test on Linux cannot reach it.
+
 Integration tests (when added later) require Docker. Set `TESTCONTAINERS_RYUK_DISABLED=true` in CI environments.
 
 ## Trim and native AOT
