@@ -49,13 +49,125 @@ foreach (var device in devices)
 }
 
 // A printer command language needs a channel that sends the bytes unchanged. The
-// manager picks one from anywhere on the device, and refuses rather than guessing.
+// content type says so, and the manager picks such a channel from anywhere on the
+// device. There is nothing to switch on.
 PrinterPayload payload = PrinterPayload.FromString("^XA^FO50,50^ADN,36,20^FDHello^FS^XZ", PrinterContentTypes.Zpl);
-await manager.PrintAsync(devices[0].Id, payload, new PrintOptions { RequirePassthrough = true }, cancellationToken);
+await manager.PrintAsync(devices[0].Id, payload, null, cancellationToken);
 ```
 
 Register the services with `services.AddPrinters()` from the
 `AdaptArch.Devices.DependencyInjection` package.
+
+## Choosing the sources and the channel
+
+`PrinterManagerOptions` controls which discovery sources run. Give it to each
+`DiscoverAsync` call, because the manager does not keep it.
+
+| Source | Property | Default |
+| --- | --- | --- |
+| Operating system spooler | `IncludeSpooler` | On |
+| mDNS browse | `IncludeMdns`, and `Mdns.ServiceTypes` for each service type | On |
+| TCP probe | `Probe`, which lists the hosts to open a connection to | Off |
+
+Two more properties ask each channel for more data. Each one costs one request per channel.
+
+| Property | What it adds |
+| --- | --- |
+| `ReadIdentity` | The UUID, the serial number and the device URI. This data groups a queue and the network channels into one device. |
+| `ReadCapabilities` | The document formats, the media, the resolutions and the duplex support of each channel. |
+
+`Transports` is different from the properties above: it does not change what discovery
+finds, but which channels the manager may open. Give it to the constructor, or to
+`AddPrinters`, because a print carries no options of its own.
+
+```csharp
+services.AddPrinters(configureManager: options => options.Transports = [PrinterScheme.Spooler]);
+```
+
+Membership is permission. Position is preference, but only between the channels that suit
+a call equally: the payload decides first, or an order that put IPP before the raw channel
+would send each label to a channel that converts it.
+
+### Use the printers in the spooler only
+
+Switch the other two sources off. The cache then holds spooler channels only, so each call
+uses the spooler.
+
+```csharp
+PrinterManagerOptions spoolerOnly = new() { IncludeMdns = false };
+IReadOnlyList<PrinterDevice> devices = await manager.DiscoverAsync(spoolerOnly, cancellationToken);
+```
+
+### Get all the data, but print through the spooler
+
+A queue reports little about the hardware. To get more, let each source run, and set both
+`Read*` properties. `ReadIdentity` groups the queue with the network channels of the same
+printer, and `PrinterDevice.Details` then holds what all of them reported.
+
+```csharp
+PrinterManagerOptions rich = new()
+{
+    Probe = new() { Hosts = NetworkPrinterDiscoveryOptions.LocalSubnetHosts() },
+    ReadIdentity = true,
+    ReadCapabilities = true,
+};
+
+IReadOnlyList<PrinterDevice> devices = await manager.DiscoverAsync(rich, cancellationToken);
+```
+
+Then let the manager open the spooler only:
+
+```csharp
+services.AddPrinters(configureManager: options => options.Transports = [PrinterScheme.Spooler]);
+```
+
+Each call then uses the queue, for each format and on each operating system. Discovery is
+not affected, so `PrinterDevice.Channels` still lists the raw and the IPP channels, and
+`PrinterDevice.Details` still holds what they reported.
+
+```csharp
+await manager.PrintAsync(device.Id, payload, null, cancellationToken);
+```
+
+A device that no allowed transport reaches causes a `NotSupportedException`. The message
+gives the transports the manager may open.
+
+### Select a channel for one call
+
+To keep the default policy and select a channel for one call, give the identifier of that
+channel instead of `device.Id`:
+
+```csharp
+var queue = device.ChannelsByTransport[PrinterScheme.Spooler][0];
+await manager.PrintAsync(queue.Id, payload, null, cancellationToken);
+```
+
+**The content type decides before the identifier does.** On Windows this prints through the
+spooler for each format, because the spooler sends the bytes unchanged. On Linux and macOS
+a CUPS queue does not send the bytes unchanged, so a printer language (ZPL, EPL, CPCL or
+ESC/POS) goes to the raw channel instead. Set `Transports` when you must have the queue.
+
+To select a channel and obey nothing else, open it with `IPrinterFactory`. This is the same
+abstraction, but the caller selects the channel instead of the manager:
+
+```csharp
+var printer = factory.Open(queue);
+try
+{
+    PrintJobInfo job = await printer.PrintAsync(payload, options, cancellationToken);
+    await foreach (var reading in monitor.WatchJobAsync(queue.Id, job.JobId, new(), cancellationToken))
+    {
+        Console.WriteLine(reading.State);
+    }
+}
+finally
+{
+    (printer as IDisposable)?.Dispose();
+}
+```
+
+`AddPrinters()` registers `IPrinterFactory` and `IPrintJobMonitor`. Inject them together
+with `IPrinterManager`.
 
 The API reference holds every member. The rules behind these choices — the document format
 sent for each peer, how channels are grouped into devices, and the transport policy — are

@@ -267,7 +267,8 @@ internal static class PrinterManagerScenario
         }
     }
 
-    // RequirePassthrough: the bytes must reach the device unchanged, or the manager throws.
+    // The content type does the work: ZPL is a printer language, so the manager picks a
+    // channel that sends the bytes unchanged without being asked.
     internal static async Task SendZplAsync(ServiceProvider provider, string identifierText)
     {
         var manager = provider.GetRequiredService<IPrinterManager>();
@@ -280,20 +281,16 @@ internal static class PrinterManagerScenario
             var submitted = await manager.PrintAsync(
                 printerId,
                 payload,
-                new PrintOptions { RequirePassthrough = true },
+                null,
                 timeoutSource.Token).ConfigureAwait(false);
             Console.WriteLine($"Job {submitted.JobId} submitted ({submitted.State}).");
         }
         catch (NotSupportedException exception)
         {
-            // The refusal is the guarantee working: no channel of this printer keeps it.
-            Console.WriteLine("The manager sent nothing, because no channel of this printer");
-            Console.WriteLine("sends the bytes unchanged. A filtering channel could rasterise");
-            Console.WriteLine("the ZPL and print the command source instead of the label.");
-            Console.WriteLine("A raw TCP channel keeps the promise, and so does the Windows spooler.");
-            Console.WriteLine("CUPS does not: only a raw CUPS queue passes the bytes on, and CUPS");
-            Console.WriteLine("reports nothing that tells such a queue apart, so it is refused here.");
-            Console.WriteLine("Send without RequirePassthrough only when the printer reads the format you send.");
+            // The refusal is the check working: every channel reported other formats only.
+            Console.WriteLine("The manager sent nothing, because every channel of this printer");
+            Console.WriteLine("reported that it does not read ZPL. A channel that does not read");
+            Console.WriteLine("the label language prints the command source as text, or prints nothing.");
             Console.WriteLine($"Reason: {exception.Message}");
         }
         catch (InvalidOperationException)

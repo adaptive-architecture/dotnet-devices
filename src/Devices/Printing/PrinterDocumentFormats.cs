@@ -9,7 +9,7 @@ internal static class PrinterDocumentFormats
     // A CUPS queue names no printer language of its own, and takes one as
     // "application/vnd.cups-raw" instead. A queue that lists that format can carry the
     // bytes, so it must not be skipped. Whether the queue then passes them on unchanged
-    // is the separate question RequirePassthrough asks.
+    // is the separate question DiscoveredPrinter.GivesPassthrough answers.
     //
     // "application/octet-stream" is deliberately not read as an answer. Nearly every
     // channel lists it, and CUPS re-types such a job as text/plain, which prints the

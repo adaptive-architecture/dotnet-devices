@@ -1,11 +1,23 @@
 ﻿namespace AdaptArch.Devices.Printing;
 
 /// <summary>
-/// Options for <see cref="IPrinterManager.DiscoverAsync"/>, scoping which discovery
-/// sources run and how.
+/// Options for <see cref="PrinterManager"/>: which discovery sources run, how much each
+/// channel is asked, and which transports the manager may open.
 /// </summary>
+/// <remarks>
+/// An instance given to the constructor is the policy of the manager, and every call
+/// reads <see cref="Transports"/> from it. An instance given to
+/// <see cref="IPrinterManager.DiscoverAsync"/> scopes that one discovery instead.
+/// </remarks>
 public sealed class PrinterManagerOptions
 {
+    /// <summary>
+    /// Gets the transports a manager may open when the caller names none: IPPS, IPP, the
+    /// spooler, then the raw channel.
+    /// </summary>
+    public static IReadOnlyList<PrinterScheme> DefaultTransports { get; } =
+        [PrinterScheme.Ipps, PrinterScheme.Ipp, PrinterScheme.Spooler, PrinterScheme.Raw];
+
     /// <summary>
     /// Gets or sets the options for the multicast DNS discovery source.
     /// Defaults to <c>new()</c>. The browse timeout is set through <see cref="MdnsPrinterDiscoveryOptions.BrowseTimeout"/>
@@ -68,4 +80,34 @@ public sealed class PrinterManagerOptions
     /// not have to absorb.
     /// </remarks>
     public int MaxEnrichmentConcurrency { get; set; } = 8;
+
+    /// <summary>
+    /// Gets or sets the transports the manager may open, most preferred first. Defaults to
+    /// <see cref="DefaultTransports"/>, which is every transport.
+    /// </summary>
+    /// <remarks>
+    /// Membership is permission: a channel on a transport this list leaves out is never
+    /// opened, however the payload or the identifier would have ranked it. Set it to
+    /// <c>[PrinterScheme.Spooler]</c> to print through the operating system only.
+    /// <para>
+    /// Position is preference, but only between the channels that suit the call equally.
+    /// The payload still decides first — a printer language takes a channel that sends the
+    /// bytes unchanged, and every other format takes a channel with a job queue — because
+    /// an order that outranked the payload would send every label over IPP. Reorder this
+    /// list to choose between two channels that both suit the call, such as a spooler queue
+    /// and an IPP channel for a PDF.
+    /// </para>
+    /// <para>
+    /// Discovery is not affected. A channel on a transport that is left out is still found,
+    /// still listed in <see cref="PrinterDevice.Channels"/>, and still contributes what it
+    /// reported to <see cref="PrinterDevice.Details"/>. This is what lets an application
+    /// learn everything about a printer and still print through one transport.
+    /// </para>
+    /// <para>
+    /// The manager reads this from the options it was built with, and never from the
+    /// argument of <see cref="IPrinterManager.DiscoverAsync"/>: a print carries no options,
+    /// and the scope of one discovery is not a policy for every call.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<PrinterScheme> Transports { get; set; } = DefaultTransports;
 }

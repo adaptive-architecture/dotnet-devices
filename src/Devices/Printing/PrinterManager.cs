@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using AdaptArch.Devices.Printing.Ipp;
 
 namespace AdaptArch.Devices.Printing;
 
@@ -15,8 +16,8 @@ namespace AdaptArch.Devices.Printing;
 /// reached.
 /// <para>
 /// A device usually has several channels, and each call picks the one it needs. A print
-/// that requires passthrough takes the raw channel; every other call prefers a channel
-/// with a job queue, so the job can be watched after it is sent.
+/// of a printer language takes a channel that sends the bytes unchanged; every other call
+/// prefers a channel with a job queue, so the job can be watched after it is sent.
 /// </para>
 /// </remarks>
 public sealed class PrinterManager : IPrinterManager
@@ -26,6 +27,7 @@ public sealed class PrinterManager : IPrinterManager
     private readonly INetworkPrinterDiscovery _probe;
     private readonly IPrinterFactory _factory;
     private readonly IPrintJobMonitor _monitor;
+    private readonly PrinterManagerOptions _options;
 
     // Every key of a device maps to that device: its own key and each alias a source
     // vouched for. A caller that kept an old address identifier therefore still resolves
@@ -42,6 +44,32 @@ public sealed class PrinterManager : IPrinterManager
     /// <param name="factory">The factory used to open a channel once found.</param>
     /// <param name="monitor">The monitor used to watch a job on a channel that has a job queue.</param>
     public PrinterManager(IMdnsPrinterDiscovery mdns, IPrinterDiscovery spooler, INetworkPrinterDiscovery probe, IPrinterFactory factory, IPrintJobMonitor monitor)
+        : this(mdns, spooler, probe, factory, monitor, null)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PrinterManager"/> class with the policy
+    /// it keeps for every call.
+    /// </summary>
+    /// <param name="mdns">The multicast DNS discovery source.</param>
+    /// <param name="spooler">The operating system print spooler discovery source.</param>
+    /// <param name="probe">The direct network probe discovery source.</param>
+    /// <param name="factory">The factory used to open a channel once found.</param>
+    /// <param name="monitor">The monitor used to watch a job on a channel that has a job queue.</param>
+    /// <param name="options">
+    /// The policy of this manager: the transports it may open, and the discovery scope a
+    /// call to <see cref="DiscoverAsync"/> uses when it is given no options of its own.
+    /// When <c>null</c>, the defaults apply.
+    /// </param>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="options"/> allows no transport.</exception>
+    public PrinterManager(
+        IMdnsPrinterDiscovery mdns,
+        IPrinterDiscovery spooler,
+        INetworkPrinterDiscovery probe,
+        IPrinterFactory factory,
+        IPrintJobMonitor monitor,
+        PrinterManagerOptions? options)
     {
         ArgumentNullException.ThrowIfNull(mdns);
         ArgumentNullException.ThrowIfNull(spooler);
@@ -53,12 +81,17 @@ public sealed class PrinterManager : IPrinterManager
         _probe = probe;
         _factory = factory;
         _monitor = monitor;
+        _options = options ?? new PrinterManagerOptions();
+        if (_options.Transports.Count == 0)
+        {
+            throw new ArgumentException("A manager that may open no transport can print nothing.", nameof(options));
+        }
     }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<PrinterDevice>> DiscoverAsync(PrinterManagerOptions? options, CancellationToken cancellationToken)
     {
-        var effective = options ?? new PrinterManagerOptions();
+        var effective = options ?? _options;
         ArgumentOutOfRangeException.ThrowIfLessThan(effective.MaxEnrichmentConcurrency, 1);
 
         var channels = await FindAsync(effective, cancellationToken).ConfigureAwait(false);
@@ -318,7 +351,7 @@ public sealed class PrinterManager : IPrinterManager
         ArgumentNullException.ThrowIfNull(payload);
 
         var device = await ResolveAsync(id, cancellationToken).ConfigureAwait(false);
-        var channel = Choose(device, id, options?.RequirePassthrough == true);
+        var channel = ChooseForPrint(device, id, payload.ContentType);
         var printer = _factory.Open(channel);
         try
         {
@@ -337,7 +370,7 @@ public sealed class PrinterManager : IPrinterManager
     public async Task<PrinterStatus> GetStatusAsync(PrinterId id, CancellationToken cancellationToken)
     {
         var device = await ResolveAsync(id, cancellationToken).ConfigureAwait(false);
-        var printer = _factory.Open(Choose(device, id, false));
+        var printer = _factory.Open(ChooseForQueue(device, id));
         try
         {
             return await printer.GetStatusAsync(cancellationToken).ConfigureAwait(false);
@@ -372,48 +405,109 @@ public sealed class PrinterManager : IPrinterManager
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var device = await ResolveAsync(id, cancellationToken).ConfigureAwait(false);
-        if (!device.HasJobQueue)
+        var allowed = Allowed(device);
+
+        // A queue on a transport this manager may not open is no queue it can read, so the
+        // check counts the allowed channels and not every channel of the device.
+        if (!allowed.Exists(static channel => channel.HasJobQueue))
         {
             throw new NotSupportedException(
-                $"Printer '{id}' has no job queue, so a job sent to it cannot be watched. " +
+                $"Printer '{id}' has no job queue this manager may read, so a job sent to it cannot be watched. " +
                 "A raw channel gives back no job identifier, and the job was reported complete when it was submitted. " +
-                $"Its endpoints are {String.Join(", ", device.Channels.Select(static channel => channel.Endpoint))}.");
+                $"It may open {String.Join(", ", _options.Transports)}, and its endpoints are " +
+                $"{String.Join(", ", device.Channels.Select(static channel => channel.Endpoint))}.");
         }
 
         // The job queue is addressed, not the device: an identity names no host, so the
         // endpoint of the chosen channel is what the queue can be opened from.
-        var channel = Choose(device, id, false);
+        var channel = ChooseForQueue(device, id);
         await foreach (var reading in _monitor.WatchJobAsync(PrinterId.FromEndpoint(channel.Endpoint), jobId, options, cancellationToken).ConfigureAwait(false))
         {
             yield return reading;
         }
     }
 
-    // The channel the caller named is used when it does what the call needs; otherwise
-    // another channel of the same device is. A device found through the spooler can
-    // therefore still be printed to over its raw channel.
-    private static DiscoveredPrinter Choose(PrinterDevice device, PrinterId id, bool requirePassthrough)
+    // The channels of a device this manager may open, in the configured order. A transport
+    // the list leaves out is not a candidate at all. The order ranks the channels that suit
+    // a call equally; the payload rule below still decides which ones those are. Discovery
+    // is untouched: an excluded channel is still found, still listed, and still tells the
+    // device what it knows.
+    private List<DiscoveredPrinter> Allowed(PrinterDevice device)
     {
-        var named = device.Channels.FirstOrDefault(channel => channel.Id == id);
-        if (requirePassthrough)
+        List<DiscoveredPrinter> allowed = [];
+        foreach (var scheme in _options.Transports)
         {
-            if (named?.GivesPassthrough == true)
+            if (device.ChannelsByTransport.TryGetValue(scheme, out var channels))
             {
-                return named;
+                allowed.AddRange(channels);
             }
-
-            return device.Channels.FirstOrDefault(static channel => channel.GivesPassthrough)
-                ?? throw new NotSupportedException(
-                    $"Printer '{id}' has no channel that sends the payload unchanged, and the options require one. " +
-                    $"Its endpoints are {String.Join(", ", device.Channels.Select(static channel => channel.Endpoint))}.");
         }
 
+        return allowed;
+    }
+
+    private NotSupportedException NoAllowedTransport(PrinterDevice device, PrinterId id) =>
+        new($"No channel of printer '{id}' is on a transport this manager may open. " +
+            $"It may open {String.Join(", ", _options.Transports)}, and its endpoints are " +
+            $"{String.Join(", ", device.Channels.Select(static channel => channel.Endpoint))}.");
+
+    // The channel that prints the payload. The content type decides, because a printer
+    // language is read by the device firmware and every other format is read by a driver.
+    // A device identifier and a channel identifier cannot be told apart when no channel
+    // reported an identity, so the identifier breaks a tie and never overrules the payload.
+    private DiscoveredPrinter ChooseForPrint(PrinterDevice device, PrinterId id, string contentType)
+    {
+        var allowed = Allowed(device);
+        if (allowed.Count == 0)
+        {
+            throw NoAllowedTransport(device, id);
+        }
+
+        // A channel that reported it does not read the content type is never chosen. A
+        // channel that reported nothing has not refused, so it stays a candidate.
+        List<DiscoveredPrinter> usable = [.. allowed.Where(channel => device.Accepts(channel, contentType) != false)];
+        if (usable.Count == 0)
+        {
+            throw new NotSupportedException(
+                $"No channel of printer '{id}' reads '{contentType}'. " +
+                $"Its endpoints are {String.Join(", ", allowed.Select(static channel => channel.Endpoint))}.");
+        }
+
+        // A printer language such as ZPL is interpreted by the printer itself, so a
+        // channel that rewrites the bytes prints the command source instead of the label.
+        // Every other format prefers a channel with a job queue, so the job can be watched
+        // after it is sent. Both fall back to the most preferred usable channel, which is
+        // the best the device offers.
+        var wantsPassthrough = IppDocumentFormat.IsRawLanguage(contentType);
+        var named = usable.Find(channel => channel.Id == id);
+        if (named is not null && Fits(named, wantsPassthrough))
+        {
+            return named;
+        }
+
+        return usable.Find(channel => Fits(channel, wantsPassthrough)) ?? named ?? usable[0];
+    }
+
+    private static bool Fits(DiscoveredPrinter channel, bool wantsPassthrough) =>
+        wantsPassthrough ? channel.GivesPassthrough : channel.HasJobQueue;
+
+    // The channel a queue is read from. Unlike a print, this needs a job queue whatever
+    // the caller named, because a raw channel has no queue to read.
+    private DiscoveredPrinter ChooseForQueue(PrinterDevice device, PrinterId id)
+    {
+        var allowed = Allowed(device);
+        if (allowed.Count == 0)
+        {
+            throw NoAllowedTransport(device, id);
+        }
+
+        var named = allowed.Find(channel => channel.Id == id);
         if (named?.HasJobQueue == true)
         {
             return named;
         }
 
-        return device.Channels.FirstOrDefault(static channel => channel.HasJobQueue) ?? named ?? device.Channels[0];
+        return allowed.Find(static channel => channel.HasJobQueue) ?? named ?? allowed[0];
     }
 
     // An address form names its own endpoint, so a miss opens it directly and nothing is

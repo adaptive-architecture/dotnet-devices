@@ -33,6 +33,31 @@ public class ServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddPrinters_ResolvesTheManagerWithTheConfiguredPolicy()
+    {
+        // The manager has two constructors. The options must be registered, or the
+        // container picks the one without them and the policy is silently lost.
+        ServiceCollection services = new();
+
+        services.AddPrinters(configureManager: options => options.Transports = [PrinterScheme.Spooler]);
+
+        using var provider = services.BuildServiceProvider();
+        Assert.IsType<PrinterManager>(provider.GetRequiredService<IPrinterManager>());
+        Assert.Equal([PrinterScheme.Spooler], provider.GetRequiredService<PrinterManagerOptions>().Transports);
+    }
+
+    [Fact]
+    public void AddPrinters_DefaultsToEveryTransport()
+    {
+        ServiceCollection services = new();
+
+        services.AddPrinters();
+
+        using var provider = services.BuildServiceProvider();
+        Assert.Equal(PrinterManagerOptions.DefaultTransports, provider.GetRequiredService<PrinterManagerOptions>().Transports);
+    }
+
+    [Fact]
     public void AddDevices_RegistersPrinterServices()
     {
         ServiceCollection services = new();
