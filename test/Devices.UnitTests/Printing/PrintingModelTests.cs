@@ -172,14 +172,6 @@ public class PrintingModelTests
     }
 
     [Fact]
-    public void PrintOptions_DoesNotRequirePassthroughByDefault()
-    {
-        PrintOptions options = new();
-
-        Assert.False(options.RequirePassthrough);
-    }
-
-    [Fact]
     public void PrintOptions_RejectsZeroOrNegativeCopies()
     {
         PrintOptions options = new();

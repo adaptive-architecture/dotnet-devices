@@ -171,7 +171,6 @@ internal static class PrintOptionValidator
             JobName = options.JobName,
             RequestingUserName = options.RequestingUserName,
             OnUnsupported = options.OnUnsupported,
-            RequirePassthrough = options.RequirePassthrough,
         };
 
         foreach (var name in unsupported)
