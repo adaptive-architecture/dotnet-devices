@@ -5,6 +5,9 @@
     <!-- The -windows TFM brings the Windows SDK projection (Windows.Data.Pdf) with no
       package reference of its own. This project compiles on any OS and runs on Windows only. -->
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <!-- Linux and macOS restore the Windows reference packs from NuGet, so the solution,
+      the samples and the tests build and run on every platform. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(CONFIGURATION)' == 'Debug' Or '$(BuildDocFx)' == 'true'">
