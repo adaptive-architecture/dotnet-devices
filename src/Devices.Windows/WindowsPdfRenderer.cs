@@ -7,8 +7,8 @@ using Windows.Storage.Streams;
 namespace AdaptArch.Devices.Printing.Spooler;
 
 // Renders PDF pages to PNG with the in-box Windows.Data.Pdf engine, so the spooler
-// PDF path needs no extra package. The targeting pack is build-time metadata only;
-// every call below is guarded by the platform check on entry.
+// PDF path needs no extra package. The targeting pack is build-time metadata only,
+// and the platform check on entry guards every call below.
 [SupportedOSPlatform("windows10.0.10240.0")]
 internal static class WindowsPdfRenderer
 {

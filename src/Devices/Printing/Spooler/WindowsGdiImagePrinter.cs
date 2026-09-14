@@ -20,54 +20,32 @@ internal static class WindowsGdiImagePrinter
     // GDI+ status Ok.
     private const int GdiplusOk = 0;
 
-    internal static int Print(
-        string queueName,
-        byte[] bytes,
-        string extension,
-        string jobName,
-        nint deviceMode,
-        int copies,
-        PrintOrientation? orientation,
-        PrintScaling? scaling)
+    internal static int Print(WindowsGdiJob job, byte[] bytes)
     {
         ArgumentNullException.ThrowIfNull(bytes);
 
-        return PrintPages(queueName, [bytes], extension, jobName, deviceMode, copies, orientation, scaling);
+        return PrintPages(job, [bytes]);
     }
 
-    internal static int PrintPages(
-        string queueName,
-        IReadOnlyList<byte[]> pages,
-        string extension,
-        string jobName,
-        nint deviceMode,
-        int copies,
-        PrintOrientation? orientation,
-        PrintScaling? scaling)
+    internal static int PrintPages(WindowsGdiJob job, IReadOnlyList<byte[]> pages)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
+        ArgumentNullException.ThrowIfNull(job);
+        ArgumentException.ThrowIfNullOrWhiteSpace(job.QueueName);
         ArgumentNullException.ThrowIfNull(pages);
-        ArgumentException.ThrowIfNullOrWhiteSpace(extension);
-        ArgumentException.ThrowIfNullOrWhiteSpace(jobName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(job.Extension);
+        ArgumentException.ThrowIfNullOrWhiteSpace(job.JobName);
         if (pages.Count == 0)
         {
             throw new ArgumentException("A job prints at least one page.", nameof(pages));
         }
 
-        return PrintFile(queueName, pages, extension, jobName, deviceMode, copies, orientation, scaling);
+        return PrintFile(job, pages);
     }
 
-    private static int PrintFile(
-        string queueName,
-        IReadOnlyList<byte[]> pages,
-        string extension,
-        string jobName,
-        nint deviceMode,
-        int copies,
-        PrintOrientation? orientation,
-        PrintScaling? scaling)
+    private static int PrintFile(WindowsGdiJob job, IReadOnlyList<byte[]> pages)
     {
-        ApplyCopies(deviceMode, copies);
+        var queueName = job.QueueName;
+        ApplyCopies(job.DeviceMode, job.Copies);
 
         var input = WindowsGdiInterop.StartupInput.Version1();
         var startupStatus = WindowsGdiInterop.Startup(out var token, in input, out _);
@@ -81,7 +59,7 @@ internal static class WindowsGdiImagePrinter
         var documentStarted = false;
         try
         {
-            deviceContext = WindowsGdiInterop.CreateDC(null, queueName, null, deviceMode);
+            deviceContext = WindowsGdiInterop.CreateDC(null, queueName, null, job.DeviceMode);
             if (deviceContext == IntPtr.Zero)
             {
                 ThrowLastError("CreateDC");
@@ -95,7 +73,7 @@ internal static class WindowsGdiImagePrinter
                     $"Printing '{queueName}' reported an unusable page of {pageWidth}x{pageHeight} pixels.");
             }
 
-            var docNamePtr = Marshal.StringToHGlobalUni(jobName);
+            var docNamePtr = Marshal.StringToHGlobalUni(job.JobName);
             try
             {
                 WindowsGdiInterop.DocInfo docInfo = new()
@@ -112,7 +90,7 @@ internal static class WindowsGdiImagePrinter
                 documentStarted = true;
                 foreach (var pageBytes in pages)
                 {
-                    DrawPage(deviceContext, pageBytes, extension, pageWidth, pageHeight, orientation, scaling, queueName);
+                    DrawPage(deviceContext, job, pageBytes, pageWidth, pageHeight);
                 }
 
                 if (WindowsGdiInterop.EndDoc(deviceContext) <= 0)
@@ -148,15 +126,13 @@ internal static class WindowsGdiImagePrinter
     // page open, so the caller aborts the whole document and no truncated page commits.
     private static void DrawPage(
         nint deviceContext,
+        WindowsGdiJob job,
         byte[] bytes,
-        string extension,
         int pageWidth,
-        int pageHeight,
-        PrintOrientation? orientation,
-        PrintScaling? scaling,
-        string queueName)
+        int pageHeight)
     {
-        var temporaryPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}{extension}");
+        var queueName = job.QueueName;
+        var temporaryPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}{job.Extension}");
         File.WriteAllBytes(temporaryPath, bytes);
         var image = IntPtr.Zero;
         var graphics = IntPtr.Zero;
@@ -172,7 +148,7 @@ internal static class WindowsGdiImagePrinter
 
             _ = CheckGdiplus(WindowsGdiInterop.GetImageWidth(image, out var width), queueName);
             _ = CheckGdiplus(WindowsGdiInterop.GetImageHeight(image, out var height), queueName);
-            var layout = WindowsGdiImageLayout.Compute((int)width, (int)height, pageWidth, pageHeight, orientation, scaling);
+            var layout = WindowsGdiImageLayout.Compute((int)width, (int)height, pageWidth, pageHeight, job.Orientation, job.Scaling);
             if (layout.IsEmpty)
             {
                 throw new InvalidOperationException(
@@ -188,7 +164,7 @@ internal static class WindowsGdiImagePrinter
             _ = CheckGdiplus(WindowsGdiInterop.CreateGraphics(deviceContext, out graphics), queueName);
             _ = CheckGdiplus(WindowsGdiInterop.SetPageUnit(graphics, WindowsGdiInterop.UnitPixel), queueName);
 
-            var angle = WindowsGdiImageLayout.RotationDegrees(orientation);
+            var angle = WindowsGdiImageLayout.RotationDegrees(job.Orientation);
             if (angle != 0f)
             {
                 _ = CheckGdiplus(
@@ -278,3 +254,14 @@ internal static class WindowsGdiImagePrinter
         throw new InvalidOperationException(
             $"{operation} failed with Win32 error {Marshal.GetLastWin32Error()}: {Marshal.GetPInvokeErrorMessage(Marshal.GetLastWin32Error())}");
 }
+
+// What one GDI job needs beyond its pages. The values travel together from the
+// driver to the page draw, so one record keeps every signature short.
+internal sealed record WindowsGdiJob(
+    string QueueName,
+    string Extension,
+    string JobName,
+    nint DeviceMode,
+    int Copies,
+    PrintOrientation? Orientation,
+    PrintScaling? Scaling);

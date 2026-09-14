@@ -81,11 +81,7 @@ internal static class WindowsSpoolerContent
         }
 
         List<int> ordered = new(selected.Count);
-        foreach (var page in selected)
-        {
-            ordered.Add(page);
-        }
-
+        ordered.AddRange(selected);
         return ordered;
     }
 }

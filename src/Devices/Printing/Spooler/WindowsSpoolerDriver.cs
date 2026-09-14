@@ -169,7 +169,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // first, so a corrupt file fails before any job exists. PageRanges is honoured
     // here, unlike on every other Windows path, because a page range names rendered
     // pages rather than a device mode field.
-    private async Task<PrintJobInfo> SubmitPdfAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
+    private static async Task<PrintJobInfo> SubmitPdfAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -192,14 +192,8 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         {
             deviceMode = BuildDeviceMode(queueName, imageRequest);
             var jobId = WindowsGdiImagePrinter.PrintPages(
-                queueName,
-                rendered,
-                ".png",
-                jobName,
-                deviceMode,
-                copies,
-                options?.Orientation,
-                options?.Scaling);
+                new WindowsGdiJob(queueName, ".png", jobName, deviceMode, copies, options?.Orientation, options?.Scaling),
+                rendered);
 
             return new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
             {
@@ -217,7 +211,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // rasterises it. Orientation and scaling are applied by the layout math, not by
     // the device mode, so both are kept out of DroppedOptions and out of the mode.
     // Copies travel as dmCopies, which the GDI path honours, so one job prints all.
-    private Task<PrintJobInfo> SubmitImageAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
+    private static Task<PrintJobInfo> SubmitImageAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -233,14 +227,8 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         {
             deviceMode = BuildDeviceMode(queueName, imageRequest);
             var jobId = WindowsGdiImagePrinter.Print(
-                queueName,
-                bytes,
-                ImageExtension(payload.ContentType),
-                jobName,
-                deviceMode,
-                copies,
-                options?.Orientation,
-                options?.Scaling);
+                new WindowsGdiJob(queueName, ImageExtension(payload.ContentType), jobName, deviceMode, copies, options?.Orientation, options?.Scaling),
+                bytes);
 
             return Task.FromResult(new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
             {
@@ -273,7 +261,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // Orientation and scaling are laid out on the GDI page, never in the device
     // mode. PageRanges is additionally honoured by the PDF render, which selects
     // pages rather than naming a mode field.
-    private static IReadOnlyList<string> WithoutGdiDropped(IReadOnlyList<string> dropped, bool honorPageRanges)
+    private static List<string> WithoutGdiDropped(IReadOnlyList<string> dropped, bool honorPageRanges)
     {
         List<string> kept = new(dropped.Count);
         foreach (var name in dropped)
