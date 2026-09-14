@@ -3,13 +3,18 @@
   <PropertyGroup>
     <PublishAot>false</PublishAot>
     <SonarQubeExclude>true</SonarQubeExclude>
-    <!--
-      IL2104: the Windows SDK projection (Microsoft.Windows.SDK.NET) and its
-      WinRT.Runtime ship trim warnings of their own, and the linker rolls each
-      assembly up into one IL2104. Our assemblies report none. Suppressing only
-      the roll-up keeps every specific trim warning (IL2026 and friends) an error,
-      so a trim problem in library code still fails the publish below.
-    -->
+  </PropertyGroup>
+  <!--
+    IL2104: the Windows SDK projection (Microsoft.Windows.SDK.NET) and its
+    WinRT.Runtime ship trim warnings of their own, and the linker rolls each
+    assembly up into one IL2104. Our assemblies report none. Suppressing only
+    the roll-up keeps every specific trim warning (IL2026 and friends) an error,
+    so a trim problem in library code still fails the publish below. Only a
+    Windows build references the projection, the same condition under which the
+    sample takes the -windows target framework, so the other platforms keep the
+    roll-up as an error.
+  -->
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
     <NoWarn>$(NoWarn);IL2104</NoWarn>
   </PropertyGroup>
 </Project>
