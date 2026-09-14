@@ -180,6 +180,77 @@ is CUPS by construction, and the Windows spooler submits with the `RAW` datatype
 already passes the bytes through unchanged. When a printer still rejects the format, the
 error names it.
 
+## Add a format the library does not know
+
+Every content type the library knows is a `PrinterFormat` in a `PrintFormatPolicy`, and an
+application registers its own the same way. A format has a kind, which states what a printer
+does with the bytes:
+
+| Kind | What it means | Where it goes |
+| --- | --- | --- |
+| `RawLanguage` | Commands the printer firmware reads | A channel that sends the bytes unchanged. CUPS is told to apply no filter |
+| `Image` | A raster the driver draws | The GDI page on Windows, the queue elsewhere |
+| `Document` | Pages a converter turns into images | The converter first, then the image path |
+| `Opaque` | Anything else, and the kind of every unregistered type | A channel that sends the bytes unchanged |
+
+A content type that is registered nowhere still prints. It is `Opaque`, so it travels
+unchanged, which is what an unknown vendor stream needs.
+
+```csharp
+services.AddPrinters(configureManager: options =>
+{
+    // A label language the library does not know. "STAR" is the token the printer
+    // reports in its IEEE 1284 command set.
+    options.Formats.Add(new PrinterFormat("application/vnd.star-line", PrinterFormatKind.RawLanguage, "STAR"));
+
+    // A document format, with the converter that prints it.
+    options.Formats.Add(new PrinterFormat("image/tiff", PrinterFormatKind.Document));
+    options.Converters.Add(new TiffConverter());
+});
+```
+
+A converter turns one payload into one image per page:
+
+```csharp
+public sealed class TiffConverter : IPrintPayloadConverter
+{
+    public bool CanConvert(string contentType) =>
+        String.Equals(contentType, "image/tiff", StringComparison.OrdinalIgnoreCase);
+
+    public async Task<IReadOnlyList<byte[]>> ConvertAsync(
+        byte[] data, PrintConversionContext context, CancellationToken cancellationToken)
+    {
+        // context.Dpi is what the job asked for, or 300. Clamp it to what the engine
+        // renders well. PageRange.Select turns
+        // context.PageRanges into the zero-based pages to keep.
+        var pages = PageRange.Select(PageCountOf(data), context.PageRanges);
+        return await RenderPngPagesAsync(data, pages, context.Dpi, cancellationToken);
+    }
+}
+```
+
+The converter runs before the job reaches the spooler, so a file it refuses spools nothing.
+The resolution is passed on as the caller asked for it, because a band that suits one engine
+is not a rule for another: each converter clamps to what it renders well.
+A converter returns pages in `context.TargetContentType`, which is `image/png` today.
+
+`PrinterManagerOptions.Converters` scopes a converter to one manager.
+`PrintFormatPolicy.AddDefaultConverter` registers one for the whole process, which is what
+an application without a manager needs, and what
+`WindowsPrinting.EnableSpoolerPdfPrinting()` calls. A converter on the manager wins over a
+process one for the same format, so an application can replace the built-in behaviour.
+
+What the registration changes:
+
+- **Routing.** `PrinterManager` sends a `RawLanguage` payload to a channel that keeps the
+  bytes, exactly as it does for ZPL.
+- **The format sent over IPP.** A registered language is protected with
+  `application/vnd.cups-raw`, so CUPS does not re-type it as text.
+- **`PrinterDevice.Accepts`.** The `CommandSet` of a format is the IEEE 1284 token matched
+  against what the printer reported.
+- **The Windows spooler path.** The kind decides whether the job is drawn with GDI,
+  converted first, or passed through as `RAW`.
+
 ## Transports
 
 `IPrinterTransport` transmits payloads. `TcpPrinterTransport` sends to a
@@ -365,8 +436,9 @@ and no extra NuGet package. PDF pages render to PNG first with the in-box Window
 engine, then print as one GDI document through the same path. That renderer lives in
 the separate `AdaptArch.Devices.Windows` package (a `-windows` target is the only one
 that can see the engine), and the application lights it up with
-`WindowsPrinting.EnableSpoolerPdfPrinting()`; without that call a PDF job fails with
-`NotSupportedException` before anything spools. It runs on Windows 10 version 1607
+`WindowsPrinting.EnableSpoolerPdfPrinting()`; without a converter for PDF a job fails
+with `NotSupportedException` before anything spools. Any other document format prints
+the same way once the application registers a converter for it. It runs on Windows 10 version 1607
 and later, including Windows 11, which is the floor .NET 10 itself requires; the
 `gdi32`/`gdiplus` entry points it calls ship in-box on all of them. Two rules decide
 what a device mode field can hold:

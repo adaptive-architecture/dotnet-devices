@@ -45,6 +45,52 @@ public readonly struct PageRange : IEquatable<PageRange>
     public override string ToString() => $"{Lower}-{Upper}";
 
     /// <summary>
+    /// Selects the pages of a document the ranges name.
+    /// </summary>
+    /// <param name="pageCount">How many pages the document has.</param>
+    /// <param name="ranges">The ranges the caller asked for, or <c>null</c> for the whole document.</param>
+    /// <returns>Zero-based page indexes in ascending order, with no duplicates. A range past the end contributes nothing.</returns>
+    /// <remarks>
+    /// An <see cref="IPrintPayloadConverter"/> uses this to honour
+    /// <see cref="PrintConversionContext.PageRanges"/> the same way the library does.
+    /// </remarks>
+    public static IReadOnlyList<int> Select(int pageCount, IReadOnlyList<PageRange>? ranges)
+    {
+        if (pageCount <= 0)
+        {
+            return [];
+        }
+
+        if (ranges is null || ranges.Count == 0)
+        {
+            List<int> all = new(pageCount);
+            for (var i = 0; i < pageCount; i++)
+            {
+                all.Add(i);
+            }
+
+            return all;
+        }
+
+        // A collection expression over a set emits a compiler wrapper type that the
+        // trimmer cannot keep intact, with no analyzer warning. A plain list is safe.
+        SortedSet<int> selected = [];
+        foreach (var range in ranges)
+        {
+            var lower = Math.Max(range.Lower, 1);
+            var upper = Math.Min(range.Upper, pageCount);
+            for (var page = lower; page <= upper; page++)
+            {
+                selected.Add(page - 1);
+            }
+        }
+
+        List<int> ordered = new(selected.Count);
+        ordered.AddRange(selected);
+        return ordered;
+    }
+
+    /// <summary>
     /// Compares two ranges for equality.
     /// </summary>
     /// <param name="left">The first range.</param>

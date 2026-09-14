@@ -175,6 +175,49 @@ public class PrinterManagerPrintTests
     }
 
     [Fact]
+    public async Task PrintAsync_ARegisteredVendorLanguageTakesThePassthroughChannel()
+    {
+        // The library does not know this format. Declared as a printer language, it routes
+        // like ZPL: to the channel that sends the bytes unchanged, not to the queue.
+        var ipp = FakePrinters.Ipp("192.168.1.50", DiscoverySource.Mdns);
+        var raw = FakePrinters.Raw("192.168.1.50", DiscoverySource.NetworkProbe);
+        FakePrinterFactory factory = new();
+        PrinterManagerOptions options = new() { Probe = new() { Hosts = ["192.168.1.50"] } };
+        options.Formats.Add(new PrinterFormat("application/vnd.star-line", PrinterFormatKind.RawLanguage));
+        PrinterManager manager = new(
+            new FakeMdnsDiscovery([ipp]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([raw]), factory, NoMonitor(), options);
+
+        _ = await manager.DiscoverAsync(options, TestContext.Current.CancellationToken);
+        _ = await manager.PrintAsync(
+            ipp.Id,
+            PrinterPayload.FromString("^S^L", "application/vnd.star-line"),
+            null,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(9100, Assert.IsType<NetworkPrinterEndpoint>(Assert.Single(factory.Opened).Endpoint).Port);
+    }
+
+    [Fact]
+    public async Task PrintAsync_AnUnregisteredFormatKeepsTheQueueChannel()
+    {
+        var ipp = FakePrinters.Ipp("192.168.1.50", DiscoverySource.Mdns);
+        var raw = FakePrinters.Raw("192.168.1.50", DiscoverySource.NetworkProbe);
+        FakePrinterFactory factory = new();
+        PrinterManagerOptions options = new() { Probe = new() { Hosts = ["192.168.1.50"] } };
+        PrinterManager manager = new(
+            new FakeMdnsDiscovery([ipp]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([raw]), factory, NoMonitor(), options);
+
+        _ = await manager.DiscoverAsync(options, TestContext.Current.CancellationToken);
+        _ = await manager.PrintAsync(
+            ipp.Id,
+            PrinterPayload.FromString("^S^L", "application/vnd.star-line"),
+            null,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(631, Assert.IsType<NetworkPrinterEndpoint>(Assert.Single(factory.Opened).Endpoint).Port);
+    }
+
+    [Fact]
     public async Task DiscoverAsync_OneHostOnTwoChannels_IsOneDeviceWithTwoChannels()
     {
         // The same host advertises IPP and answers the raw probe. That is one printer

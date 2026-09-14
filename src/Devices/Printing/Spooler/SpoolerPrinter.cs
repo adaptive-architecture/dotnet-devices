@@ -10,8 +10,8 @@
 /// </remarks>
 public sealed class SpoolerPrinter : IPrinter
 {
-    private readonly ISpoolerDriver _driver;
     private readonly string _queueName;
+    private ISpoolerDriver? _driver;
     private PrinterConfiguration? _configuration;
 
     /// <summary>
@@ -20,14 +20,23 @@ public sealed class SpoolerPrinter : IPrinter
     /// </summary>
     /// <param name="endpoint">The spooler endpoint of the printer.</param>
     public SpoolerPrinter(SpoolerPrinterEndpoint endpoint)
-        : this(endpoint, SpoolerDriverFactory.Create())
+        : this(endpoint, null)
     {
     }
 
-    internal SpoolerPrinter(SpoolerPrinterEndpoint endpoint, ISpoolerDriver driver)
+    /// <summary>
+    /// Gets the formats this printer knows and the converters it may use. Defaults to
+    /// <see cref="PrintFormatPolicy.Default"/>.
+    /// </summary>
+    public PrintFormatPolicy Formats { get; init; } = PrintFormatPolicy.Default;
+
+    // The driver is built on first use, because the formats are set by an object
+    // initializer that runs after the constructor.
+    private ISpoolerDriver Driver => _driver ??= SpoolerDriverFactory.Create(Formats);
+
+    internal SpoolerPrinter(SpoolerPrinterEndpoint endpoint, ISpoolerDriver? driver)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
-        ArgumentNullException.ThrowIfNull(driver);
         Endpoint = endpoint;
         _queueName = endpoint.Name;
         _driver = driver;
@@ -61,7 +70,7 @@ public sealed class SpoolerPrinter : IPrinter
         // The driver can drop options of its own, but never one already removed here.
         // A collection expression over two lists emits a compiler wrapper type that the
         // trimmer cannot keep intact, with no analyzer warning. A plain list is safe.
-        var job = await _driver.SubmitAsync(_queueName, payload, effectiveOptions, cancellationToken).ConfigureAwait(false);
+        var job = await Driver.SubmitAsync(_queueName, payload, effectiveOptions, cancellationToken).ConfigureAwait(false);
         List<string> allDropped = new(dropped.Count + job.DroppedOptions.Count);
         allDropped.AddRange(dropped);
         allDropped.AddRange(job.DroppedOptions);
@@ -75,11 +84,11 @@ public sealed class SpoolerPrinter : IPrinter
     /// from the CUPS device URI or the Windows port name.
     /// </remarks>
     public Task<PrinterIdentity?> GetIdentityAsync(CancellationToken cancellationToken) =>
-        _driver.GetIdentityAsync(_queueName, cancellationToken);
+        Driver.GetIdentityAsync(_queueName, cancellationToken);
 
     /// <inheritdoc />
     public Task<PrinterStatus> GetStatusAsync(CancellationToken cancellationToken) =>
-        _driver.GetStatusAsync(_queueName, cancellationToken);
+        Driver.GetStatusAsync(_queueName, cancellationToken);
 
     /// <inheritdoc />
     /// <remarks>The configuration is read once and the answer is kept for the life of this instance.</remarks>
@@ -90,7 +99,7 @@ public sealed class SpoolerPrinter : IPrinter
             return _configuration;
         }
 
-        var configuration = await _driver.GetConfigurationAsync(_queueName, cancellationToken).ConfigureAwait(false);
+        var configuration = await Driver.GetConfigurationAsync(_queueName, cancellationToken).ConfigureAwait(false);
         _configuration = configuration;
         return configuration;
     }

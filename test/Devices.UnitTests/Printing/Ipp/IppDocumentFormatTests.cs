@@ -69,4 +69,19 @@ public class IppDocumentFormatTests
         Assert.Equal(
             PrinterContentTypes.OctetStream,
             IppDocumentFormat.Negotiate(PrinterContentTypes.Zpl, []));
+
+    // A vendor language an application declared is protected the same way ZPL is: CUPS
+    // must apply no filter to it, or it prints the command source as text.
+    [Fact]
+    public void Negotiate_ProtectsALanguageTheApplicationRegistered()
+    {
+        PrintFormatPolicy policy = new([new PrinterFormat("application/vnd.star-line", PrinterFormatKind.RawLanguage)], null);
+
+        Assert.Equal(
+            IppDocumentFormat.CupsRaw,
+            IppDocumentFormat.Negotiate("application/vnd.star-line", [IppDocumentFormat.CupsRaw], policy));
+        Assert.Equal(
+            "application/vnd.star-line",
+            IppDocumentFormat.Negotiate("application/vnd.star-line", [IppDocumentFormat.CupsRaw]));
+    }
 }

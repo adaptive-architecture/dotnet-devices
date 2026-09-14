@@ -28,6 +28,7 @@ public sealed class PrinterManager : IPrinterManager
     private readonly IPrinterFactory _factory;
     private readonly IPrintJobMonitor _monitor;
     private readonly PrinterManagerOptions _options;
+    private readonly PrintFormatPolicy _formats;
 
     // Every key of a device maps to that device: its own key and each alias a source
     // vouched for. A caller that kept an old address identifier therefore still resolves
@@ -82,6 +83,10 @@ public sealed class PrinterManager : IPrinterManager
         _factory = factory;
         _monitor = monitor;
         _options = options ?? new PrinterManagerOptions();
+
+        // One snapshot for the life of the manager, so a list edited later does not change
+        // how a job that is already on its way is routed.
+        _formats = _options.BuildFormatPolicy();
         if (_options.Transports.Count == 0)
         {
             throw new ArgumentException("A manager that may open no transport can print nothing.", nameof(options));
@@ -101,7 +106,7 @@ public sealed class PrinterManager : IPrinterManager
             channels = await EnrichAsync(channels, effective, statusSources, cancellationToken).ConfigureAwait(false);
         }
 
-        var devices = PrinterDeviceGrouper.Group(channels, statusSources);
+        var devices = PrinterDeviceGrouper.Group(channels, statusSources, _formats);
         foreach (var device in devices)
         {
             Remember(device);
@@ -478,7 +483,7 @@ public sealed class PrinterManager : IPrinterManager
         // Every other format prefers a channel with a job queue, so the job can be watched
         // after it is sent. Both fall back to the most preferred usable channel, which is
         // the best the device offers.
-        var wantsPassthrough = IppDocumentFormat.IsRawLanguage(contentType);
+        var wantsPassthrough = IppDocumentFormat.IsRawLanguage(contentType, _formats);
         var named = usable.Find(channel => channel.Id == id);
         if (named is not null && Fits(named, wantsPassthrough))
         {

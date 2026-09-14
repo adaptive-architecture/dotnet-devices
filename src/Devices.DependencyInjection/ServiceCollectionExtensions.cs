@@ -69,7 +69,12 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<IppTransportOptions>()));
         services.TryAddSingleton<IPrinterFactory>(provider => new PrinterFactory(
             provider.GetRequiredService<IppHttpClientHolder>().Client,
-            provider.GetRequiredService<IppTransportOptions>()));
+            provider.GetRequiredService<IppTransportOptions>())
+        {
+            // The manager options carry the formats and the converters, so a printer the
+            // factory opens reads the same policy as the manager that asked for it.
+            Formats = provider.GetRequiredService<PrinterManagerOptions>().BuildFormatPolicy(),
+        });
         services.TryAddSingleton<IPrinterDiscovery, SpoolerPrinterDiscovery>();
         services.TryAddSingleton<SpoolerPrintJobQueue>();
         services.TryAddSingleton<IPrintJobQueue>(provider => new CompositePrintJobQueue(

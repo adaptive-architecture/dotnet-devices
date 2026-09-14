@@ -13,26 +13,20 @@ internal static class IppDocumentFormat
     // The CUPS format that means "apply no filter".
     public const string CupsRaw = "application/vnd.cups-raw";
 
-    private static readonly string[] RawLanguages =
-    [
-        PrinterContentTypes.Zpl,
-        PrinterContentTypes.Epl,
-        PrinterContentTypes.Cpcl,
-        PrinterContentTypes.EscPos,
-    ];
-
     // True for a payload that carries printer commands, which no IPP server may rewrite.
-    public static bool IsRawLanguage(string contentType) =>
-        Array.Exists(RawLanguages, language => String.Equals(language, contentType, StringComparison.OrdinalIgnoreCase));
+    // The formats an application registered decide it, so a vendor language the library
+    // does not know counts as one as soon as it is declared.
+    public static bool IsRawLanguage(string contentType, PrintFormatPolicy? formats = null) =>
+        (formats ?? PrintFormatPolicy.Default).IsRawLanguage(contentType);
 
     // The CUPS daemon is known to be CUPS, so it needs no negotiation.
-    public static string ForCups(string contentType) =>
-        IsRawLanguage(contentType) ? CupsRaw : contentType;
+    public static string ForCups(string contentType, PrintFormatPolicy? formats = null) =>
+        IsRawLanguage(contentType, formats) ? CupsRaw : contentType;
 
     // Chooses against what the printer reported in `document-format-supported`.
-    public static string Negotiate(string contentType, IReadOnlyList<string> supported)
+    public static string Negotiate(string contentType, IReadOnlyList<string> supported, PrintFormatPolicy? formats = null)
     {
-        if (!IsRawLanguage(contentType))
+        if (!IsRawLanguage(contentType, formats))
         {
             return contentType;
         }

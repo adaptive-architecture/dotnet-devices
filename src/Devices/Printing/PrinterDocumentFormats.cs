@@ -14,14 +14,14 @@ internal static class PrinterDocumentFormats
     // "application/octet-stream" is deliberately not read as an answer. Nearly every
     // channel lists it, and CUPS re-types such a job as text/plain, which prints the
     // command source instead of the label.
-    public static bool Carries(IReadOnlyList<string> formats, string contentType)
+    public static bool Carries(IReadOnlyList<string> formats, string contentType, PrintFormatPolicy? policy = null)
     {
         if (formats.Contains(contentType, StringComparer.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        return IppDocumentFormat.IsRawLanguage(contentType)
+        return IppDocumentFormat.IsRawLanguage(contentType, policy)
             && formats.Contains(IppDocumentFormat.CupsRaw, StringComparer.OrdinalIgnoreCase);
     }
 
@@ -46,34 +46,8 @@ internal static class PrinterDocumentFormats
         return formats;
     }
 
-    // IEEE 1284 names a language with a short token, not with a media type.
-    public static string CommandSetFor(string contentType)
-    {
-        if (contentType == PrinterContentTypes.Zpl)
-        {
-            return "ZPL";
-        }
-
-        if (contentType == PrinterContentTypes.Epl)
-        {
-            return "EPL";
-        }
-
-        if (contentType == PrinterContentTypes.Pdf)
-        {
-            return "PDF";
-        }
-
-        if (contentType == PrinterContentTypes.Png)
-        {
-            return "PNG";
-        }
-
-        if (contentType == PrinterContentTypes.Jpeg)
-        {
-            return "JPEG";
-        }
-
-        return contentType;
-    }
+    // IEEE 1284 names a language with a short token, not with a media type. The token of
+    // each format is declared with the format, so an application names its own.
+    public static string CommandSetFor(string contentType, PrintFormatPolicy? policy = null) =>
+        (policy ?? PrintFormatPolicy.Default).CommandSetFor(contentType);
 }

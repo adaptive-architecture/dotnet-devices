@@ -4,8 +4,8 @@
 internal static class SpoolerDriverFactory
 {
     // Each driver owns whatever it needs, so no caller supplies an HttpClient.
-    public static ISpoolerDriver Create() =>
+    public static ISpoolerDriver Create(PrintFormatPolicy? formats = null) =>
         OperatingSystem.IsWindows()
-            ? new WindowsSpoolerDriver()
-            : new CupsSpoolerDriver();
+            ? new WindowsSpoolerDriver(formats)
+            : new CupsSpoolerDriver(formats);
 }

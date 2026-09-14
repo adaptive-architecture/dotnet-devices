@@ -1,10 +1,11 @@
 ﻿using System.Runtime.InteropServices.WindowsRuntime;
 using System.Runtime.Versioning;
+using AdaptArch.Devices.Printing;
 using Windows.Data.Pdf;
 using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
 
-namespace AdaptArch.Devices.Printing.Spooler;
+namespace AdaptArch.Devices.Windows;
 
 // Renders PDF pages to PNG with the in-box Windows.Data.Pdf engine, so the spooler
 // PDF path needs no extra package. The targeting pack is build-time metadata only,
@@ -18,6 +19,12 @@ internal static class WindowsPdfRenderer
     // One rendered dimension never exceeds this, whatever the units turn out to be,
     // so a poster-size page cannot exhaust the memory of an inkjet job.
     private const uint MaxRenderPixels = 4960;
+
+    // What this engine renders well: below the first a page turns to mush, above the
+    // second an A4 page needs more memory than an inkjet job should hold. The band is
+    // stated here, and not on the spooler path, because it describes this engine only.
+    private const int MinDpi = 150;
+    private const int MaxDpi = 600;
 
     // Renders the selected pages in document order, one PNG per page. PageRanges is
     // the 1-based option the caller set; null prints the whole document.
@@ -35,6 +42,7 @@ internal static class WindowsPdfRenderer
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        dpi = Math.Clamp(dpi, MinDpi, MaxDpi);
 
         try
         {
@@ -48,7 +56,7 @@ internal static class WindowsPdfRenderer
                 throw new InvalidOperationException("The PDF has no pages to print.");
             }
 
-            var selected = WindowsSpoolerContent.SelectPages((int)document.PageCount, ranges);
+            var selected = PageRange.Select((int)document.PageCount, ranges);
             if (selected.Count == 0)
             {
                 throw new InvalidOperationException("The page ranges select no page of this PDF.");

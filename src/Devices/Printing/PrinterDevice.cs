@@ -18,6 +18,16 @@
 public sealed class PrinterDevice
 {
     /// <summary>
+    /// Gets the formats this device is asked about, and the converters that print them.
+    /// Defaults to <see cref="PrintFormatPolicy.Default"/>.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="PrinterManager"/> sets this from its own options, so
+    /// <see cref="Accepts"/> answers for the formats the application registered.
+    /// </remarks>
+    public PrintFormatPolicy Formats { get; init; } = PrintFormatPolicy.Default;
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="PrinterDevice"/> class.
     /// </summary>
     /// <param name="key">The key that groups the channels.</param>
@@ -166,13 +176,13 @@ public sealed class PrinterDevice
         var advertised = PrinterDocumentFormats.Split(channel.Info.DriverName);
         if (advertised.Count > 0)
         {
-            return PrinterDocumentFormats.Carries(advertised, contentType);
+            return PrinterDocumentFormats.Carries(advertised, contentType, Formats);
         }
 
         var formats = channel.Configuration?.SupportedDocumentFormats ?? [];
         if (formats.Count > 0)
         {
-            return PrinterDocumentFormats.Carries(formats, contentType);
+            return PrinterDocumentFormats.Carries(formats, contentType, Formats);
         }
 
         // IEEE 1284 names the languages the firmware reads. It belongs to the device, not
@@ -182,7 +192,7 @@ public sealed class PrinterDevice
             return null;
         }
 
-        var commandSet = PrinterDocumentFormats.CommandSetFor(contentType);
+        var commandSet = PrinterDocumentFormats.CommandSetFor(contentType, Formats);
         foreach (var command in Details.CommandSets)
         {
             if (command.Contains(commandSet, StringComparison.OrdinalIgnoreCase))

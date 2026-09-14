@@ -81,6 +81,15 @@ public sealed class IppPrinter : IPrinter, IDisposable
     /// <inheritdoc />
     public PrinterInfo Info { get; }
 
+    /// <summary>
+    /// Gets the formats this printer knows. Defaults to <see cref="PrintFormatPolicy.Default"/>.
+    /// </summary>
+    /// <remarks>
+    /// A printer language is sent unchanged, so which content types count as one decides
+    /// what this printer negotiates with an IPP server.
+    /// </remarks>
+    public PrintFormatPolicy Formats { get; init; } = PrintFormatPolicy.Default;
+
     /// <inheritdoc />
     /// <exception cref="NotSupportedException">Thrown when an option is not supported by the printer and <see cref="PrintOptions.OnUnsupported"/> is <see cref="UnsupportedOptionBehavior.Throw"/>.</exception>
     /// <exception cref="InvalidOperationException">Thrown when no IPP endpoint answers, or the printer reports an IPP error.</exception>
@@ -104,10 +113,10 @@ public sealed class IppPrinter : IPrinter, IDisposable
         // A printer language must never be re-typed by the server. Only a raw payload
         // needs the printer's format list, so every other job costs no extra request.
         var format = payload.ContentType;
-        if (IppDocumentFormat.IsRawLanguage(format))
+        if (IppDocumentFormat.IsRawLanguage(format, Formats))
         {
             var configuration = await GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
-            format = IppDocumentFormat.Negotiate(format, configuration.SupportedDocumentFormats);
+            format = IppDocumentFormat.Negotiate(format, configuration.SupportedDocumentFormats, Formats);
         }
 
         return await _resolver.RunAsync(

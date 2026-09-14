@@ -110,4 +110,37 @@ public sealed class PrinterManagerOptions
     /// </para>
     /// </remarks>
     public IReadOnlyList<PrinterScheme> Transports { get; set; } = DefaultTransports;
+
+    /// <summary>
+    /// Gets the formats this manager knows beyond the built-in ones. Add a
+    /// <see cref="PrinterFormat"/> to declare what a printer does with a content type the
+    /// library does not know, such as <c>image/tiff</c>.
+    /// </summary>
+    /// <remarks>
+    /// A content type that is already known is replaced, so an application can also
+    /// correct a built-in entry. A format that is registered nowhere still prints, as
+    /// <see cref="PrinterFormatKind.Opaque"/> bytes on a channel that sends them unchanged.
+    /// </remarks>
+    public IList<PrinterFormat> Formats { get; } = [];
+
+    /// <summary>
+    /// Gets the converters this manager may use to turn a format a channel cannot print
+    /// into pages it can.
+    /// </summary>
+    /// <remarks>
+    /// The first converter that reads the content type is the one that runs, and a
+    /// converter here wins over one given to <see cref="PrintFormatPolicy.AddDefaultConverter"/>.
+    /// </remarks>
+    public IList<IPrintPayloadConverter> Converters { get; } = [];
+
+    /// <summary>
+    /// Builds the snapshot of <see cref="Formats"/> and <see cref="Converters"/> that a
+    /// printer reads.
+    /// </summary>
+    /// <returns>The policy to give to <see cref="PrinterFactory.Formats"/>, or to a printer opened directly.</returns>
+    /// <remarks>
+    /// A manager takes this snapshot once, so a list edited afterwards does not change a
+    /// job that is already on its way. Call it again to pick up later edits.
+    /// </remarks>
+    public PrintFormatPolicy BuildFormatPolicy() => new(Formats, Converters);
 }

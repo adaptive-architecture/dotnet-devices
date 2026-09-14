@@ -44,11 +44,14 @@ rejected), so the renderer lives in `AdaptArch.Devices.Windows`
 dependency of its own: the `-windows` TFM resolves the SDK projection implicitly,
 and the calls only run on Windows 10 and later, where the engine ships in-box. The
 core package keeps no Windows SDK reference and stays dependency-free; the Windows
-package sets one internal hook (`SpoolerPdfRendering.RenderAsync`, via
-`InternalsVisibleTo`) when the application calls
-`WindowsPrinting.EnableSpoolerPdfPrinting()`. Without that call a PDF job fails
-with `NotSupportedException` before anything spools. The hook is a plain delegate,
-so both sides stay trim- and AOT-safe with no reflection.
+package supplies one public `IPrintPayloadConverter`
+(`WindowsPrinting.PdfConverter`), which an application registers through
+`PrinterManagerOptions.Converters` or, for the whole process, with
+`WindowsPrinting.EnableSpoolerPdfPrinting()`. Without a converter a PDF job fails
+with `NotSupportedException` before anything spools. The seam is an interface the
+application implements, so both sides stay trim- and AOT-safe with no reflection,
+and the same seam carries any other format (see
+[printers.md](printers.md#add-a-format-the-library-does-not-know)).
 
 ### Approved exception: a prerelease SNMP dependency
 
