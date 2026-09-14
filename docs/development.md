@@ -22,6 +22,11 @@ every operating system. The project sets `EnableWindowsTargeting`, which makes t
 take the Windows reference packs from NuGet. Without that property the build stops with
 `NETSDK1100`, and the whole solution fails, not only that one project.
 
+The version in the target framework only selects the Windows SDK API surface to compile
+against; a bare `net10.0-windows` gives no WinRT projection, so `Windows.Data.Pdf` does not
+resolve. `SupportedOSPlatformVersion` keeps the minimum at the version that first shipped
+that engine, so a consumer on an older Windows 10 gets no CA1416 warning.
+
 The code compiles everywhere but runs on Windows only. The sample keeps its own
 operating-system conditions: on Linux and macOS it stays plain `net10.0`, it does not
 reference the Windows package, and it leaves the spooler PDF hook unset.

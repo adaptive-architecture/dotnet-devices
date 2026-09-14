@@ -8,6 +8,10 @@
     <!-- Linux and macOS restore the Windows reference packs from NuGet, so the solution,
       the samples and the tests build and run on every platform. -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- The target platform version only selects the API surface to compile against.
+      The minimum stays at the version that first shipped Windows.Data.Pdf, so a consumer
+      on an older Windows 10 gets no CA1416 warning. -->
+    <SupportedOSPlatformVersion>10.0.10240.0</SupportedOSPlatformVersion>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(CONFIGURATION)' == 'Debug' Or '$(BuildDocFx)' == 'true'">
