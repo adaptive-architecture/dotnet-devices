@@ -65,12 +65,15 @@ internal static class WindowsGdiImagePrinter
                 ThrowLastError("CreateDC");
             }
 
-            var pageWidth = WindowsGdiInterop.GetDeviceCaps(deviceContext, WindowsGdiInterop.HorzRes);
-            var pageHeight = WindowsGdiInterop.GetDeviceCaps(deviceContext, WindowsGdiInterop.VertRes);
-            if (pageWidth <= 0 || pageHeight <= 0)
+            var page = new PrinterPage(
+                WindowsGdiInterop.GetDeviceCaps(deviceContext, WindowsGdiInterop.HorzRes),
+                WindowsGdiInterop.GetDeviceCaps(deviceContext, WindowsGdiInterop.VertRes),
+                WindowsGdiInterop.GetDeviceCaps(deviceContext, WindowsGdiInterop.LogPixelsX),
+                WindowsGdiInterop.GetDeviceCaps(deviceContext, WindowsGdiInterop.LogPixelsY));
+            if (page.Width <= 0 || page.Height <= 0)
             {
                 throw new InvalidOperationException(
-                    $"Printing '{queueName}' reported an unusable page of {pageWidth}x{pageHeight} pixels.");
+                    $"Printing '{queueName}' reported an unusable page of {page.Width}x{page.Height} pixels.");
             }
 
             var docNamePtr = Marshal.StringToHGlobalUni(job.JobName);
@@ -90,7 +93,7 @@ internal static class WindowsGdiImagePrinter
                 documentStarted = true;
                 foreach (var pageBytes in pages)
                 {
-                    DrawPage(deviceContext, job, pageBytes, pageWidth, pageHeight);
+                    DrawPage(deviceContext, job, pageBytes, page);
                 }
 
                 if (WindowsGdiInterop.EndDoc(deviceContext) <= 0)
@@ -128,8 +131,7 @@ internal static class WindowsGdiImagePrinter
         nint deviceContext,
         WindowsGdiJob job,
         byte[] bytes,
-        int pageWidth,
-        int pageHeight)
+        PrinterPage page)
     {
         var queueName = job.QueueName;
         var temporaryPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}{job.Extension}");
@@ -148,7 +150,21 @@ internal static class WindowsGdiImagePrinter
 
             _ = CheckGdiplus(WindowsGdiInterop.GetImageWidth(image, out var width), queueName);
             _ = CheckGdiplus(WindowsGdiInterop.GetImageHeight(image, out var height), queueName);
-            var layout = WindowsGdiImageLayout.Compute((int)width, (int)height, pageWidth, pageHeight, job.Orientation, job.Scaling);
+            _ = CheckGdiplus(WindowsGdiInterop.GetImageHorizontalResolution(image, out var sourceDpiX), queueName);
+            _ = CheckGdiplus(WindowsGdiInterop.GetImageVerticalResolution(image, out var sourceDpiY), queueName);
+
+            // A converted page carries the resolution it was rendered at, because the
+            // encoder writes none of its own and the image would claim 96. A page the
+            // caller sent keeps what its own file declares.
+            var sourceX = job.SourceDpi ?? sourceDpiX;
+            var sourceY = job.SourceDpi ?? sourceDpiY;
+            var layout = WindowsGdiImageLayout.Compute(
+                WindowsGdiImageLayout.NaturalPixels((int)width, sourceX, page.DpiX),
+                WindowsGdiImageLayout.NaturalPixels((int)height, sourceY, page.DpiY),
+                page.Width,
+                page.Height,
+                job.Orientation,
+                job.Scaling);
             if (layout.IsEmpty)
             {
                 throw new InvalidOperationException(
@@ -168,13 +184,13 @@ internal static class WindowsGdiImagePrinter
             if (angle != 0f)
             {
                 _ = CheckGdiplus(
-                    WindowsGdiInterop.TranslateWorldTransform(graphics, pageWidth / 2f, pageHeight / 2f, WindowsGdiInterop.MatrixOrderPrepend),
+                    WindowsGdiInterop.TranslateWorldTransform(graphics, page.Width / 2f, page.Height / 2f, WindowsGdiInterop.MatrixOrderPrepend),
                     queueName);
                 _ = CheckGdiplus(
                     WindowsGdiInterop.RotateWorldTransform(graphics, angle, WindowsGdiInterop.MatrixOrderPrepend),
                     queueName);
                 _ = CheckGdiplus(
-                    WindowsGdiInterop.TranslateWorldTransform(graphics, -pageWidth / 2f, -pageHeight / 2f, WindowsGdiInterop.MatrixOrderPrepend),
+                    WindowsGdiInterop.TranslateWorldTransform(graphics, -page.Width / 2f, -page.Height / 2f, WindowsGdiInterop.MatrixOrderPrepend),
                     queueName);
             }
 
@@ -267,4 +283,13 @@ internal sealed record WindowsGdiJob(
     nint DeviceMode,
     int Copies,
     PrintOrientation? Orientation,
-    PrintScaling? Scaling);
+    PrintScaling? Scaling,
+
+    // The resolution every page was rendered at, for a job whose pages a converter
+    // made. Null for a file the caller sent, whose own resolution GDI+ reads instead.
+    int? SourceDpi = null);
+
+// The printable area of one device page: its size in device pixels, and the dots an
+// inch those pixels stand for. Both are read once a job, because a device mode does
+// not change between the pages of one document.
+internal readonly record struct PrinterPage(int Width, int Height, int DpiX, int DpiY);

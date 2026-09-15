@@ -19,8 +19,8 @@ public enum PrintScaling
     Auto,
 
     /// <summary>
-    /// The printer scales the document up to the media only when it is smaller, and
-    /// otherwise acts as <see cref="Fit"/>.
+    /// The printer chooses between <see cref="None"/> and <see cref="Fit"/>: a document
+    /// that already fits keeps its own size, and a larger one is scaled down.
     /// </summary>
     AutoFit,
 
