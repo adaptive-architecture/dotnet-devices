@@ -112,9 +112,9 @@ internal static class PrinterQueueCorrelator
         PrinterKeyUnionFind proved)
     {
         Dictionary<string, PrinterDeviceKey> bySummary = [];
-        foreach (var candidate in candidates)
+        foreach (var channel in candidates.Select(static candidate => candidate.Channel))
         {
-            if (!queues.TryGetValue(candidate.Channel.Id, out var queue) || queue is null)
+            if (!queues.TryGetValue(channel.Id, out var queue) || queue is null)
             {
                 continue;
             }
@@ -126,7 +126,7 @@ internal static class PrinterQueueCorrelator
                 continue;
             }
 
-            var key = candidate.Channel.Id.DeviceKey;
+            var key = channel.Id.DeviceKey;
             if (bySummary.TryGetValue(summary, out var seen))
             {
                 proved.Union(seen, key);
@@ -169,7 +169,7 @@ internal static class PrinterQueueCorrelator
         Lock guard = new();
         try
         {
-            await ForEachAsync(unproven, maxConcurrency, cancellationToken, async (candidate, token) =>
+            await ForEachAsync(unproven, maxConcurrency, async (candidate, token) =>
             {
                 var support = await candidate.Evidence.ReadTracerSupportAsync(token).ConfigureAwait(false);
                 if (!support.IsUsable)
@@ -194,7 +194,7 @@ internal static class PrinterQueueCorrelator
                         created[candidate.Channel.Id] = jobId;
                     }
                 }
-            }).ConfigureAwait(false);
+            }, cancellationToken).ConfigureAwait(false);
 
             if (names.Count == 0)
             {
@@ -250,10 +250,10 @@ internal static class PrinterQueueCorrelator
         IReadOnlyDictionary<PrinterId, IReadOnlyList<PrinterQueueFingerprint>?> queues,
         Dictionary<PrinterId, string> created)
     {
-        foreach (var candidate in candidates)
+        foreach (var channel in candidates.Select(static candidate => candidate.Channel))
         {
-            if (created.ContainsKey(candidate.Channel.Id)
-                || !queues.TryGetValue(candidate.Channel.Id, out var queue)
+            if (created.ContainsKey(channel.Id)
+                || !queues.TryGetValue(channel.Id, out var queue)
                 || queue is null)
             {
                 continue;
@@ -263,7 +263,7 @@ internal static class PrinterQueueCorrelator
             {
                 if (job.JobName?.StartsWith(QueueCorrelationOptions.TracerJobNamePrefix, StringComparison.Ordinal) == true)
                 {
-                    created[candidate.Channel.Id] = job.JobId.ToString(CultureInfo.InvariantCulture);
+                    created[channel.Id] = job.JobId.ToString(CultureInfo.InvariantCulture);
                     break;
                 }
             }
@@ -306,14 +306,14 @@ internal static class PrinterQueueCorrelator
     {
         Dictionary<PrinterId, IReadOnlyList<PrinterQueueFingerprint>?> queues = [];
         Lock guard = new();
-        await ForEachAsync(candidates, maxConcurrency, cancellationToken, async (candidate, token) =>
+        await ForEachAsync(candidates, maxConcurrency, async (candidate, token) =>
         {
             var queue = await candidate.Evidence.ReadQueueAsync(user, token).ConfigureAwait(false);
             lock (guard)
             {
                 queues[candidate.Channel.Id] = queue;
             }
-        }).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
 
         return queues;
     }
@@ -322,8 +322,8 @@ internal static class PrinterQueueCorrelator
     private static async Task ForEachAsync(
         IReadOnlyList<Candidate> candidates,
         int maxConcurrency,
-        CancellationToken cancellationToken,
-        Func<Candidate, CancellationToken, Task> body)
+        Func<Candidate, CancellationToken, Task> body,
+        CancellationToken cancellationToken)
     {
         ParallelOptions parallel = new()
         {
@@ -359,21 +359,21 @@ internal static class PrinterQueueCorrelator
         }
     }
 
-    private static IReadOnlyDictionary<PrinterId, IReadOnlyList<PrinterDeviceKey>> Collect(
+    private static Dictionary<PrinterId, IReadOnlyList<PrinterDeviceKey>> Collect(
         IReadOnlyList<Candidate> candidates,
         PrinterKeyUnionFind proved)
     {
         Dictionary<PrinterDeviceKey, List<DiscoveredPrinter>> groups = [];
-        foreach (var candidate in candidates)
+        foreach (var channel in candidates.Select(static candidate => candidate.Channel))
         {
-            var group = proved.Find(candidate.Channel.Id.DeviceKey);
+            var group = proved.Find(channel.Id.DeviceKey);
             if (groups.TryGetValue(group, out var members))
             {
-                members.Add(candidate.Channel);
+                members.Add(channel);
             }
             else
             {
-                groups[group] = [candidate.Channel];
+                groups[group] = [channel];
             }
         }
 
@@ -387,10 +387,10 @@ internal static class PrinterQueueCorrelator
 
             // Each side names the other's key, so no new kind of key is invented and
             // PrinterDeviceGrouper merges them exactly as it merges a device URI alias.
-            foreach (var member in members)
+            foreach (var id in members.Select(static member => member.Id))
             {
-                aliases[member.Id] = [.. members
-                    .Where(other => other.Id != member.Id)
+                aliases[id] = [.. members
+                    .Where(other => other.Id != id)
                     .Select(static other => other.Id.DeviceKey)
                     .Distinct()];
             }
