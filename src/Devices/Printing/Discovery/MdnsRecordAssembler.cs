@@ -230,7 +230,7 @@ internal static class MdnsRecordAssembler
         // caller already holds still resolves.
         var hasUuid = PrinterId.TryParseDeviceUuid(shared.Uuid, out var uuid);
         var id = hasUuid
-            ? PrinterId.ForDeviceUuid(scheme, uuid)
+            ? PrinterId.ForDeviceUuid(scheme, uuid, candidate.Port)
             : PrinterId.ForNetwork(scheme, candidate.Host, candidate.Port);
 
         PrinterInfo info = new(id, GetName(candidate, attributes))
@@ -290,9 +290,10 @@ internal static class MdnsRecordAssembler
     // Raw first: it is the only channel TcpPrinterTransport can print to. Then IPP,
     // which can at least be queried. LPD last: no transport here writes its format.
     private const int RawRank = 0;
-    private const int IppRank = 1;
-    private const int LpdRank = 2;
-    private const int UnknownRank = 3;
+    private const int IppsRank = 1;
+    private const int IppRank = 2;
+    private const int LpdRank = 3;
+    private const int UnknownRank = 4;
 
     private static int GetRank(string serviceTypeLabel)
     {
@@ -301,8 +302,16 @@ internal static class MdnsRecordAssembler
             return RawRank;
         }
 
-        if (String.Equals(serviceTypeLabel, "_ipp", StringComparison.OrdinalIgnoreCase) ||
-            String.Equals(serviceTypeLabel, "_ipps", StringComparison.OrdinalIgnoreCase))
+        // The two are separate channels of one printer, on separate ports, and a printer
+        // commonly advertises both. They must not collapse into one scheme: a caller that
+        // cannot complete the TLS handshake still has the plain channel to fall back to,
+        // and it can only see it if the two are told apart.
+        if (String.Equals(serviceTypeLabel, "_ipps", StringComparison.OrdinalIgnoreCase))
+        {
+            return IppsRank;
+        }
+
+        if (String.Equals(serviceTypeLabel, "_ipp", StringComparison.OrdinalIgnoreCase))
         {
             return IppRank;
         }
@@ -318,9 +327,9 @@ internal static class MdnsRecordAssembler
     // The service type the rank came from says which channel the endpoint is.
     private static PrinterScheme SchemeFor(int rank)
     {
-        if (rank == RawRank)
+        if (rank == IppsRank)
         {
-            return PrinterScheme.Raw;
+            return PrinterScheme.Ipps;
         }
 
         return rank == IppRank ? PrinterScheme.Ipp : PrinterScheme.Raw;

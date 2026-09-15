@@ -35,7 +35,7 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
     }
 
     /// <inheritdoc />
-    /// <exception cref="ArgumentOutOfRangeException">Thrown when <see cref="PrintJobMonitorOptions.PollInterval"/> or <see cref="PrintJobMonitorOptions.Timeout"/> is zero or negative.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <see cref="PrintJobMonitorOptions.PollInterval"/>, <see cref="PrintJobMonitorOptions.Timeout"/> or <see cref="PrintJobMonitorOptions.IdleTimeout"/> is zero or negative.</exception>
     public IAsyncEnumerable<PrintJobInfo> WatchJobAsync(
         PrinterId printerId,
         string jobId,
@@ -50,6 +50,11 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
             ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
         }
 
+        if (options.IdleTimeout is TimeSpan idle)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(idle, TimeSpan.Zero);
+        }
+
         return WatchJobAsyncCore(printerId, jobId, options, cancellationToken);
     }
 
@@ -60,8 +65,8 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
         PrintJobMonitorOptions options,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        // A timeout ends the watch quietly; only the caller's token throws. The delay waits
-        // on both, and the check after it keeps the two outcomes apart.
+        // Either timeout ends the watch quietly; only the caller's token throws. The delay
+        // waits on both, and the check after it keeps the two outcomes apart.
         using var deadline = options.Timeout is TimeSpan limit
             ? new CancellationTokenSource(limit, _timeProvider)
             : new CancellationTokenSource();
@@ -69,6 +74,10 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
 
         PrintJobState? lastState = null;
         int? lastCount = null;
+
+        // When the job last moved. A job that is slow is not a job that is stuck, so it is
+        // the absence of change that ends the watch, never the time the job has taken.
+        var lastChange = _timeProvider.GetUtcNow();
         while (!deadline.IsCancellationRequested)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -90,10 +99,19 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
             {
                 lastState = reading.State;
                 lastCount = reading.ImpressionsCompleted;
+                lastChange = _timeProvider.GetUtcNow();
                 yield return reading;
             }
 
             if (IsTerminal(reading.State))
+            {
+                yield break;
+            }
+
+            // Checked after the read rather than on a timer of its own: the watch can only
+            // notice a change when it reads, so the poll interval is the granularity either
+            // way, and one clock reading is cheaper than another token to wait on.
+            if (options.IdleTimeout is TimeSpan quiet && _timeProvider.GetUtcNow() - lastChange >= quiet)
             {
                 yield break;
             }

@@ -21,13 +21,21 @@
 /// host name or a queue name, so it would make the text ambiguous; it still groups the
 /// channels of one device, through <see cref="PrinterDeviceKey"/>.
 /// </para>
+/// <para>
+/// An identity form carries the port by the same rule as an address form: written when it
+/// is not the default of the scheme, left out when it is. The port is what tells two
+/// channels of one device apart once the device has named itself, and without it a printer
+/// that advertises the same scheme on two ports would report one identifier twice. The
+/// port still takes no part in <see cref="DeviceKey"/>, so the channels stay one device.
+/// </para>
 /// <example>
 /// <code>
 /// raw://192.168.1.5                              the raw channel, port 9100 implied
 /// raw://192.168.1.5:9101                         a port that is not the default
 /// ipp://192.168.1.5                              the IPP channel, port 631 implied
 /// ipps://[2001:db8::5]:8631                      an IPv6 literal is bracketed
-/// ipp://e3b0c442-98fc-1c14-9afb-4c8996fb9242     the identity form
+/// ipp://e3b0c442-98fc-1c14-9afb-4c8996fb9242     the identity form, port 631 implied
+/// ipps://e3b0c442-98fc-1c14-9afb-4c8996fb9242:443  an identity on a port that is not the default
 /// spooler://EPSON_L6270                          a print queue of the operating system
 /// spooler://%5C%5Cserver%5Cqueue                 a Windows connection name, escaped
 /// </code>
@@ -166,20 +174,44 @@ public readonly struct PrinterId : IEquatable<PrinterId>
     }
 
     /// <summary>
-    /// Creates an identifier from an identity the device reported about itself.
+    /// Creates an identifier from an identity the device reported about itself, on the
+    /// default port of the scheme.
     /// </summary>
     /// <param name="scheme">The channel scheme.</param>
     /// <param name="uuid">The device UUID.</param>
     /// <exception cref="ArgumentException">Thrown when the UUID is empty.</exception>
-    public static PrinterId ForDeviceUuid(PrinterScheme scheme, Guid uuid)
+    public static PrinterId ForDeviceUuid(PrinterScheme scheme, Guid uuid) =>
+        ForDeviceUuid(scheme, uuid, PrinterSchemes.DefaultPort(scheme));
+
+    /// <summary>
+    /// Creates an identifier from an identity the device reported about itself, on a
+    /// named port.
+    /// </summary>
+    /// <remarks>
+    /// The port names the channel and not the device, so it is what keeps the two
+    /// identifiers of a printer that advertises one scheme on two ports apart. It takes no
+    /// part in <see cref="DeviceKey"/>, so those channels are still one device.
+    /// </remarks>
+    /// <param name="scheme">The channel scheme.</param>
+    /// <param name="uuid">The device UUID.</param>
+    /// <param name="port">The TCP port, or <see cref="PrinterSchemes.NoPort"/> for a scheme that addresses no port.</param>
+    /// <exception cref="ArgumentException">Thrown when the UUID is empty.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when a network scheme is given a port outside 1 to 65535.</exception>
+    public static PrinterId ForDeviceUuid(PrinterScheme scheme, Guid uuid, int port)
     {
         if (uuid == Guid.Empty)
         {
             throw new ArgumentException("An empty UUID identifies no device.", nameof(uuid));
         }
 
+        if (PrinterSchemes.IsNetwork(scheme))
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(port, 1);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(port, 65535);
+        }
+
         var value = uuid.ToString("D");
-        return new PrinterId(scheme, value, value, PrinterSchemes.DefaultPort(scheme), true);
+        return new PrinterId(scheme, FormatNetworkAuthority(scheme, value, port), value, port, true);
     }
 
     /// <summary>
@@ -265,41 +297,69 @@ public readonly struct PrinterId : IEquatable<PrinterId>
             return false;
         }
 
-        // The identity form is tested first on purpose: a UUID also passes as a host name,
-        // so the order is what tells the two apart. An empty UUID is refused rather than
-        // read on as a host, because it identifies nothing and would name every device
-        // that reports no UUID at all.
-        if (Guid.TryParseExact(authority, "D", out var uuid))
-        {
-            if (uuid == Guid.Empty)
-            {
-                return false;
-            }
-
-            var text = uuid.ToString("D");
-            id = new PrinterId(scheme, text, text, PrinterSchemes.DefaultPort(scheme), true);
-            return true;
-        }
-
         if (PrinterSchemes.IsNetwork(scheme))
         {
             return TryParseNetwork(scheme, authority, out id);
         }
 
-        return TryParseSpooler(authority, out id);
+        // A spooler channel addresses no port, so the whole authority is either a UUID or
+        // a queue name.
+        var read = ReadIdentity(scheme, authority, PrinterSchemes.NoPort, out id);
+        return read == IdentityRead.NotAnIdentity
+            ? TryParseSpooler(authority, out id)
+            : read == IdentityRead.Identity;
     }
 
     private static bool TryParseNetwork(PrinterScheme scheme, ReadOnlySpan<char> authority, out PrinterId id)
     {
         id = default;
+
+        // The port is split off first, so an identity on a port that is not the default
+        // reads as one identity and not as a host name that happens to look like a UUID.
         if (!PrinterIdSyntax.TrySplitHostPort(authority, out var host, out var port))
         {
             return false;
         }
 
         var effective = port == 0 ? PrinterSchemes.DefaultPort(scheme) : port;
+        var read = ReadIdentity(scheme, host, effective, out id);
+        if (read != IdentityRead.NotAnIdentity)
+        {
+            return read == IdentityRead.Identity;
+        }
+
         id = new PrinterId(scheme, FormatNetworkAuthority(scheme, host, effective), host, effective, false);
         return true;
+    }
+
+    // The identity form is tested before the address form on purpose: a UUID also passes as
+    // a host name, so the order is what tells the two apart.
+    private static IdentityRead ReadIdentity(PrinterScheme scheme, ReadOnlySpan<char> value, int port, out PrinterId id)
+    {
+        id = default;
+        if (!Guid.TryParseExact(value, "D", out var uuid))
+        {
+            return IdentityRead.NotAnIdentity;
+        }
+
+        // An empty UUID fails the whole read rather than falling through to the address
+        // form. It identifies nothing, and as a host name it would name every device that
+        // reports no UUID at all.
+        if (uuid == Guid.Empty)
+        {
+            return IdentityRead.Refused;
+        }
+
+        var text = uuid.ToString("D");
+        id = new PrinterId(scheme, FormatNetworkAuthority(scheme, text, port), text, port, true);
+        return IdentityRead.Identity;
+    }
+
+    private enum IdentityRead
+    {
+        NotAnIdentity,
+        Identity,
+        Refused,
     }
 
     private static bool TryParseSpooler(ReadOnlySpan<char> authority, out PrinterId id)

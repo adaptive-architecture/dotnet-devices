@@ -45,6 +45,66 @@ public class PrinterIdTests
     }
 
     [Fact]
+    public void ForDeviceUuid_WritesAPortThatIsNotTheDefaultOfTheScheme()
+    {
+        var uuid = Guid.Parse("e3b0c442-98fc-1c14-9afb-4c8996fb9242");
+        var id = PrinterId.ForDeviceUuid(PrinterScheme.Ipps, uuid, 443);
+
+        Assert.True(id.IsDeviceIdentity);
+        Assert.Equal("ipps://e3b0c442-98fc-1c14-9afb-4c8996fb9242:443", id.ToString());
+        Assert.Equal(443, id.Port);
+    }
+
+    [Fact]
+    public void ForDeviceUuid_TellsTwoChannelsOfOneDeviceApartByTheirPort()
+    {
+        var uuid = Guid.Parse("e3b0c442-98fc-1c14-9afb-4c8996fb9242");
+        var secure = PrinterId.ForDeviceUuid(PrinterScheme.Ipp, uuid, 443);
+        var plain = PrinterId.ForDeviceUuid(PrinterScheme.Ipp, uuid, 631);
+
+        Assert.NotEqual(secure, plain);
+
+        // The port names the channel and not the device, so the two are still one device.
+        Assert.Equal(secure.DeviceKey, plain.DeviceKey);
+    }
+
+    [Fact]
+    public void TryParse_ReadsAnIdentityFormThatCarriesAPort()
+    {
+        Assert.True(PrinterId.TryParse("ipps://e3b0c442-98fc-1c14-9afb-4c8996fb9242:443", out var id));
+
+        Assert.True(id.IsDeviceIdentity);
+        Assert.Equal(443, id.Port);
+        Assert.True(id.TryGetDeviceIdentity(out var identity));
+        Assert.Equal("e3b0c442-98fc-1c14-9afb-4c8996fb9242", identity);
+        Assert.False(id.TryGetHost(out _));
+    }
+
+    [Fact]
+    public void TryParse_ReadsBackWhatForDeviceUuidWrote()
+    {
+        var uuid = Guid.Parse("e3b0c442-98fc-1c14-9afb-4c8996fb9242");
+        foreach (var port in new[] { 443, 631, 8631 })
+        {
+            var written = PrinterId.ForDeviceUuid(PrinterScheme.Ipps, uuid, port);
+
+            Assert.True(PrinterId.TryParse(written.ToString(), out var read));
+            Assert.Equal(written, read);
+            Assert.Equal(port, read.Port);
+            Assert.True(read.IsDeviceIdentity);
+        }
+    }
+
+    [Fact]
+    public void ForDeviceUuid_RefusesAPortNoChannelUses()
+    {
+        var uuid = Guid.Parse("e3b0c442-98fc-1c14-9afb-4c8996fb9242");
+
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => PrinterId.ForDeviceUuid(PrinterScheme.Ipp, uuid, 0));
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => PrinterId.ForDeviceUuid(PrinterScheme.Ipp, uuid, 70000));
+    }
+
+    [Fact]
     public void ForDeviceUuid_RefusesAnEmptyUuid() =>
         Assert.Throws<ArgumentException>(() => PrinterId.ForDeviceUuid(PrinterScheme.Ipp, Guid.Empty));
 

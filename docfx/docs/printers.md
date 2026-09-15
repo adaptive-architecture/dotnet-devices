@@ -132,6 +132,36 @@ await manager.PrintAsync(device.Id, payload, null, cancellationToken);
 A device that no allowed transport reaches causes a `NotSupportedException`. The message
 gives the transports the manager may open.
 
+### Merge two addresses of one printer
+
+A printer found at an address and at an mDNS host name is two devices when it reports no
+UUID and no usable serial number. `QueueCorrelation` proves they are one by comparing the
+jobs each channel reports: two channels that answer with the same queue read one queue.
+
+Give it to the constructor, or to `AddPrinters`, not to `DiscoverAsync`. It opens a session
+to each candidate channel, and consent for that belongs to whoever built the manager.
+
+```csharp
+services.AddPrinters(configureManager: options =>
+{
+    options.ReadIdentity = true;
+    options.QueueCorrelation = new QueueCorrelationOptions();
+});
+```
+
+That stage only reads. An idle printer has nothing in its queue to compare, so nothing is
+proved until `AllowTracerJob` lets the manager put something there:
+
+```csharp
+options.QueueCorrelation = new QueueCorrelationOptions { AllowTracerJob = true };
+```
+
+A tracer is a `Create-Job` that is never given a document, held indefinitely, and cancelled
+again whatever happens, so it prints nothing even on a printer that ignores the hold. It is
+still a write to a real printer, which is why it is a second and separate switch.
+[Printers](https://github.com/adaptive-architecture/dotnet-devices/blob/main/docs/printers.md)
+gives the rules in full.
+
 ### Select a channel for one call
 
 To keep the default policy and select a channel for one call, give the identifier of that
@@ -155,7 +185,8 @@ var printer = factory.Open(queue);
 try
 {
     PrintJobInfo job = await printer.PrintAsync(payload, options, cancellationToken);
-    await foreach (var reading in monitor.WatchJobAsync(queue.Id, job.JobId, new(), cancellationToken))
+    PrintJobMonitorOptions watch = new() { IdleTimeout = TimeSpan.FromMinutes(2) };
+    await foreach (var reading in monitor.WatchJobAsync(queue.Id, job.JobId, watch, cancellationToken))
     {
         Console.WriteLine(reading.State);
     }
@@ -165,6 +196,12 @@ finally
     (printer as IDisposable)?.Dispose();
 }
 ```
+
+`IdleTimeout` ends the watch quietly once nothing has changed for that long. Prefer it to
+`Timeout`, which caps the whole watch and so also ends a job that is simply long: a printer
+that wakes from sleep may take minutes over the first page and then print steadily. Pass the
+`CancellationToken` only for real cancellation — a deadline passed there throws, because the
+monitor cannot tell it from a caller that wants to stop.
 
 `AddPrinters()` registers `IPrinterFactory` and `IPrintJobMonitor`. Inject them together
 with `IPrinterManager`.

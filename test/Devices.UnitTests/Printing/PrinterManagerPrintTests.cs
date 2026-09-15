@@ -159,6 +159,60 @@ public class PrinterManagerPrintTests
     }
 
     [Fact]
+    public async Task GetStatusAsync_AsksTheNextChannelWhenThePreferredOneDoesNotAnswer()
+    {
+        // The printer advertises IPPS on 443 and IPP on 631. The secure one is preferred
+        // and does not negotiate, which is the common case on an older printer with an
+        // expired certificate. The device is not unreachable while 631 still answers.
+        var secure = FakePrinters.Ipps("192.168.1.50", DiscoverySource.Mdns);
+        var plain = FakePrinters.Ipp("192.168.1.50", DiscoverySource.Mdns);
+        FakePrinterFactory factory = new()
+        {
+            FailStatusOn = channel => channel.Endpoint.Scheme == PrinterScheme.Ipps,
+        };
+        PrinterManager manager = new(
+            new FakeMdnsDiscovery([secure, plain]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor());
+
+        var devices = await manager.DiscoverAsync(null, TestContext.Current.CancellationToken);
+        var status = await manager.GetStatusAsync(Assert.Single(devices).Id, TestContext.Current.CancellationToken);
+
+        Assert.Equal(PrinterStatusState.Idle, status.State);
+        Assert.Equal([PrinterScheme.Ipps, PrinterScheme.Ipp], factory.Opened.Select(static c => c.Endpoint.Scheme));
+    }
+
+    [Fact]
+    public async Task GetStatusAsync_ReportsTheFailureOfThePreferredChannelWhenNoneAnswers()
+    {
+        var secure = FakePrinters.Ipps("192.168.1.50", DiscoverySource.Mdns);
+        var plain = FakePrinters.Ipp("192.168.1.50", DiscoverySource.Mdns);
+        FakePrinterFactory factory = new() { FailStatusOn = static _ => true };
+        PrinterManager manager = new(
+            new FakeMdnsDiscovery([secure, plain]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor());
+
+        var devices = await manager.DiscoverAsync(null, TestContext.Current.CancellationToken);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => manager.GetStatusAsync(
+            Assert.Single(devices).Id, TestContext.Current.CancellationToken));
+
+        // The channel the caller would have got is the one whose failure is reported.
+        Assert.Contains(secure.Id.Authority, error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetStatusAsync_OpensOneChannelOnlyWhenThePreferredOneAnswers()
+    {
+        var secure = FakePrinters.Ipps("192.168.1.50", DiscoverySource.Mdns);
+        var plain = FakePrinters.Ipp("192.168.1.50", DiscoverySource.Mdns);
+        FakePrinterFactory factory = new();
+        PrinterManager manager = new(
+            new FakeMdnsDiscovery([secure, plain]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor());
+
+        var devices = await manager.DiscoverAsync(null, TestContext.Current.CancellationToken);
+        _ = await manager.GetStatusAsync(Assert.Single(devices).Id, TestContext.Current.CancellationToken);
+
+        Assert.Single(factory.Opened);
+    }
+
+    [Fact]
     public async Task PrintAsync_PrintsAPrinterLanguageToARawNetworkChannel()
     {
         var printer = FakePrinters.Raw("192.168.1.50", DiscoverySource.Mdns);

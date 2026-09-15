@@ -10,7 +10,7 @@
 /// The configuration is likewise read once and kept, so repeated calls to
 /// <see cref="GetConfigurationAsync"/> cost nothing after the first.
 /// </remarks>
-public sealed class IppPrinter : IPrinter, IDisposable
+public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
 {
     private readonly HttpClient _httpClient;
     private readonly bool _ownsClient;
@@ -161,6 +161,40 @@ public sealed class IppPrinter : IPrinter, IDisposable
             (uri, token) => IppRequests.GetIdentityAsync(_httpClient, uri, token),
             cancellationToken).ConfigureAwait(false);
         return identity.IsEmpty ? null : identity;
+    }
+
+    // The queue evidence the printer manager correlates with. Implemented explicitly: it
+    // is a detail of grouping and not part of what a caller does with a printer.
+    Task<IReadOnlyList<PrinterQueueFingerprint>> IQueueEvidenceChannel.ReadQueueAsync(string requestingUserName, CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return _resolver.RunAsync(
+            (uri, token) => IppRequests.GetQueueFingerprintsAsync(_httpClient, uri, requestingUserName, token),
+            cancellationToken);
+    }
+
+    Task<QueueTracerSupport> IQueueEvidenceChannel.ReadTracerSupportAsync(CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return _resolver.RunAsync(
+            (uri, token) => IppRequests.GetTracerSupportAsync(_httpClient, uri, token),
+            cancellationToken);
+    }
+
+    Task<string?> IQueueEvidenceChannel.CreateTracerJobAsync(string jobName, string requestingUserName, CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return _resolver.RunAsync(
+            (uri, token) => IppRequests.CreateTracerJobAsync(_httpClient, uri, jobName, requestingUserName, token),
+            cancellationToken);
+    }
+
+    async Task IQueueEvidenceChannel.CancelTracerJobAsync(string jobId, string requestingUserName, CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _ = await _resolver.RunAsync(
+            (uri, token) => IppRequests.CancelJobAsync(_httpClient, uri, jobId, requestingUserName, token),
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

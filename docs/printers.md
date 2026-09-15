@@ -33,7 +33,8 @@ raw://192.168.1.5                              the raw channel, port 9100 implie
 raw://192.168.1.5:9101                         a port that is not the default
 ipp://192.168.1.5                              the IPP channel, port 631 implied
 ipps://[2001:db8::5]:8631                      an IPv6 literal is bracketed
-ipp://e3b0c442-98fc-1c14-9afb-4c8996fb9242     the identity form
+ipp://e3b0c442-98fc-1c14-9afb-4c8996fb9242     the identity form, port 631 implied
+ipps://e3b0c442-98fc-1c14-9afb-4c8996fb9242:443  an identity on a port that is not the default
 spooler://EPSON_L6270                          a print queue
 spooler://%5C%5Cserver%5Cqueue                 a Windows connection name, escaped
 ```
@@ -45,6 +46,11 @@ spooler://%5C%5Cserver%5Cqueue                 a Windows connection name, escape
 - **`DeviceKey` is the authority with any `:port` stripped.** The port belongs to the
   channel, not to the device, which is why `raw://192.168.1.5` and `ipp://192.168.1.5`
   are one device.
+- **An identity form carries the port too**, by the same rule: written when it is not the
+  default of the scheme, left out when it is. Once a device has named itself, the port is
+  all that tells two of its channels apart, and without it a printer that answers one
+  scheme on two ports would report one identifier twice. It still takes no part in
+  `DeviceKey`, so those channels stay one device.
 - **Only a UUID is written as an identity authority.** A serial number reads exactly like
   a host name or a queue name, so putting one in the authority would make the text
   ambiguous. A serial number still groups the channels of a device, through
@@ -327,6 +333,9 @@ caller owns that client.
 routes a `spooler` identifier to the operating system spooler and a network identifier to
 IPP.
 
+The manager can also read a queue as evidence of which device a channel belongs to. See
+[Correlating channels by their job queue](#correlating-channels-by-their-job-queue).
+
 `IPrintJobMonitor.WatchJobAsync` yields a reading each time the state or the progress of one
 job changes, until the job reaches a terminal state or leaves the queue.
 `PollingPrintJobMonitor` reads the queue again and again, so it works with every printer and
@@ -334,11 +343,41 @@ needs no notification channel.
 
 ```csharp
 IPrintJobMonitor monitor = new PollingPrintJobMonitor(queue);
-await foreach (var reading in monitor.WatchJobAsync(job.PrinterId, job.JobId, new PrintJobMonitorOptions(), cancellationToken).ConfigureAwait(false))
+PrintJobMonitorOptions watch = new() { IdleTimeout = TimeSpan.FromMinutes(2) };
+await foreach (var reading in monitor.WatchJobAsync(job.PrinterId, job.JobId, watch, cancellationToken).ConfigureAwait(false))
 {
     Console.WriteLine($"{reading.State}: {reading.ImpressionsCompleted} pages");
 }
 ```
+
+#### When a watch ends
+
+**Only the `CancellationToken` throws. Every limit ends the watch quietly.** The watch stops
+and the loop simply finishes; a watch whose last reading was not terminal ended early, and
+that last reading is how a caller says so.
+
+**Never pass a deadline as the cancellation token.** The monitor cannot tell a caller's
+deadline from a real interruption, so it does what the token says and throws. A past defect
+showed the cost: one `CancellationTokenSource(2 minutes)` covered a file read, the
+submission and the watch, and a printer that woke from sleep and printed slowly took the
+whole run down with an unhandled `TaskCanceledException`. The token is for a caller that
+wants to stop; a limit belongs in the options.
+
+| Limit | Ends the watch when |
+| --- | --- |
+| `IdleTimeout` | Neither the state nor the page count has moved for that long. |
+| `Timeout` | That long has passed in total, whatever the job is doing. |
+
+**Prefer `IdleTimeout`.** Elapsed time does not separate a slow job from a stuck one;
+change does. A printer that wakes from sleep can take minutes over the first page and then
+print steadily: every page resets `IdleTimeout`, so the watch survives, while `Timeout`
+would end a job that is working perfectly. Set `Timeout` only as an outer bound. Both may be
+set, and whichever comes first ends the watch.
+
+**A sleeping printer needs no waking.** Submitting a job wakes it — that is what IPP and the
+spooler already do — but the first page may take minutes while it warms up. During that time
+the job reports `Printing` with no page finished, which is exactly the case `IdleTimeout` is
+sized for.
 
 ## Discovery
 
@@ -388,12 +427,21 @@ that appears twice keeps its first value (RFC 6763 §6.4). An address record tha
 a loopback, unspecified or multicast address is ignored, and the endpoint then keeps the
 target name of the service.
 
-| Service type | Port | Reported as |
+| Service type | Usual port | Reported as |
 | --- | --- | --- |
 | `_pdl-datastream._tcp` | 9100 | `raw://…` |
 | `_ipp._tcp` | 631 | `ipp://…` |
-| `_ipps._tcp` | 631 | `ipps://…` |
+| `_ipps._tcp` | 443 or 631 | `ipps://…` |
 | `_printer._tcp` | 515 | **nothing** |
+
+**The port is the one the `SRV` record gave, never a default for the service type.** A
+printer that advertises `_ipps._tcp` on 443 is reached on 443.
+
+**`_ipp` and `_ipps` are two channels and not one.** They are separate services, on separate
+ports, and a printer commonly advertises both. Collapsing them into one scheme would hide
+the plain channel behind a secure one that may not negotiate — an older printer whose
+certificate has expired is the usual case — and a caller could then not reach a printer that
+answers perfectly well on 631.
 
 **A printer that advertises several protocols gives one channel for each.** The channels
 share a device key, so `IPrinterManager` puts them on one `PrinterDevice`. A caller needs
@@ -540,13 +588,16 @@ foreach (var device in devices)
 }
 ```
 
-### The three phases
+### The four phases
 
 1. **Discover.** Every configured source runs at once and reports the channels it found.
 2. **Enrich.** When the caller asked for it, each channel is opened once and asked what it
    supports and which device it belongs to. This phase is opt-in, because every answer costs
    a request.
-3. **Group.** The channels are put into devices.
+3. **Correlate.** When the caller asked for it, the IPP channels no source named a device
+   for are asked what is in their queue, and the ones that answer with the same jobs are
+   merged. This phase is opt-in as well, and opt-in again before it writes anything.
+4. **Group.** The channels are put into devices.
 
 ### Which sources run
 
@@ -600,6 +651,103 @@ capabilities when those were read.
 A capability the printer did not report is not one it denied, so only an explicit `false`
 narrows the set.
 
+### Correlating channels by their job queue
+
+**A job in the queue of one channel is in the queue of another only when the two read one
+queue.** That is the whole idea. It closes the case no identity read can: one printer at an
+IPv4 address, at an IPv6 address and at an mDNS host name, or on two network interfaces,
+with no `printer-uuid` and no usable serial number to tie them together.
+
+It is off by default. Set `PrinterManagerOptions.QueueCorrelation` to turn it on.
+
+```csharp
+PrinterManagerOptions options = new()
+{
+    ReadIdentity = true,
+    QueueCorrelation = new QueueCorrelationOptions(),
+};
+```
+
+**Two consents, not one.** The options object itself says "you may open and read". Its
+`AllowTracerJob` says "you may write". One flag would let a caller who wanted a queue read
+silently acquire a job submission.
+
+**The policy is read from the manager and never from the argument of `DiscoverAsync`**, for
+the same reason `Transports` is: the argument scopes one discovery, and consent to write to
+a printer is not a scope.
+
+**It proves one queue, not one engine.** A class or a pool spreads one queue over several
+devices, so a match is not a statement about which machine feeds the paper. The library
+already treats a queue as a grouping unit, so this is consistent, but it is not the same
+claim as "the same physical printer".
+
+#### What a queue can and cannot prove
+
+| Channel | Sees a job another channel put in a queue | Why |
+| --- | --- | --- |
+| `ipp`, `ipps` on the same queue | Yes | `Get-Jobs` returns it |
+| `raw` | No | The channel has no queue |
+| SNMP | No | The Printer MIB has no job table, and a held job never reaches the device |
+| `spooler` | No | The job waits in that spooler and the device is never told. A queue is already tied to its device by `device-uri` or a port name, which is stronger evidence |
+
+So this is evidence between IPP channels and nowhere else. Only `ipp` and `ipps` channels on
+a transport the manager may open are candidates, and only ones no identity has already
+grouped — setting `ReadIdentity` as well therefore makes the correlation cheaper and not
+dearer.
+
+#### Stage one: compare the queues that are already there
+
+Each candidate is asked for its not-completed jobs, with one `requesting-user-name` for the
+whole run, so a printer that scopes an answer by owner scopes both sides of a comparison the
+same way. Nothing is written.
+
+**A job counts as evidence only when it is distinctive.** It needs an identifier, a creation
+time, and a name that is neither blank nor one every second job carries — `Document`,
+`Untitled`, `Test Page`, `(stdin)`. `time-at-creation` is seconds since that printer powered
+up, so a coincidence would need two devices to agree on the same identifier, the same
+human-chosen name, the same owner and the same uptime to the second.
+
+**Two queues match only when their distinctive jobs are exactly equal, as a set.** One job
+in common is not enough: an overlap rule would merge a member of a class with the class
+itself. A queue with no distinctive job is no answer at all, and never a match with another
+queue that also had none — two idle printers are still two printers.
+
+#### Stage two: one tracer job
+
+When a queue held nothing distinctive, the only way to make it say something is to put
+something in it. `AllowTracerJob` permits that.
+
+**A tracer is a `Create-Job` that is never given a document.** It is not a held print job. A
+job that carries no document prints nothing whatever the printer does with the hold, so the
+guarantee is structural and not a gate the library checks. `job-hold-until = indefinite` is
+sent as well, so the tracer does not sit at the head of the queue holding up the next job,
+and a channel that does not report both `Create-Job` and an indefinite hold is never asked.
+There is no fallback that sends a document.
+
+The job name is `adaptarch-devices-correlation-` and a fresh identifier, so a job left behind
+names itself to whoever finds it. **One tracer is created on every unproven channel before
+any queue is read again**: each name is unique, so a single re-read reveals every pairing at
+once, and the whole stage costs one write per channel rather than one per pair.
+
+**Every tracer is cancelled in a `finally`, on a token of its own.** This is the one place in
+the library that ignores the caller's cancellation: a discovery that was cancelled must still
+take its job back out of the queue. A tracer whose `Create-Job` answer was lost is found
+again by its name in the re-read and cancelled too.
+
+**A tracer is never created while the manager is only refreshing to resolve an identifier.**
+`PrintAsync` with an identifier the cache does not hold triggers a discovery, and printing
+one label must not leave a job on every idle printer on the network.
+
+#### What it costs
+
+With *n* candidates: *n* reads for stage one, and for stage two one capability read, one
+`Create-Job`, one re-read and one `Cancel-Job` each. Never *n²* writes.
+`MaxEnrichmentConcurrency` bounds how many channels are read at once, and `MaxChannels`
+(sixteen by default) refuses the whole correlation rather than correlating an arbitrary
+subset, because a partial answer would depend on which channel sorted first.
+
+**A correlation that failed proves nothing and never fails a discovery that worked.**
+
 ### How channels are grouped into devices
 
 Two channels are put on one device when a source **vouched** that they reach the same
@@ -612,6 +760,7 @@ device, or when they share an address. Vouching is evidence, never resemblance:
 | SNMP | `prtGeneralSerialNumber` |
 | CUPS | `device-uri` — a host, a USB serial, or a UUID |
 | Windows spooler | a port name that is an address, such as `IP_192.168.1.5` |
+| IPP job queue | the same not-completed jobs, reported by two channels, when [queue correlation](#correlating-channels-by-their-job-queue) is on |
 | TCP probe | none: a socket that accepted a connection says nothing about identity |
 
 The device key is the strongest one in the set: a UUID, then a serial number, then a host,
@@ -630,6 +779,9 @@ address changes.
   `unknown`, a bare `SN:`, anything under three characters, or a value made of one repeated
   character. A whole fleet shipped with the same placeholder serial number would otherwise
   collapse into a single device.
+- A queue with no distinctive job is no evidence. Two idle printers that both report job
+  `1` with no name stay two devices, and so do two printers that both hold a job called
+  `Document`.
 - The CUPS `printer-uuid` is **never** used. CUPS mints it itself, as a hash over the
   server, the port and the queue name, so two queues to one printer report two different
   values. Only `device-uri` links a queue to its device.
@@ -736,6 +888,13 @@ therefore never browses, even when a cache miss forces a fresh discovery.
 `GetStatusAsync` resolves the identifier the same way `PrintAsync` does, and opens a channel
 a status can be read from.
 
+**It tries every channel of the device, most preferred first, until one answers.** A printer
+commonly advertises a channel it cannot actually serve — an `ipps` port whose certificate no
+longer negotiates is the usual one — and the device is not unreachable while another of its
+channels still answers. Only when none answers is the failure of the first one reported,
+because that is the channel the caller asked for. A device that answers on its first channel
+opens exactly one, as before.
+
 **`WatchJobAsync` checks the device for a job queue before it watches anything.** A device
 with an `ipp`, `ipps` or `spooler` channel has one. A device with only a raw channel does
 not, and the call throws `NotSupportedException`.
@@ -789,12 +948,15 @@ services.AddPrinters(options => options.AllowPlainIpp = false);
   queue: a PDF with the defaults, a PNG in colour at its own size, a PNG in grayscale
   rotated 90 degrees, a JPEG rotated 180 degrees, and a JPEG in grayscale filling the media.
   It then asks again, and sends a JPEG, a ZPL label and an EPL label raw to every
-  raw-capable channel. A format the channel says it does not read is skipped with a yellow
+  raw-capable channel. A job that fails or that is still printing when the watch ends never
+  stops the jobs after it, and the run ends with a summary of what became of each one. A format the channel says it does not read is skipped with a yellow
   warning, because a raw send is not converted and would only waste paper. The jobs never
   change, so two runs can be compared. An option the printer did not report is still sent,
   and the run says so first.
 - `print-manager` — `IPrinterManager` for discovery, status, sending, watching and ZPL. This
-  is the layer most callers want.
+  is the layer most callers want. Its `correlate` command builds a manager of its own with
+  `QueueCorrelation` set and prints which channels the job queue merged; `correlate tracer`
+  asks first, then lets that manager create a tracer job where a queue is empty.
 - `manual-management` — `IMdnsPrinterDiscovery`, `INetworkPrinterDiscovery` and
   `IPrinterTransport` directly. This shows the seams the manager sits on. Its `send` command
   writes raw bytes over a network channel, so it cannot reach a spooler queue.

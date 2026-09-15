@@ -59,6 +59,20 @@ async Task RunPrinterManagerAsync(string[] commandArgs)
         return;
     }
 
+    if (commandArgs.Length >= 2 && commandArgs[1] == "correlate")
+    {
+        var allowTracer = commandArgs.Length >= 3 && commandArgs[2] == "tracer";
+        if (allowTracer && !SampleHelpers.Confirm(
+            "Create a held job that carries no document on each printer with an empty queue, then cancel it?"))
+        {
+            Console.WriteLine("Cancelled; the queues were only read.");
+            allowTracer = false;
+        }
+
+        await PrinterManagerScenario.CorrelateAsync(allowTracer).ConfigureAwait(false);
+        return;
+    }
+
     if (commandArgs.Length == 4 && commandArgs[1] == "send")
     {
         if (!SampleHelpers.Confirm($"Send '{commandArgs[3]}' to printer {commandArgs[2]}?"))
@@ -147,6 +161,7 @@ static void PrintHelp()
     Console.WriteLine("  dotnet run -- test-run           (the whole test sequence, once)");
     Console.WriteLine();
     Console.WriteLine("  dotnet run -- print-manager discover");
+    Console.WriteLine("  dotnet run -- print-manager correlate [tracer]");
     Console.WriteLine("  dotnet run -- print-manager send  <printer-id> <file>");
     Console.WriteLine("  dotnet run -- print-manager watch <printer-id> <file>");
     Console.WriteLine("  dotnet run -- print-manager zpl   <printer-id>");
