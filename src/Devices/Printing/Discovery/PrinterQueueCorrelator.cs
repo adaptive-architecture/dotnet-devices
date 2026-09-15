@@ -112,9 +112,9 @@ internal static class PrinterQueueCorrelator
         PrinterKeyUnionFind proved)
     {
         Dictionary<string, PrinterDeviceKey> bySummary = [];
-        foreach (var channel in candidates.Select(static candidate => candidate.Channel))
+        foreach (var id in candidates.Select(static candidate => candidate.Channel.Id))
         {
-            if (!queues.TryGetValue(channel.Id, out var queue) || queue is null)
+            if (!queues.TryGetValue(id, out var queue) || queue is null)
             {
                 continue;
             }
@@ -126,7 +126,7 @@ internal static class PrinterQueueCorrelator
                 continue;
             }
 
-            var key = channel.Id.DeviceKey;
+            var key = id.DeviceKey;
             if (bySummary.TryGetValue(summary, out var seen))
             {
                 proved.Union(seen, key);
@@ -250,10 +250,10 @@ internal static class PrinterQueueCorrelator
         IReadOnlyDictionary<PrinterId, IReadOnlyList<PrinterQueueFingerprint>?> queues,
         Dictionary<PrinterId, string> created)
     {
-        foreach (var channel in candidates.Select(static candidate => candidate.Channel))
+        foreach (var id in candidates.Select(static candidate => candidate.Channel.Id))
         {
-            if (created.ContainsKey(channel.Id)
-                || !queues.TryGetValue(channel.Id, out var queue)
+            if (created.ContainsKey(id)
+                || !queues.TryGetValue(id, out var queue)
                 || queue is null)
             {
                 continue;
@@ -263,7 +263,7 @@ internal static class PrinterQueueCorrelator
             {
                 if (job.JobName?.StartsWith(QueueCorrelationOptions.TracerJobNamePrefix, StringComparison.Ordinal) == true)
                 {
-                    created[channel.Id] = job.JobId.ToString(CultureInfo.InvariantCulture);
+                    created[id] = job.JobId.ToString(CultureInfo.InvariantCulture);
                     break;
                 }
             }
