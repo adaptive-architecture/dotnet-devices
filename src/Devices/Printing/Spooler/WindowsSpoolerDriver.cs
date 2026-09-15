@@ -187,11 +187,12 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         var bytes = payload.Data.ToArray();
         var jobName = options?.JobName ?? queueName;
 
+        var renderDpi = WindowsSpoolerContent.RenderDpi(options?.ResolutionDpi);
         var rendered = await ConvertAsync(
             queueName,
             payload.ContentType,
             bytes,
-            WindowsSpoolerContent.RenderDpi(options?.ResolutionDpi),
+            renderDpi,
             options?.PageRanges,
             cancellationToken).ConfigureAwait(false);
 
@@ -200,7 +201,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         {
             deviceMode = BuildDeviceMode(queueName, imageRequest);
             var jobId = WindowsGdiImagePrinter.PrintPages(
-                new WindowsGdiJob(queueName, WindowsSpoolerContent.FileExtension(PrinterContentTypes.Png), jobName, deviceMode, copies, options?.Orientation, options?.Scaling),
+                new WindowsGdiJob(queueName, WindowsSpoolerContent.FileExtension(PrinterContentTypes.Png), jobName, deviceMode, copies, options?.Orientation, options?.Scaling, renderDpi),
                 rendered);
 
             return new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)

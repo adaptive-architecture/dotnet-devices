@@ -512,7 +512,17 @@ and `Auto`, `AutoFit`, `Fill` and `Fit` are dropped. `dmOrientation` holds
 `DMORIENT_PORTRAIT` and `DMORIENT_LANDSCAPE` and nothing else, so an `Orientation` of
 `ReverseLandscape` or `ReversePortrait` is dropped as well. Image jobs lay out with GDI
 instead and honour every orientation and every scaling mode, so neither is dropped there.
-IPP and CUPS carry all of them. The
+IPP and CUPS carry all of them.
+
+A GDI image job sizes the image from the resolution its file declares — the PNG `pHYs`
+chunk, the JPEG JFIF density, or an EXIF tag — and writes it at the resolution of the
+device, so `PrintScaling.None` covers the same paper on a 300 and on a 600 dot printer.
+A converted page is sized from the resolution the converter was asked for instead,
+because the encoder writes none of its own. CUPS does the same on the Linux side, with
+one difference worth knowing: a file that declares no resolution is 200 dots an inch to
+CUPS, while GDI+ answers 96 for such a file and cannot tell it from one that really
+declares 96. The same bare file therefore prints about half as wide on Windows. Declare
+the resolution in the file to get the same page on both. The
 defaults on `PrinterConfiguration` come from the same device mode.
 `WindowsSpoolerDeviceModeMapper` holds the whole name-to-number mapping and calls no native
 code, so the unit tests on Linux prove it.

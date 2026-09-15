@@ -42,6 +42,11 @@ internal static partial class WindowsGdiInterop
     internal const int HorzRes = 8;
     internal const int VertRes = 10;
 
+    // LOGPIXELSX and LOGPIXELSY: the dots an inch of the device holds. A job that
+    // asks for its own size needs them, because a device pixel is not a length.
+    internal const int LogPixelsX = 88;
+    internal const int LogPixelsY = 90;
+
     // gdiplus: process-wide startup and shutdown around every image job.
     [LibraryImport("gdiplus.dll", EntryPoint = "GdiplusStartup")]
     internal static partial int Startup(out nint token, in StartupInput input, out StartupOutput output);
@@ -62,6 +67,15 @@ internal static partial class WindowsGdiInterop
 
     [LibraryImport("gdiplus.dll", EntryPoint = "GdipGetImageHeight")]
     internal static partial int GetImageHeight(nint image, out uint height);
+
+    // The dots an inch the file itself declares: the PNG pHYs chunk, the JPEG JFIF
+    // density, or an EXIF tag. GDI+ answers 96 for a file that declares nothing,
+    // which it then treats as that file's own size.
+    [LibraryImport("gdiplus.dll", EntryPoint = "GdipGetImageHorizontalResolution")]
+    internal static partial int GetImageHorizontalResolution(nint image, out float resolution);
+
+    [LibraryImport("gdiplus.dll", EntryPoint = "GdipGetImageVerticalResolution")]
+    internal static partial int GetImageVerticalResolution(nint image, out float resolution);
 
     [LibraryImport("gdiplus.dll", EntryPoint = "GdipCreateFromHDC")]
     internal static partial int CreateGraphics(nint deviceContext, out nint graphics);
