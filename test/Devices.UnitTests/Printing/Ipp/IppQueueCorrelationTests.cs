@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Text;
 using AdaptArch.Devices.Printing;
 using AdaptArch.Devices.Printing.Ipp;
 using Xunit;
@@ -10,6 +11,12 @@ public class IppQueueCorrelationTests
     private static readonly NetworkPrinterEndpoint Endpoint = NetworkPrinterEndpoint.Ipp("printer.local");
     private static readonly Uri Uri = new("ipp://printer.local:631/ipp/print");
 
+    // IppPrinter implements IQueueEvidenceChannel explicitly, so the interface is the only
+    // way to reach these members. This helper exists to make that cast once.
+    [SuppressMessage(
+        "Performance",
+        "CA1859:Use concrete types when possible for improved performance",
+        Justification = "IppPrinter implements IQueueEvidenceChannel explicitly, so the concrete type exposes none of the members under test.")]
     private static IQueueEvidenceChannel Evidence(IppPrinter printer) => printer;
 
     private static string TextOf(byte[] body) => Encoding.UTF8.GetString(body);
