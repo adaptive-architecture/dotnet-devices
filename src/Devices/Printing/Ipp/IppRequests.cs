@@ -166,7 +166,14 @@ internal static class IppRequests
         }
     }
 
-    public static async Task<bool> CancelJobAsync(HttpClient httpClient, Uri uri, string jobId, CancellationToken cancellationToken)
+    public static Task<bool> CancelJobAsync(HttpClient httpClient, Uri uri, string jobId, CancellationToken cancellationToken) =>
+        CancelJobAsync(httpClient, uri, jobId, null, cancellationToken);
+
+    // The user name is optional because the queue callers never sent one and a printer that
+    // never asked for one must keep behaving as it did. The correlation does send one: a
+    // server with an owner-based cancel policy refuses to take back an anonymous request's
+    // job, which would leave the tracer in the queue.
+    public static async Task<bool> CancelJobAsync(HttpClient httpClient, Uri uri, string jobId, string? requestingUserName, CancellationToken cancellationToken)
     {
         if (!Int32.TryParse(jobId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
         {
@@ -176,7 +183,7 @@ internal static class IppRequests
         IppOperations operations = new(httpClient);
         CancelJobRequest request = new()
         {
-            OperationAttributes = new() { PrinterUri = uri, JobId = id },
+            OperationAttributes = new() { PrinterUri = uri, JobId = id, RequestingUserName = requestingUserName },
         };
 
         try
@@ -194,6 +201,103 @@ internal static class IppRequests
             return false;
         }
     }
+
+    // The jobs that have not finished, as the fingerprint needs them.
+    //
+    // Unlike GetJobsAsync, this one states which jobs and which attributes it wants. A
+    // printer left to its own default answers Get-Jobs with the job identifier alone, and a
+    // bare identifier tells one queue from another not at all.
+    public static async Task<IReadOnlyList<PrinterQueueFingerprint>> GetQueueFingerprintsAsync(
+        HttpClient httpClient,
+        Uri uri,
+        string requestingUserName,
+        CancellationToken cancellationToken)
+    {
+        IppOperations operations = new(httpClient);
+        GetJobsRequest request = new()
+        {
+            OperationAttributes = new()
+            {
+                PrinterUri = uri,
+                WhichJobs = WhichJobs.NotCompleted,
+
+                // Asked for explicitly rather than left unset: the jobs of every user are
+                // wanted, and a printer that scopes the answer by default would hand two
+                // channels two different views of one queue.
+                MyJobs = false,
+                RequestingUserName = requestingUserName,
+                RequestedAttributes = IppQueueFingerprintMapper.RequestedAttributes,
+            },
+        };
+
+        var response = await operations.SendAsync(
+            static (client, message, token) => client.GetJobsAsync(message, token),
+            request,
+            uri,
+            cancellationToken).ConfigureAwait(false);
+
+        var attributes = response.JobsAttributes ?? [];
+        List<PrinterQueueFingerprint> jobs = new(attributes.Length);
+        foreach (var job in attributes)
+        {
+            if (IppQueueFingerprintMapper.Map(job) is PrinterQueueFingerprint mapped)
+            {
+                jobs.Add(mapped);
+            }
+        }
+
+        return jobs;
+    }
+
+    // Whether this printer can hold a job that carries no document at all.
+    public static async Task<QueueTracerSupport> GetTracerSupportAsync(HttpClient httpClient, Uri uri, CancellationToken cancellationToken)
+    {
+        IppOperations operations = new(httpClient);
+        var response = await ReadAttributesAsync(operations, uri, TracerSupportAttributes, cancellationToken).ConfigureAwait(false);
+        var attributes = response.PrinterAttributes;
+        var canCreate = attributes?.OperationsSupported?.Contains(IppOperation.CreateJob) ?? false;
+        var canHold = attributes?.JobHoldUntilSupported?.Contains(JobHoldUntil.Indefinite) ?? false;
+        return new QueueTracerSupport(canCreate, canHold);
+    }
+
+    // Creates a job with no document at all, held indefinitely.
+    //
+    // Create-Job and no Send-Document is the whole safety of the correlation: a job that
+    // holds no document cannot print, whatever a printer does with the hold. The hold is
+    // sent as well, so the job does not sit at the head of the queue blocking the next one.
+    public static async Task<string?> CreateTracerJobAsync(
+        HttpClient httpClient,
+        Uri uri,
+        string jobName,
+        string requestingUserName,
+        CancellationToken cancellationToken)
+    {
+        IppOperations operations = new(httpClient);
+        CreateJobRequest request = new()
+        {
+            OperationAttributes = new()
+            {
+                PrinterUri = uri,
+                JobName = jobName,
+                RequestingUserName = requestingUserName,
+            },
+            JobTemplateAttributes = new() { JobHoldUntil = JobHoldUntil.Indefinite },
+        };
+
+        var response = await operations.SendAsync(
+            static (client, message, token) => client.CreateJobAsync(message, token),
+            request,
+            uri,
+            cancellationToken).ConfigureAwait(false);
+
+        return response.JobAttributes?.JobId.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static readonly string[] TracerSupportAttributes =
+    [
+        "operations-supported",
+        "job-hold-until-supported",
+    ];
 
     private static Task<SharpIpp.Models.Responses.GetPrinterAttributesResponse> ReadAttributesAsync(
         IppOperations operations,

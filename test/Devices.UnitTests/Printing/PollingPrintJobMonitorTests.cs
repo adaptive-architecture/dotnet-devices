@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Linq;
 using AdaptArch.Devices.Printing;
 using Xunit;
 
@@ -156,5 +157,133 @@ public class PollingPrintJobMonitorTests
             PrinterId.ForSpooler("lobby"), "1", new PrintJobMonitorOptions { PollInterval = TimeSpan.Zero }, TestContext.Current.CancellationToken));
         _ = Assert.Throws<ArgumentOutOfRangeException>(() => monitor.WatchJobAsync(
             PrinterId.ForSpooler("lobby"), "1", new PrintJobMonitorOptions { Timeout = TimeSpan.FromSeconds(-1) }, TestContext.Current.CancellationToken));
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => monitor.WatchJobAsync(
+            PrinterId.ForSpooler("lobby"), "1", new PrintJobMonitorOptions { IdleTimeout = TimeSpan.Zero }, TestContext.Current.CancellationToken));
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => monitor.WatchJobAsync(
+            PrinterId.ForSpooler("lobby"), "1", new PrintJobMonitorOptions { IdleTimeout = TimeSpan.FromSeconds(-1) }, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task WatchJobAsync_EndsQuietlyWhenNothingChangesForTheIdleTimeout()
+    {
+        // The job never changes and never becomes terminal, so only the idle timeout ends
+        // the watch. The clock steps a second per reading, so it is reached in a fixed
+        // number of polls and the test waits for none of it.
+        FakeQueue queue = new InfiniteQueue(Job(PrintJobState.Printing, 1));
+        PollingPrintJobMonitor monitor = new(queue, new SteppingClock(TimeSpan.FromSeconds(1)));
+        PrintJobMonitorOptions options = new() { PollInterval = TimeSpan.FromMilliseconds(1), IdleTimeout = TimeSpan.FromSeconds(5) };
+
+        List<PrintJobInfo> seen = [];
+        await foreach (var job in monitor.WatchJobAsync(Printer, "42", options, TestContext.Current.CancellationToken))
+        {
+            seen.Add(job);
+        }
+
+        var seenJob = Assert.Single(seen);
+        Assert.Equal(PrintJobState.Printing, seenJob.State);
+    }
+
+    [Fact]
+    public async Task WatchJobAsync_KeepsWatchingWhileThePageCountRises()
+    {
+        // The defect this option exists for: a printer that woke from sleep printed slowly
+        // but steadily, and a wall-clock cap killed a job that was working. Every reading
+        // here moves the page count on, and the total time runs far past the idle timeout,
+        // so the watch must see all of them.
+        List<PrintJobInfo> readings = [.. Enumerable.Range(1, 10).Select(page => Job(PrintJobState.Printing, page))];
+        readings.Add(Job(PrintJobState.Completed, 10));
+        FakeQueue queue = new([.. readings]);
+        PollingPrintJobMonitor monitor = new(queue, new SteppingClock(TimeSpan.FromSeconds(1)));
+        PrintJobMonitorOptions options = new() { PollInterval = TimeSpan.FromMilliseconds(1), IdleTimeout = TimeSpan.FromSeconds(5) };
+
+        List<PrintJobInfo> seen = [];
+        await foreach (var job in monitor.WatchJobAsync(Printer, "42", options, TestContext.Current.CancellationToken))
+        {
+            seen.Add(job);
+        }
+
+        Assert.Equal(11, seen.Count);
+        Assert.Equal(PrintJobState.Completed, seen[^1].State);
+    }
+
+    [Fact]
+    public async Task WatchJobAsync_TreatsAStateChangeAsProgress()
+    {
+        // The page count stays unknown throughout, so only the state says the job moved.
+        FakeQueue queue = new(
+            Job(PrintJobState.Queued, null),
+            Job(PrintJobState.Queued, null),
+            Job(PrintJobState.Printing, null),
+            Job(PrintJobState.Completed, null));
+        PollingPrintJobMonitor monitor = new(queue, new SteppingClock(TimeSpan.FromSeconds(1)));
+        PrintJobMonitorOptions options = new() { PollInterval = TimeSpan.FromMilliseconds(1), IdleTimeout = TimeSpan.FromSeconds(4) };
+
+        List<PrintJobInfo> seen = [];
+        await foreach (var job in monitor.WatchJobAsync(Printer, "42", options, TestContext.Current.CancellationToken))
+        {
+            seen.Add(job);
+        }
+
+        Assert.Equal(3, seen.Count);
+        Assert.Equal(PrintJobState.Completed, seen[^1].State);
+    }
+
+    [Fact]
+    public async Task WatchJobAsync_EndsAtWhicheverOfTheTwoLimitsComesFirst()
+    {
+        // The idle timeout is unreachable, so the absolute timeout is what ends this watch.
+        FakeQueue queue = new InfiniteQueue(Job(PrintJobState.Printing, 1));
+        PollingPrintJobMonitor monitor = new(queue);
+        PrintJobMonitorOptions options = new()
+        {
+            PollInterval = TimeSpan.FromMilliseconds(1),
+            Timeout = TimeSpan.FromMilliseconds(20),
+            IdleTimeout = TimeSpan.FromHours(1),
+        };
+
+        List<PrintJobInfo> seen = [];
+        await foreach (var job in monitor.WatchJobAsync(Printer, "42", options, TestContext.Current.CancellationToken))
+        {
+            seen.Add(job);
+        }
+
+        _ = Assert.Single(seen);
+    }
+
+    [Fact]
+    public async Task WatchJobAsync_StillThrowsWhenTheCallerCancels()
+    {
+        // The distinction that caused the defect: a limit ends the watch quietly, and only
+        // the caller's own token throws. A caller must never pass its deadline as a token.
+        FakeQueue queue = new InfiniteQueue(Job(PrintJobState.Printing, 1));
+        PollingPrintJobMonitor monitor = new(queue);
+        PrintJobMonitorOptions options = new() { PollInterval = TimeSpan.FromMilliseconds(1), IdleTimeout = TimeSpan.FromHours(1) };
+        using CancellationTokenSource source = new();
+
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (var job in monitor.WatchJobAsync(Printer, "42", options, source.Token))
+            {
+                await source.CancelAsync();
+            }
+        });
+    }
+
+    // A clock that steps forward on every reading, so a watch reaches an idle timeout in a
+    // fixed number of polls instead of in real time. Only the reading of "now" is faked:
+    // timers stay on the system clock, so the poll delay is the real one millisecond and
+    // an absolute Timeout still behaves as it does in production.
+    private sealed class SteppingClock : TimeProvider
+    {
+        private readonly TimeSpan _step;
+        private DateTimeOffset _now = DateTimeOffset.UnixEpoch;
+
+        public SteppingClock(TimeSpan step) => _step = step;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            _now += _step;
+            return _now;
+        }
     }
 }

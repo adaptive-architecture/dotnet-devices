@@ -75,7 +75,17 @@ internal sealed class FakePrinterFactory : IPrinterFactory
 
     public Func<DiscoveredPrinter, PrinterIdentity> IdentityOf { get; set; }
 
+    // Which channels refuse to report a status.
+    public Func<DiscoveredPrinter, bool> FailStatusOn { get; set; }
+
     public List<FakePrinter> Printers { get; } = [];
+
+    // When set, an opened channel also answers about its job queue, which is what the
+    // correlation needs. The default factory returns a printer that cannot, so a discovery
+    // with no correlation never touches one.
+    public Func<DiscoveredPrinter, Discovery.FakeQueueEvidenceChannel> EvidenceOf { get; set; }
+
+    public List<Discovery.FakeQueueEvidenceChannel> Evidence { get; } = [];
 
     public IPrinter Open(DiscoveredPrinter printer)
     {
@@ -85,10 +95,17 @@ internal sealed class FakePrinterFactory : IPrinterFactory
             throw new InvalidOperationException($"No printer answers at '{printer.Id.Authority}'.");
         }
 
+        if (EvidenceOf?.Invoke(printer) is Discovery.FakeQueueEvidenceChannel evidence)
+        {
+            Evidence.Add(evidence);
+            return evidence;
+        }
+
         FakePrinter opened = new(printer)
         {
             Configuration = ConfigurationOf is null ? new PrinterConfiguration(printer.Id) : ConfigurationOf(printer),
             Identity = IdentityOf?.Invoke(printer),
+            FailStatus = FailStatusOn?.Invoke(printer) ?? false,
         };
         Printers.Add(opened);
         return opened;
@@ -128,8 +145,14 @@ internal sealed class FakePrinter : IPrinter
     public Task<PrintJobInfo> PrintAsync(PrinterPayload payload, PrintOptions options, CancellationToken cancellationToken) =>
         Task.FromResult(new PrintJobInfo("1", Id, PrintJobState.Queued));
 
+    // Makes a status read fail the way a channel a printer advertises but cannot serve
+    // does, such as an IPPS port whose certificate no longer negotiates.
+    public bool FailStatus { get; set; }
+
     public Task<PrinterStatus> GetStatusAsync(CancellationToken cancellationToken) =>
-        Task.FromResult(new PrinterStatus(Id, PrinterStatusState.Idle));
+        FailStatus
+            ? Task.FromException<PrinterStatus>(new InvalidOperationException($"Printer '{Id.Authority}' did not answer IPP over IPPS or IPP."))
+            : Task.FromResult(new PrinterStatus(Id, PrinterStatusState.Idle));
 
     public Task<PrinterConfiguration> GetConfigurationAsync(CancellationToken cancellationToken)
     {
@@ -188,6 +211,18 @@ internal static class FakePrinters
         return new DiscoveredPrinter(id, NetworkPrinterEndpoint.Ipp(host), new PrinterInfo(id, host))
         {
             Source = source,
+        };
+    }
+
+    // The secure channel a printer advertises beside its plain one, on its own port.
+    public static DiscoveredPrinter Ipps(string host, DiscoverySource source, int port = 443)
+    {
+        var endpoint = NetworkPrinterEndpoint.Ipps(host, port);
+        var id = PrinterId.FromEndpoint(endpoint);
+        return new DiscoveredPrinter(id, endpoint, new PrinterInfo(id, host))
+        {
+            Source = source,
+            Aliases = [PrinterDeviceKey.ForHost(host)],
         };
     }
 

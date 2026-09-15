@@ -60,7 +60,8 @@ public sealed class PrinterManager : IPrinterManager
     /// <param name="monitor">The monitor used to watch a job on a channel that has a job queue.</param>
     /// <param name="options">
     /// The policy of this manager: the transports it may open, and the discovery scope a
-    /// call to <see cref="DiscoverAsync"/> uses when it is given no options of its own.
+    /// call to <see cref="DiscoverAsync(PrinterManagerOptions?, CancellationToken)"/> uses
+    /// when it is given no options of its own.
     /// When <c>null</c>, the defaults apply.
     /// </param>
     /// <exception cref="ArgumentException">Thrown when <paramref name="options"/> allows no transport.</exception>
@@ -94,7 +95,14 @@ public sealed class PrinterManager : IPrinterManager
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<PrinterDevice>> DiscoverAsync(PrinterManagerOptions? options, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<PrinterDevice>> DiscoverAsync(PrinterManagerOptions? options, CancellationToken cancellationToken) =>
+        DiscoverAsync(options, true, cancellationToken);
+
+    // allowTracer is false on the path that refreshes to resolve an identifier. A print to
+    // an identifier the cache does not hold triggers a discovery, and a tracer job there
+    // would leave a job on every idle printer on the network as a side effect of printing
+    // one label.
+    private async Task<IReadOnlyList<PrinterDevice>> DiscoverAsync(PrinterManagerOptions? options, bool allowTracer, CancellationToken cancellationToken)
     {
         var effective = options ?? _options;
         ArgumentOutOfRangeException.ThrowIfLessThan(effective.MaxEnrichmentConcurrency, 1);
@@ -104,6 +112,14 @@ public sealed class PrinterManager : IPrinterManager
         if (effective.ReadIdentity || effective.ReadCapabilities)
         {
             channels = await EnrichAsync(channels, effective, statusSources, cancellationToken).ConfigureAwait(false);
+        }
+
+        // Read from the manager's own options and never from the argument, for the same
+        // reason Transports is: the argument scopes one discovery, and consent to write to a
+        // printer is not a scope.
+        if (_options.QueueCorrelation is QueueCorrelationOptions correlation)
+        {
+            channels = await CorrelateAsync(channels, correlation, allowTracer, effective.MaxEnrichmentConcurrency, cancellationToken).ConfigureAwait(false);
         }
 
         var devices = PrinterDeviceGrouper.Group(channels, statusSources, _formats);
@@ -192,6 +208,91 @@ public sealed class PrinterManager : IPrinterManager
         }).ConfigureAwait(false);
 
         return enriched;
+    }
+
+    // Phase three. Asks the channels no source named a device for what is in their queue,
+    // and merges the ones that answer with the same jobs. Opt-in, and opt-in again before it
+    // writes anything.
+    private async Task<IReadOnlyList<DiscoveredPrinter>> CorrelateAsync(
+        IReadOnlyList<DiscoveredPrinter> channels,
+        QueueCorrelationOptions correlation,
+        bool allowTracer,
+        int maxConcurrency,
+        CancellationToken cancellationToken)
+    {
+        List<IPrinter> opened = [];
+        try
+        {
+            List<PrinterQueueCorrelator.Candidate> candidates = [];
+            foreach (var channel in PrinterQueueCorrelator.Choose(channels, _options.Transports))
+            {
+                IPrinter printer;
+                try
+                {
+                    printer = _factory.Open(channel);
+                }
+                catch (Exception)
+                {
+                    // One channel that cannot even be opened costs its own evidence and
+                    // nothing else, the same way an enrichment read does.
+                    continue;
+                }
+
+                opened.Add(printer);
+
+                // A factory of the caller's own may return something that cannot answer
+                // about a queue. That channel simply contributes no evidence.
+                if (printer is IQueueEvidenceChannel evidence)
+                {
+                    candidates.Add(new PrinterQueueCorrelator.Candidate(channel, evidence));
+                }
+            }
+
+            var proved = await PrinterQueueCorrelator
+                .CorrelateAsync(candidates, correlation, allowTracer, maxConcurrency, cancellationToken)
+                .ConfigureAwait(false);
+
+            return proved.Count == 0 ? channels : ApplyAliases(channels, proved);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // A correlation that failed proves nothing. It must never fail a discovery that
+            // already worked.
+            return channels;
+        }
+        finally
+        {
+            foreach (var printer in opened)
+            {
+                if (printer is IDisposable disposable)
+                {
+                    disposable.Dispose();
+                }
+            }
+        }
+    }
+
+    private static List<DiscoveredPrinter> ApplyAliases(
+        IReadOnlyList<DiscoveredPrinter> channels,
+        IReadOnlyDictionary<PrinterId, IReadOnlyList<PrinterDeviceKey>> proved)
+    {
+        List<DiscoveredPrinter> applied = new(channels.Count);
+        foreach (var channel in channels)
+        {
+            if (!proved.TryGetValue(channel.Id, out var aliases))
+            {
+                applied.Add(channel);
+                continue;
+            }
+
+            applied.Add(channel.WithAliases(Distinct([.. channel.Aliases, .. aliases])));
+        }
+
+        return applied;
     }
 
     private async Task<(DiscoveredPrinter Channel, IReadOnlyList<PrinterStatusSource> Sources)> ReadAsync(
@@ -315,8 +416,11 @@ public sealed class PrinterManager : IPrinterManager
         // The identifier becomes the identity form only when the device named itself with
         // a UUID. A serial number reads like a host name, so writing one into the
         // authority would make the text ambiguous; it still groups the device.
+        //
+        // The port is carried over from the channel, so a printer that answers the same
+        // scheme on two ports keeps two identifiers rather than reporting one of them twice.
         var id = PrinterId.TryParseDeviceUuid(uuid, out var parsed)
-            ? PrinterId.ForDeviceUuid(channel.Endpoint.Scheme, parsed)
+            ? PrinterId.ForDeviceUuid(channel.Endpoint.Scheme, parsed, channel.Id.Port)
             : channel.Id;
 
         return channel.With(id, info, configuration, Distinct(aliases));
@@ -372,21 +476,58 @@ public sealed class PrinterManager : IPrinterManager
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Every channel of the device is tried, most preferred first, until one answers. A
+    /// printer commonly advertises a channel it cannot actually serve — an IPPS port whose
+    /// certificate no longer negotiates is the usual one — and the device is not
+    /// unreachable while another of its channels still answers. Only when none does is the
+    /// failure of the first reported, because that is the channel the caller asked for.
+    /// </remarks>
     public async Task<PrinterStatus> GetStatusAsync(PrinterId id, CancellationToken cancellationToken)
     {
         var device = await ResolveAsync(id, cancellationToken).ConfigureAwait(false);
-        var printer = _factory.Open(ChooseForQueue(device, id));
-        try
+        Exception? first = null;
+        foreach (var channel in StatusOrder(device, id))
         {
-            return await printer.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            if (printer is IDisposable disposable)
+            var printer = _factory.Open(channel);
+            try
             {
-                disposable.Dispose();
+                return await printer.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                first ??= exception;
+            }
+            finally
+            {
+                if (printer is IDisposable disposable)
+                {
+                    disposable.Dispose();
+                }
             }
         }
+
+        throw first ?? NoAllowedTransport(device, id);
+    }
+
+    // The channels to ask for a status, most likely to answer first: the one the caller
+    // named, then the rest in the configured transport order. ChooseForQueue picks the
+    // head of this list, so a device with one working channel behaves as it always did.
+    private List<DiscoveredPrinter> StatusOrder(PrinterDevice device, PrinterId id)
+    {
+        var allowed = Allowed(device);
+        if (allowed.Count == 0)
+        {
+            throw NoAllowedTransport(device, id);
+        }
+
+        List<DiscoveredPrinter> ordered = [ChooseForQueue(device, id)];
+        ordered.AddRange(allowed.Where(channel => channel != ordered[0]));
+        return ordered;
     }
 
     /// <inheritdoc />
@@ -541,7 +682,7 @@ public sealed class PrinterManager : IPrinterManager
                 return device;
             }
 
-            _ = await DiscoverAsync(null, cancellationToken).ConfigureAwait(false);
+            _ = await DiscoverAsync(null, false, cancellationToken).ConfigureAwait(false);
         }
         finally
         {

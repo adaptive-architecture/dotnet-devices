@@ -77,6 +77,11 @@ public sealed class DiscoveredPrinter
     /// <c>UUID</c> record, an IPP <c>printer-uuid</c>, an SNMP serial number and a CUPS
     /// <c>device-uri</c> are the four that carry it. It is what merges a print queue with
     /// the network channels of the device behind it.
+    /// <para>
+    /// A fifth carrier is the job queue itself: two IPP channels that report the same jobs
+    /// read one queue. It contributes only when
+    /// <see cref="PrinterManagerOptions.QueueCorrelation"/> is set.
+    /// </para>
     /// </remarks>
     public IReadOnlyList<PrinterDeviceKey> Aliases { get; init; } = [];
 
@@ -91,6 +96,20 @@ public sealed class DiscoveredPrinter
     /// unchanged.
     /// </summary>
     public bool GivesPassthrough => PrinterSchemes.GivesPassthrough(Endpoint.Scheme, OperatingSystem.IsWindows());
+
+    /// <summary>
+    /// Copies this channel with more evidence about which device it belongs to, and nothing
+    /// else changed.
+    /// </summary>
+    /// <param name="aliases">The devices this channel is now known to belong to.</param>
+    internal DiscoveredPrinter WithAliases(IReadOnlyList<PrinterDeviceKey> aliases) =>
+        new(Id, Endpoint, Info)
+        {
+            Source = Source,
+            Configuration = Configuration,
+            Aliases = aliases,
+            SupportedOptions = SupportedOptions,
+        };
 
     /// <summary>
     /// Copies this channel with the capabilities and the identity a read supplied.

@@ -49,7 +49,7 @@ public class IppPrinterTests
     {
         // 0x02 is the job-attributes group.
         var job = IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 1), (0x23, "job-state", 3));
-        CapturingHandler handler = new(job);
+        IppMessages.CapturingHandler handler = new(job);
         using IppPrinter printer = new(Endpoint, new HttpClient(handler));
 
         _ = await printer.PrintAsync(
@@ -121,32 +121,12 @@ public class IppPrinterTests
         Assert.Equal("media-empty", status.Detail);
     }
 
-    // Unlike IppMessages.StubHandler this reads the content, which it must do before it
-    // returns: IppPrinter disposes the document stream right after the send.
-    private sealed class CapturingHandler : HttpMessageHandler
-    {
-        private readonly byte[] _responseBody;
-
-        public CapturingHandler(byte[] responseBody) => _responseBody = responseBody;
-
-        public List<byte[]> RequestBodies { get; } = [];
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            if (request.Content is not null)
-            {
-                RequestBodies.Add(await request.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false));
-            }
-
-            return IppMessages.Ok(_responseBody);
-        }
-    }
 
     [Fact]
     public async Task PrintAsync_SendsTheRequestingUserName()
     {
         var job = IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 1), (0x23, "job-state", 3));
-        CapturingHandler handler = new(job);
+        IppMessages.CapturingHandler handler = new(job);
         using IppPrinter printer = new(Endpoint, new HttpClient(handler));
 
         _ = await printer.PrintAsync(

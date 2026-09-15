@@ -102,6 +102,27 @@ internal static class IppMessages
         return (response.PrinterAttributes, operations.LastRawResponse);
     }
 
+    // Unlike StubHandler this reads the content, which it must do before it returns:
+    // IppPrinter disposes the document stream right after the send.
+    internal sealed class CapturingHandler : HttpMessageHandler
+    {
+        private readonly byte[] _responseBody;
+
+        public CapturingHandler(byte[] responseBody) => _responseBody = responseBody;
+
+        public List<byte[]> RequestBodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Content is not null)
+            {
+                RequestBodies.Add(await request.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false));
+            }
+
+            return Ok(_responseBody);
+        }
+    }
+
     internal sealed class StubHandler : HttpMessageHandler
     {
         private readonly Func<HttpRequestMessage, HttpResponseMessage> _responder;

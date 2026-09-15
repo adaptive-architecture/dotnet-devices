@@ -1,6 +1,7 @@
 ﻿using System.Globalization;
 using System.Linq;
 using System.Text;
+using AdaptArch.Devices.DependencyInjection;
 using AdaptArch.Devices.Printing;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -133,6 +134,63 @@ internal static class PrinterManagerScenario
 
     // A capability the printer did not report is not a capability it denied.
     private static string Describe(bool? value) => value is null ? "not reported" : value.Value ? "yes" : "no";
+
+    // Proves that two channels reach one queue by comparing the jobs each reports.
+    //
+    // It needs a manager of its own: the policy is read from the options the manager was
+    // built with and never from the argument of DiscoverAsync, because opening a session to
+    // every printer — and, with a tracer, writing to one — is consent that belongs to
+    // whoever built the manager.
+    internal static async Task CorrelateAsync(bool allowTracer)
+    {
+        ServiceCollection services = new();
+        _ = services.AddPrinters(configureManager: options =>
+        {
+            options.ReadIdentity = true;
+            options.QueueCorrelation = new QueueCorrelationOptions { AllowTracerJob = allowTracer };
+        });
+
+        await using var provider = services.BuildServiceProvider();
+        var manager = provider.GetRequiredService<IPrinterManager>();
+        using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(60));
+
+        Console.WriteLine(allowTracer
+            ? "Comparing job queues, and creating a tracer job where a queue is empty..."
+            : "Comparing the job queues of the printers that report no identity...");
+
+        IReadOnlyList<PrinterDevice> devices;
+        try
+        {
+            devices = await manager.DiscoverAsync(null, timeoutSource.Token).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"The discovery failed: {exception.Message}");
+            return;
+        }
+
+        if (devices.Count == 0)
+        {
+            Console.WriteLine("No printers found on the local network.");
+            return;
+        }
+
+        foreach (var device in devices)
+        {
+            Console.WriteLine($"- {device.Details.Name} — {device.Key}");
+            foreach (var channel in device.Channels)
+            {
+                Console.WriteLine($"    {channel.Endpoint.Scheme,-8}: {channel.Id}");
+            }
+
+            if (device.Channels.Count > 1 && !device.Key.IsDeviceIdentity)
+            {
+                // No source named this device, so the queue is what put these channels
+                // together. Note it says one queue, and not one sheet-feeding mechanism.
+                Console.WriteLine("    merged by : the job queue");
+            }
+        }
+    }
 
     internal static async Task<IReadOnlyList<PrinterDevice>> BrowseAsync(ServiceProvider provider)
     {

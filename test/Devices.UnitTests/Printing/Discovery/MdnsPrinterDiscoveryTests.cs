@@ -113,6 +113,28 @@ public class MdnsPrinterDiscoveryTests
     }
 
     [Fact]
+    public async Task DiscoverAsync_TellsTheSecureIppChannelFromThePlainOne()
+    {
+        // A printer commonly advertises both, on two ports. Reporting one scheme for the
+        // two would hide the plain channel behind a secure one that may not negotiate.
+        FakeUdpChannel channel = new(
+            MdnsResponses.Printer("Both", MdnsPrinterDiscoveryOptions.IppServiceType, "both.local", 631, "192.168.1.58", ["ty=Both"]),
+            MdnsResponses.Printer("Both", MdnsPrinterDiscoveryOptions.IppsServiceType, "both.local", 443, "192.168.1.58", ["ty=Both"]));
+        MdnsPrinterDiscovery discovery = new(new FakeMdnsChannelFactory(channel));
+
+        var printers = await discovery
+            .DiscoverAsync(NewOptions(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, printers.Count);
+        Assert.Equal([PrinterScheme.Ipps, PrinterScheme.Ipp], printers.Select(static p => p.Endpoint.Scheme));
+        Assert.Equal([443, 631], printers.Select(static p => ((NetworkPrinterEndpoint)p.Endpoint).Port));
+
+        // Two channels of one device, so the identifiers differ but the key does not.
+        Assert.Equal(2, printers.Select(static p => p.Id).Distinct().Count());
+        Assert.Single(printers.Select(static p => p.Id.DeviceKey).Distinct());
+    }
+
+    [Fact]
     public async Task DiscoverAsync_LpdOnlyPrinter_IsNotReported()
     {
         FakeUdpChannel channel = new(MdnsResponses.Printer(

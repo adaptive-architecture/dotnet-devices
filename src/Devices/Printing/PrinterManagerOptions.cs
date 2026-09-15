@@ -70,6 +70,30 @@ public sealed class PrinterManagerOptions
     public bool ReadIdentity { get; set; }
 
     /// <summary>
+    /// Gets or sets the policy for proving that two network channels reach one print queue
+    /// by comparing the jobs each of them reports. The correlation runs only when this is
+    /// set, because it opens a session to every candidate channel. Defaults to <c>null</c>.
+    /// </summary>
+    /// <remarks>
+    /// It runs after the enrichment and before the grouping, and contributes
+    /// <see cref="DiscoveredPrinter.Aliases"/> exactly as an identity read does: two channels
+    /// that report the same queue vouch for each other.
+    /// <para>
+    /// Only IPP and IPPS channels are candidates, and only ones no identity has already
+    /// grouped, so setting <see cref="ReadIdentity"/> as well makes this cheaper and not
+    /// dearer: a device that named itself is never asked about its queue.
+    /// </para>
+    /// <para>
+    /// The manager reads this from the options it was built with, and never from the
+    /// argument of <see cref="IPrinterManager.DiscoverAsync"/>. The correlation writes to a
+    /// real printer when <see cref="QueueCorrelationOptions.AllowTracerJob"/> is set, and
+    /// consent for that belongs to whoever built the manager, not to whoever scoped one
+    /// discovery.
+    /// </para>
+    /// </remarks>
+    public QueueCorrelationOptions? QueueCorrelation { get; set; }
+
+    /// <summary>
     /// Gets or sets how many channels are read at once when
     /// <see cref="ReadCapabilities"/> or <see cref="ReadIdentity"/> is set. Defaults to
     /// eight.
