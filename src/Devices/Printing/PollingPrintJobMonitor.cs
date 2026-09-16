@@ -93,9 +93,6 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
         int? lastCount = null;
         var readings = 0;
 
-        // The state of the newest reading, kept from the first reading that showed the job
-        // print. A job seen printing and then gone has finished. Null means the job never
-        // printed: a cancel and a purge arrive here as well, and the two are the same signal.
         PrintJobState? printedAs = null;
 
         // When the job last moved. A job that is slow is not a job that is stuck, so it is
@@ -113,10 +110,7 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
 
             readings++;
             PrintingLog.JobRead(Logger, jobId, printerId, reading.State, reading.ImpressionsCompleted, reading.TotalImpressions);
-            if (printedAs is not null || reading.State == PrintJobState.Printing || reading.ImpressionsCompleted > 0)
-            {
-                printedAs = reading.State;
-            }
+            printedAs = PrintedAs(printedAs, reading);
 
             if (reading.State != lastState || reading.ImpressionsCompleted != lastCount)
             {
@@ -154,6 +148,14 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
 
         PrintingLog.WatchEnded(Logger, jobId, printerId, "the whole timeout passed", readings);
     }
+
+    // The state of the newest reading, kept from the first reading that showed the job
+    // print. A job seen printing and then gone has finished. Null means the job never
+    // printed: a cancel and a purge arrive here as well, and the two are the same signal.
+    private static PrintJobState? PrintedAs(PrintJobState? printedAs, PrintJobInfo reading) =>
+        printedAs is not null || reading.State == PrintJobState.Printing || reading.ImpressionsCompleted > 0
+            ? reading.State
+            : null;
 
     // Both spoolers drop a finished job, so a job that is gone has finished.
     private PrintJobInfo CompleteAfterTheQueueDroppedIt(PrinterId printerId, string jobId, PrintJobState? printedAs, int readings)
