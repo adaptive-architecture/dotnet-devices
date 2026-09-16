@@ -1,4 +1,4 @@
-# Documentation
+﻿# Documentation
 
 This directory gives progressive discovery of the `dotnet-devices` repository. Start with
 the overview, then read the specifics you need.
@@ -8,6 +8,7 @@ the overview, then read the specifics you need.
 - [Capabilities](capabilities.md) — what the library does today
 - [Printers](printers.md) — the printer abstractions, and the reasons behind them
 - [Development](development.md) — build, test, documentation and contribution workflow
+- [Troubleshooting](troubleshooting.md) — find why a print job did not print
 - [Windows manual tests](windows-manual-tests.md) — the spooler interop that no automated
   test can run
 

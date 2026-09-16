@@ -172,6 +172,31 @@ public class PrintingModelTests
     }
 
     [Fact]
+    public void PrintJobInfo_HasNoDiagnosticsByDefault()
+    {
+        PrintJobInfo job = new("42", PrinterId.ForRaw("printer.local"), PrintJobState.Queued);
+
+        // Empty, never null: a caller reads the list without a null test.
+        Assert.Empty(job.StateReasons);
+        Assert.Empty(job.DetailedStatusMessages);
+        Assert.Empty(job.RawAttributes);
+        Assert.Null(job.StateMessage);
+        Assert.Null(job.PrinterStateMessage);
+    }
+
+    [Fact]
+    public void PrinterStatus_HasNoDiagnosticsByDefault()
+    {
+        PrinterStatus status = new(PrinterId.ForRaw("printer.local"), PrinterStatusState.Idle);
+
+        Assert.Empty(status.StateReasons);
+        Assert.Empty(status.DetailedStatusMessages);
+        Assert.Empty(status.RawAttributes);
+        Assert.Null(status.StateMessage);
+        Assert.Null(status.Connection);
+    }
+
+    [Fact]
     public void PrintOptions_RejectsZeroOrNegativeCopies()
     {
         PrintOptions options = new();

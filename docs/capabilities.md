@@ -10,10 +10,12 @@
 | Printer capabilities | Media sizes, trays, media types, output bins, qualities, pages per sheet, and the defaults the printer applies when a job asks for nothing. |
 | Printer status | Over IPP, and over SNMP version 2c, which adds the serial number and the page count. |
 | Document formats | A printer command language (ZPL, EPL, CPCL, ESC/POS) is mapped to a `document-format` the IPP peer accepts without converting the job. `PrinterDevice.Accepts` says whether one channel reads a content type, before a job is sent. |
+| Diagnostics | Each state reason separately, the readable messages of the printer and of the job, the transport that answered, structured failures that carry the printer, the endpoint and the IPP status code, and an optional capture of the raw IPP answer. A log over the whole printing stack, graded by what the library did about a failure: `Error` for a failure it swallowed, `Warning` for a degraded result, `Information` for a milestone, `Debug` for each operation and `Trace` for each item. |
 | USB printers | Reached through the operating system queue. A direct USB transport is not implemented and is not planned. |
 | Scanners, other peripherals | Not implemented. |
 
 [Printers](printers.md) describes each one, and the reasons behind them.
+[Troubleshooting](troubleshooting.md) tells you how to find why a job did not print.
 
 **The Windows spooler code has not run on a real Windows machine yet.** It has passed code
 review and a Linux-only test suite only. [Windows manual tests](windows-manual-tests.md)

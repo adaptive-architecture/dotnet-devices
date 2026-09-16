@@ -3,6 +3,7 @@ using AdaptArch.Devices.Printing.Ipp;
 using AdaptArch.Devices.Printing.Spooler;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.DependencyInjection;
 
@@ -49,18 +50,50 @@ public static class ServiceCollectionExtensions
         Action<PrinterManagerOptions>? configureManager = null)
     {
         ArgumentNullException.ThrowIfNull(services);
-        services.TryAddSingleton<IPrinterTransport, TcpPrinterTransport>();
-        services.TryAddSingleton<INetworkPrinterDiscovery, TcpNetworkPrinterDiscovery>();
-        services.TryAddSingleton<IMdnsPrinterDiscovery, MdnsPrinterDiscovery>();
-        services.TryAddSingleton<SnmpPrinterStatusClient>();
+
+        // First: every registration below reads the log factory from it. Registered as well
+        // so that the manager constructor that takes it is the one resolved.
+        services.TryAddSingleton(provider =>
+        {
+            PrinterManagerOptions options = new();
+            configureManager?.Invoke(options);
+
+            // The container decides the log, unless the caller set one of its own. GetService,
+            // not GetRequiredService: an application without logging must still resolve.
+            options.LoggerFactory ??= provider.GetService<ILoggerFactory>();
+            return options;
+        });
+
+        // Each of these is built by a factory, not by its type, so the log factory reaches
+        // the init property that carries it.
+        services.TryAddSingleton<IPrinterTransport>(provider => new TcpPrinterTransport
+        {
+            LoggerFactory = Log(provider),
+        });
+        services.TryAddSingleton<INetworkPrinterDiscovery>(provider => new TcpNetworkPrinterDiscovery
+        {
+            LoggerFactory = Log(provider),
+        });
+        services.TryAddSingleton<IMdnsPrinterDiscovery>(provider => new MdnsPrinterDiscovery
+        {
+            LoggerFactory = Log(provider),
+        });
+        services.TryAddSingleton(provider => new SnmpPrinterStatusClient
+        {
+            LoggerFactory = Log(provider),
+        });
         services.TryAddSingleton(TimeProvider.System);
 
         // One client for every network printer, so they share a connection pool and a
         // certificate policy.
-        services.TryAddSingleton(_ =>
+        services.TryAddSingleton(provider =>
         {
             IppTransportOptions options = new();
             configure?.Invoke(options);
+
+            // The container decides the log, unless the caller set one of its own. GetService,
+            // not GetRequiredService: an application without logging must still resolve.
+            options.LoggerFactory ??= provider.GetService<ILoggerFactory>();
             return options;
         });
         services.TryAddSingleton(provider => new IppHttpClientHolder(IppHttpClientFactory.Create(provider.GetRequiredService<IppTransportOptions>())));
@@ -74,25 +107,35 @@ public static class ServiceCollectionExtensions
             // The manager options carry the formats and the converters, so a printer the
             // factory opens reads the same policy as the manager that asked for it.
             Formats = provider.GetRequiredService<PrinterManagerOptions>().BuildFormatPolicy(),
+            LoggerFactory = Log(provider),
         });
-        services.TryAddSingleton<IPrinterDiscovery, SpoolerPrinterDiscovery>();
-        services.TryAddSingleton<SpoolerPrintJobQueue>();
+        services.TryAddSingleton<IPrinterDiscovery>(provider => new SpoolerPrinterDiscovery
+        {
+            IppTransport = provider.GetRequiredService<IppTransportOptions>(),
+            LoggerFactory = Log(provider),
+        });
+        services.TryAddSingleton(provider => new SpoolerPrintJobQueue
+        {
+            IppTransport = provider.GetRequiredService<IppTransportOptions>(),
+            LoggerFactory = Log(provider),
+        });
         services.TryAddSingleton<IPrintJobQueue>(provider => new CompositePrintJobQueue(
             provider.GetRequiredService<SpoolerPrintJobQueue>(),
             provider.GetRequiredService<IppHttpClientHolder>().Client,
             provider.GetRequiredService<IppTransportOptions>()));
-        services.TryAddSingleton<IPrintJobMonitor, PollingPrintJobMonitor>();
-
-        // Registered, so the manager constructor that takes it is the one resolved.
-        services.TryAddSingleton(_ =>
+        services.TryAddSingleton<IPrintJobMonitor>(provider => new PollingPrintJobMonitor(
+            provider.GetRequiredService<IPrintJobQueue>(),
+            provider.GetRequiredService<TimeProvider>())
         {
-            PrinterManagerOptions options = new();
-            configureManager?.Invoke(options);
-            return options;
+            LoggerFactory = Log(provider),
         });
         services.TryAddSingleton<IPrinterManager, PrinterManager>();
         return services;
     }
+
+    // The log factory the manager options settled on, so every registration reads one answer.
+    private static ILoggerFactory? Log(IServiceProvider provider) =>
+        provider.GetRequiredService<PrinterManagerOptions>().LoggerFactory;
 
     // Owns the shared HttpClient. It is not registered directly, because an application
     // may register its own.

@@ -1,4 +1,5 @@
 ﻿using System.Net.Security;
+using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.Printing;
 
@@ -38,6 +39,32 @@ public sealed class IppTransportOptions
     /// default of the operating system.
     /// </summary>
     public TimeSpan ConnectTimeout { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Gets or sets the factory that makes the logger of the IPP path. Defaults to
+    /// <c>null</c>, which writes no log. Set it to see each endpoint probe, each IPP
+    /// operation and its status code, and each job that was read, at the <c>Debug</c> level.
+    /// The log category is <c>AdaptArch.Devices.Printing.Ipp</c>.
+    /// </summary>
+    /// <remarks>
+    /// An application that uses <c>AddDevices()</c> or <c>AddPrinters()</c> needs no call
+    /// here: the registration takes the <see cref="ILoggerFactory"/> of the container when
+    /// one is registered.
+    /// </remarks>
+    public ILoggerFactory? LoggerFactory { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the attributes of each raw IPP answer are
+    /// kept and given to the caller. Defaults to <c>false</c>.
+    /// </summary>
+    /// <remarks>
+    /// Turn this on to see the attributes the library does not map, which is what a job that
+    /// stopped for an unknown reason needs. The attributes reach
+    /// <see cref="PrinterStatus.RawAttributes"/>, <see cref="PrintJobInfo.RawAttributes"/>
+    /// and <see cref="PrinterOperationException.RawAttributes"/>. This costs memory for each
+    /// answer, so keep it off in normal operation.
+    /// </remarks>
+    public bool CaptureRawResponses { get; set; }
 
     /// <summary>
     /// Gets a value indicating whether a TLS failure must end the connection attempt.

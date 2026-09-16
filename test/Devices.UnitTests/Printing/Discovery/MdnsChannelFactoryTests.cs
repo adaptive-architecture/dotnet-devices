@@ -1,5 +1,6 @@
 ﻿using System.Net.NetworkInformation;
 using AdaptArch.Devices.Printing;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace AdaptArch.Devices.UnitTests.Printing.Discovery;
@@ -11,7 +12,7 @@ public class MdnsChannelFactoryTests
     {
         MdnsPrinterDiscoveryOptions options = new() { NetworkInterfaceIndexes = [Int32.MaxValue] };
 
-        var channels = new MdnsChannelFactory().Create(options);
+        var channels = new MdnsChannelFactory().Create(options, NullLogger.Instance);
 
         Assert.Empty(channels);
     }
@@ -25,7 +26,7 @@ public class MdnsChannelFactoryTests
             adapter.SupportsMulticast &&
             adapter.NetworkInterfaceType != NetworkInterfaceType.Loopback);
 
-        var channels = new MdnsChannelFactory().Create(new MdnsPrinterDiscoveryOptions { IncludeIPv6 = true });
+        var channels = new MdnsChannelFactory().Create(new MdnsPrinterDiscoveryOptions { IncludeIPv6 = true }, NullLogger.Instance);
         try
         {
             Assert.True(channels.Count <= 2 * adapters, $"{channels.Count} channels for {adapters} adapters.");

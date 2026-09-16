@@ -1,4 +1,6 @@
-﻿namespace AdaptArch.Devices.Printing.Spooler;
+﻿using Microsoft.Extensions.Logging;
+
+namespace AdaptArch.Devices.Printing.Spooler;
 
 /// <summary>
 /// Prints to and queries a printer installed in the operating system print spooler
@@ -30,9 +32,35 @@ public sealed class SpoolerPrinter : IPrinter
     /// </summary>
     public PrintFormatPolicy Formats { get; init; } = PrintFormatPolicy.Default;
 
+    /// <summary>
+    /// Gets the IPP policy of this printer: the log, the raw-response switch and the
+    /// certificate trust. Defaults to <c>null</c>, which is the default policy.
+    /// </summary>
+    /// <remarks>
+    /// It reaches the CUPS spooler, which speaks IPP. The Windows spooler is native interop
+    /// and reads none of it.
+    /// </remarks>
+    public IppTransportOptions? IppTransport { get; init; }
+
+    /// <summary>
+    /// Gets the factory that makes the log. Defaults to <c>null</c>, which falls back to
+    /// the factory of <see cref="IppTransport"/>, and then writes nothing.
+    /// </summary>
+    /// <remarks>
+    /// An application that uses <c>AddDevices()</c> or <c>AddPrinters()</c> needs no call
+    /// here: the registration takes the <see cref="ILoggerFactory"/> of the container.
+    /// </remarks>
+    public ILoggerFactory? LoggerFactory { get; init; }
+
+    // The type holds an IppTransportOptions, so its factory is the fallback: a caller that
+    // set only the transport policy still gets the log.
+    private ILoggerFactory? EffectiveLoggerFactory => LoggerFactory ?? IppTransport?.LoggerFactory;
+
     // The driver is built on first use, because the formats are set by an object
-    // initializer that runs after the constructor.
-    private ISpoolerDriver Driver => _driver ??= SpoolerDriverFactory.Create(Formats);
+    // initializer that runs after the constructor. LazyInitializer, not "??=": this type may
+    // be a singleton, and two concurrent first calls must not each build a driver.
+    private ISpoolerDriver Driver =>
+        LazyInitializer.EnsureInitialized(ref _driver, () => SpoolerDriverFactory.Create(Formats, IppTransport, EffectiveLoggerFactory));
 
     internal SpoolerPrinter(SpoolerPrinterEndpoint endpoint, ISpoolerDriver? driver)
     {

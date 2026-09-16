@@ -169,7 +169,7 @@ public class IppPrinterStatusClientTests
         IppMessages.StubHandler handler = new(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
         IppPrinterStatusClient client = new(new HttpClient(handler));
 
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(
+        _ = await Assert.ThrowsAsync<PrinterConnectionException>(
             () => client.GetDetailsAsync(
                 "printer.local", CancellationToken.None, IppPrinterStatusClient.DefaultPort, "/ipp/print"));
 
@@ -185,7 +185,7 @@ public class IppPrinterStatusClientTests
         var response = IppMessages.Response(0x0400);
         IppPrinterStatusClient client = new(new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(response))));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<PrinterOperationException>(() =>
             client.GetDetailsAsync("printer.local", CancellationToken.None));
     }
 
@@ -195,7 +195,7 @@ public class IppPrinterStatusClientTests
         IppMessages.StubHandler handler = new(_ => throw new HttpRequestException("refused"));
         IppPrinterStatusClient client = new(new HttpClient(handler));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<PrinterConnectionException>(() =>
             client.GetDetailsAsync("printer.local", CancellationToken.None));
 
         Assert.Equal(4, handler.Requests.Count);

@@ -6,65 +6,6 @@ namespace AdaptArch.Devices.Samples;
 
 internal static class SampleHelpers
 {
-    // Printing costs paper and ink, so the sample always asks first.
-    internal static bool Confirm(string question)
-    {
-        Console.Write($"{question} [y/N]: ");
-        var answer = Console.ReadLine();
-        return answer is not null && answer.Trim().Equals("y", StringComparison.OrdinalIgnoreCase);
-    }
-
-    // A warning is yellow, so a skipped job is visible in a long run. The colour is put
-    // back whatever happens, or every later line would stay yellow.
-    internal static void WriteWarning(string message)
-    {
-        var previous = Console.ForegroundColor;
-        try
-        {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine(message);
-        }
-        finally
-        {
-            Console.ForegroundColor = previous;
-        }
-    }
-
-    // Prints a numbered list and reads one number. Returns -1 for a cancel or a bad entry.
-    internal static int Choose(string title, IReadOnlyList<string> items)
-    {
-        if (items.Count == 0)
-        {
-            Console.WriteLine($"{title}: nothing to choose from.");
-            return -1;
-        }
-
-        Console.WriteLine(title);
-        for (var index = 0; index < items.Count; index++)
-        {
-            Console.WriteLine($"  {index + 1}) {items[index]}");
-        }
-
-        Console.Write("Number (empty to cancel): ");
-        var answer = Console.ReadLine();
-        if (!Int32.TryParse(answer, NumberStyles.Integer, CultureInfo.InvariantCulture, out var choice)
-            || choice < 1 || choice > items.Count)
-        {
-            Console.WriteLine("Cancelled.");
-            return -1;
-        }
-
-        return choice - 1;
-    }
-
-    internal static void AppendMarkers(StringBuilder line, IReadOnlyList<PrinterMarker> markers)
-    {
-        foreach (var marker in markers)
-        {
-            line.Append($"; {marker.Name} {(marker.LevelPercent is null ? "level unknown" : marker.LevelPercent + "%")}");
-        }
-    }
-
     internal static IReadOnlyList<string> GetPrintFiles(string directory)
     {
         if (!Directory.Exists(directory))
@@ -114,7 +55,7 @@ internal static class SampleHelpers
     }
 
     // The print files directory can hold a working file, such as a GIMP .xcf, that no
-    // printer reads. Such a file must not appear in a menu.
+    // printer reads. Such a file must not appear in a selector.
     internal static bool CanPrint(string fileName)
     {
         try
@@ -147,5 +88,20 @@ internal static class SampleHelpers
         }
 
         return line.ToString();
+    }
+
+    internal static void AppendMarkers(StringBuilder line, IReadOnlyList<PrinterMarker> markers)
+    {
+        foreach (var marker in markers)
+        {
+            line.Append($"; {marker.Name} {(marker.LevelPercent is null ? "level unknown" : marker.LevelPercent + "%")}");
+        }
+    }
+
+    // A file name that comes from the browser must not reach outside the directory.
+    internal static string SafePath(string directory, string fileName)
+    {
+        var safe = Path.GetFileName(fileName ?? String.Empty);
+        return safe.Length == 0 ? null : Path.Combine(directory, safe);
     }
 }

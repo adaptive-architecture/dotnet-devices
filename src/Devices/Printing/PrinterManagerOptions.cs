@@ -1,4 +1,6 @@
-﻿namespace AdaptArch.Devices.Printing;
+﻿using Microsoft.Extensions.Logging;
+
+namespace AdaptArch.Devices.Printing;
 
 /// <summary>
 /// Options for <see cref="PrinterManager"/>: which discovery sources run, how much each
@@ -17,6 +19,19 @@ public sealed class PrinterManagerOptions
     /// </summary>
     public static IReadOnlyList<PrinterScheme> DefaultTransports { get; } =
         [PrinterScheme.Ipps, PrinterScheme.Ipp, PrinterScheme.Spooler, PrinterScheme.Raw];
+
+    /// <summary>
+    /// Gets or sets the factory that makes the log of the printer manager, the routing and
+    /// the job path. Defaults to <c>null</c>, which writes nothing. The log category is
+    /// <c>AdaptArch.Devices.Printing</c>.
+    /// </summary>
+    /// <remarks>
+    /// The IPP wire has its own <see cref="IppTransportOptions.LoggerFactory"/>. An
+    /// application that uses <c>AddDevices()</c> or <c>AddPrinters()</c> needs neither: the
+    /// registration takes the <see cref="ILoggerFactory"/> of the container for both. Read
+    /// <see href="https://github.com/adaptive-architecture/dotnet-devices/blob/main/docs/troubleshooting.md">Troubleshooting</see>.
+    /// </remarks>
+    public ILoggerFactory? LoggerFactory { get; set; }
 
     /// <summary>
     /// Gets or sets the options for the multicast DNS discovery source.

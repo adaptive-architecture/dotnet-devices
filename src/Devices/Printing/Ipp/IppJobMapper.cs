@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using SharpIpp.Protocol;
 using SharpIpp.Protocol.Models;
 
 namespace AdaptArch.Devices.Printing.Ipp;
@@ -6,20 +7,52 @@ namespace AdaptArch.Devices.Printing.Ipp;
 // Turns IPP job-description attributes into the library job model.
 internal static class IppJobMapper
 {
+    // Asked for explicitly. A printer left to its own default answers Get-Jobs with the job
+    // identifier alone, and none of the messages that say why a job stopped.
+    public static readonly string[] RequestedAttributes =
+    [
+        "job-id",
+        "job-name",
+        "job-state",
+        "job-state-reasons",
+        "job-state-message",
+        "job-detailed-status-messages",
+        "job-printer-state-message",
+        "job-impressions",
+        "job-impressions-completed",
+        "date-time-at-creation",
+        "date-time-at-completed",
+    ];
+
     // Returns null for a job without job-id: it can be neither tracked nor cancelled.
-    public static PrintJobInfo? Map(PrinterId id, JobDescriptionAttributes attributes)
+    public static PrintJobInfo? Map(
+        PrinterId id,
+        JobDescriptionAttributes attributes,
+        IIppResponseMessage? raw = null,
+        int index = 0,
+        IReadOnlyList<IppAttributeSnapshot>? rawAttributes = null)
     {
         if (attributes.JobId is not int numericId)
         {
             return null;
         }
 
+        var reasons = StateReasons.Read(attributes.JobStateReasons);
         PrintJobInfo job = new(numericId.ToString(CultureInfo.InvariantCulture), id, IppJobStateMapper.Map(attributes.JobState))
         {
             JobName = attributes.JobName,
             ImpressionsCompleted = attributes.JobImpressionsCompleted,
             TotalImpressions = attributes.JobImpressions,
-            Detail = JoinReasons(attributes.JobStateReasons),
+            Detail = StateReasons.Join(reasons),
+            StateReasons = reasons,
+            StateMessage = IppStatusMapper.Trim(attributes.JobStateMessage),
+
+            // SharpIppNext does not model job-printer-state-message, which is where CUPS
+            // puts the text of its own log. That text is what names a cause the state
+            // reasons cannot say, so it is read from the raw answer.
+            PrinterStateMessage = IppRawAttributes.ReadJobText(raw, index, "job-printer-state-message"),
+            DetailedStatusMessages = IppStatusMapper.Messages(attributes.JobDetailedStatusMessages),
+            RawAttributes = rawAttributes ?? [],
         };
 
         if (attributes.DateTimeAtCreation is DateTimeOffset created)
@@ -30,25 +63,5 @@ internal static class IppJobMapper
         job.CompletedAt = attributes.DateTimeAtCompleted;
 
         return job;
-    }
-
-    private static string? JoinReasons(JobStateReason[]? reasons)
-    {
-        if (reasons is null || reasons.Length == 0)
-        {
-            return null;
-        }
-
-        List<string> named = [];
-        foreach (var reason in reasons)
-        {
-            var text = reason.ToString();
-            if (!String.IsNullOrWhiteSpace(text) && !String.Equals(text, "none", StringComparison.OrdinalIgnoreCase))
-            {
-                named.Add(text);
-            }
-        }
-
-        return named.Count == 0 ? null : String.Join("; ", named);
     }
 }

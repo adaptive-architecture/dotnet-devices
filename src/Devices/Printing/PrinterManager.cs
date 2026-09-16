@@ -1,6 +1,8 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using AdaptArch.Devices.Printing.Ipp;
+using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.Printing;
 
@@ -29,6 +31,7 @@ public sealed class PrinterManager : IPrinterManager
     private readonly IPrintJobMonitor _monitor;
     private readonly PrinterManagerOptions _options;
     private readonly PrintFormatPolicy _formats;
+    private readonly ILogger _logger;
 
     // Every key of a device maps to that device: its own key and each alias a source
     // vouched for. A caller that kept an old address identifier therefore still resolves
@@ -88,6 +91,7 @@ public sealed class PrinterManager : IPrinterManager
         // One snapshot for the life of the manager, so a list edited later does not change
         // how a job that is already on its way is routed.
         _formats = _options.BuildFormatPolicy();
+        _logger = PrintingLog.Create(_options.LoggerFactory);
         if (_options.Transports.Count == 0)
         {
             throw new ArgumentException("A manager that may open no transport can print nothing.", nameof(options));
@@ -107,6 +111,7 @@ public sealed class PrinterManager : IPrinterManager
         var effective = options ?? _options;
         ArgumentOutOfRangeException.ThrowIfLessThan(effective.MaxEnrichmentConcurrency, 1);
 
+        var stopwatch = Stopwatch.StartNew();
         var channels = await FindAsync(effective, cancellationToken).ConfigureAwait(false);
         Dictionary<PrinterId, IReadOnlyList<PrinterStatusSource>> statusSources = [];
         if (effective.ReadIdentity || effective.ReadCapabilities)
@@ -128,6 +133,7 @@ public sealed class PrinterManager : IPrinterManager
             Remember(device);
         }
 
+        PrintingLog.DiscoveryCompleted(_logger, devices.Count, channels.Count, stopwatch.ElapsedMilliseconds);
         return devices;
     }
 
@@ -169,11 +175,31 @@ public sealed class PrinterManager : IPrinterManager
 
         if (failures.Count > 0 && failures.Count == results.Length)
         {
+            // Debug, not Error: the exception below carries the failure of each source, and
+            // one failure reported twice helps nobody.
+            foreach ((var source, var error) in failures)
+            {
+                PrintingLog.EverySourceFailed(_logger, source, error);
+            }
+
             throw new PrinterDiscoveryException(failures);
         }
 
+        // Error: the caller gets the printers of the other sources and never learns that
+        // one source found nothing because it failed.
+        foreach ((var source, var error) in failures)
+        {
+            PrintingLog.DiscoverySourceFailed(_logger, source, results.Length - failures.Count, results.Length, error);
+        }
+
         // Two sources can report one channel, but every distinct channel is kept.
-        return found.DistinctBy(static channel => (channel.Id, channel.Endpoint)).ToList();
+        var kept = found.DistinctBy(static channel => (channel.Id, channel.Endpoint)).ToList();
+        if (kept.Count != found.Count)
+        {
+            PrintingLog.ChannelsDeduplicated(_logger, found.Count, kept.Count);
+        }
+
+        return kept;
     }
 
     // Phase two. Opens each channel once and asks it what it supports and which device it
@@ -231,10 +257,11 @@ public sealed class PrinterManager : IPrinterManager
                 {
                     printer = _factory.Open(channel);
                 }
-                catch (Exception)
+                catch (Exception exception)
                 {
                     // One channel that cannot even be opened costs its own evidence and
                     // nothing else, the same way an enrichment read does.
+                    PrintingLog.CorrelationOpenFailed(_logger, channel.Id, channel.Endpoint, exception);
                     continue;
                 }
 
@@ -249,7 +276,7 @@ public sealed class PrinterManager : IPrinterManager
             }
 
             var proved = await PrinterQueueCorrelator
-                .CorrelateAsync(candidates, correlation, allowTracer, maxConcurrency, cancellationToken)
+                .CorrelateAsync(candidates, correlation, allowTracer, maxConcurrency, _logger, cancellationToken)
                 .ConfigureAwait(false);
 
             return proved.Count == 0 ? channels : ApplyAliases(channels, proved);
@@ -258,10 +285,11 @@ public sealed class PrinterManager : IPrinterManager
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception exception)
         {
             // A correlation that failed proves nothing. It must never fail a discovery that
-            // already worked.
+            // already worked. Error: the caller gets ungrouped devices and is told nothing.
+            PrintingLog.CorrelationFailed(_logger, channels.Count, exception);
             return channels;
         }
         finally
@@ -310,13 +338,21 @@ public sealed class PrinterManager : IPrinterManager
             PrinterConfiguration? configuration = null;
             if (options.ReadCapabilities)
             {
-                configuration = await TryReadAsync<PrinterConfiguration>(async () => await printer.GetConfigurationAsync(cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+                (configuration, var error) = await TryReadAsync<PrinterConfiguration>(async () => await printer.GetConfigurationAsync(cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+                if (error is not null)
+                {
+                    PrintingLog.CapabilityReadFailed(_logger, channel.Id, channel.Endpoint, error);
+                }
             }
 
             PrinterIdentity? identity = null;
             if (options.ReadIdentity)
             {
-                identity = await TryReadAsync(() => printer.GetIdentityAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
+                (identity, var error) = await TryReadAsync(() => printer.GetIdentityAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
+                if (error is not null)
+                {
+                    PrintingLog.IdentityReadFailed(_logger, channel.Id, channel.Endpoint, error);
+                }
             }
 
             var sources = identity is null && configuration is null ? [] : SourcesOf(channel);
@@ -326,9 +362,10 @@ public sealed class PrinterManager : IPrinterManager
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception exception)
         {
             // The channel could not be opened or read. It stays as discovery found it.
+            PrintingLog.EnrichmentOpenFailed(_logger, channel.Id, channel.Endpoint, exception);
             return (channel, []);
         }
         finally
@@ -342,20 +379,25 @@ public sealed class PrinterManager : IPrinterManager
 
     // Only the caller's own cancellation fails a read: an HttpClient timeout also arrives
     // as TaskCanceledException, and must not hide what the printer did answer.
-    private static async Task<T?> TryReadAsync<T>(Func<Task<T?>> read, CancellationToken cancellationToken)
+    //
+    // The failure is given back and not swallowed here: this method knows no printer, and a
+    // log entry with no subject in it helps nobody. The caller owns the channel, so the
+    // caller writes the entry. It also tells a timeout from a protocol error, because the
+    // type of the exception is kept.
+    private static async Task<(T? Value, Exception? Error)> TryReadAsync<T>(Func<Task<T?>> read, CancellationToken cancellationToken)
         where T : class
     {
         try
         {
-            return await read().ConfigureAwait(false);
+            return (await read().ConfigureAwait(false), null);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception exception)
         {
-            return null;
+            return (null, exception);
         }
     }
 
@@ -464,7 +506,18 @@ public sealed class PrinterManager : IPrinterManager
         var printer = _factory.Open(channel);
         try
         {
-            return await printer.PrintAsync(payload, options, cancellationToken).ConfigureAwait(false);
+            var job = await printer.PrintAsync(payload, options, cancellationToken).ConfigureAwait(false);
+            PrintingLog.JobSubmitted(_logger, job.JobId, id, channel.Endpoint, payload.ContentType, payload.Data.Length);
+
+            // A job name and a user name are personal data, so they are at Debug and never
+            // in an entry a reader may leave on in production.
+            PrintingLog.JobNamed(_logger, job.JobId, id, job.JobName, options?.RequestingUserName);
+            if (job.DroppedOptions.Count > 0 && _logger.IsEnabled(LogLevel.Warning))
+            {
+                PrintingLog.OptionsDropped(_logger, id, String.Join(", ", job.DroppedOptions), job.JobId);
+            }
+
+            return job;
         }
         finally
         {
@@ -487,12 +540,23 @@ public sealed class PrinterManager : IPrinterManager
     {
         var device = await ResolveAsync(id, cancellationToken).ConfigureAwait(false);
         Exception? first = null;
+        var failed = 0;
         foreach (var channel in StatusOrder(device, id))
         {
             var printer = _factory.Open(channel);
             try
             {
-                return await printer.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+                var status = await printer.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+
+                // Warning only when an earlier channel did not answer. A printer that
+                // advertises a port it does not serve would otherwise raise one on every
+                // call, which is what stops a log being safe to leave on.
+                if (failed > 0)
+                {
+                    PrintingLog.StatusCameFromFallback(_logger, id, channel.Endpoint, failed);
+                }
+
+                return status;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -500,6 +564,10 @@ public sealed class PrinterManager : IPrinterManager
             }
             catch (Exception exception)
             {
+                // Debug: when every channel fails, the first exception is thrown below and
+                // carries the failure. These entries add the causes that it drops.
+                PrintingLog.StatusChannelFailed(_logger, channel.Endpoint, id, exception);
+                failed++;
                 first ??= exception;
             }
             finally
@@ -626,12 +694,20 @@ public sealed class PrinterManager : IPrinterManager
         // the best the device offers.
         var wantsPassthrough = IppDocumentFormat.IsRawLanguage(contentType, _formats);
         var named = usable.Find(channel => channel.Id == id);
-        if (named is not null && Fits(named, wantsPassthrough))
+        var chosen = named is not null && Fits(named, wantsPassthrough)
+            ? named
+            : usable.Find(channel => Fits(channel, wantsPassthrough)) ?? named ?? usable[0];
+
+        PrintingLog.PrintChannelChosen(_logger, contentType, id, chosen.Endpoint, usable.Count, wantsPassthrough);
+
+        // The fallback took a channel that does not do what the format needs. A label sent
+        // this way prints its command source, and nothing else says so.
+        if (!Fits(chosen, wantsPassthrough) && wantsPassthrough)
         {
-            return named;
+            PrintingLog.PrintChannelGivesNoPassthrough(_logger, contentType, id, chosen.Endpoint);
         }
 
-        return usable.Find(channel => Fits(channel, wantsPassthrough)) ?? named ?? usable[0];
+        return chosen;
     }
 
     private static bool Fits(DiscoveredPrinter channel, bool wantsPassthrough) =>
@@ -648,12 +724,17 @@ public sealed class PrinterManager : IPrinterManager
         }
 
         var named = allowed.Find(channel => channel.Id == id);
-        if (named?.HasJobQueue == true)
+        var chosen = named?.HasJobQueue == true
+            ? named
+            : allowed.Find(static channel => channel.HasJobQueue) ?? named ?? allowed[0];
+
+        // The fallback took a channel with no queue. A read of it reports no job at all.
+        if (!chosen.HasJobQueue)
         {
-            return named;
+            PrintingLog.QueueChannelHasNoQueue(_logger, id, chosen.Endpoint);
         }
 
-        return allowed.Find(static channel => channel.HasJobQueue) ?? named ?? allowed[0];
+        return chosen;
     }
 
     // An address form names its own endpoint, so a miss opens it directly and nothing is
@@ -679,9 +760,13 @@ public sealed class PrinterManager : IPrinterManager
                 DiscoveredPrinter channel = new(id, endpoint, new PrinterInfo(id, id.Authority));
                 PrinterDevice device = new(id.DeviceKey, [channel]);
                 Remember(device);
+                PrintingLog.PrinterOpenedFromAddress(_logger, id);
                 return device;
             }
 
+            // A discovery is expensive, and a caller that sees this on every print holds an
+            // identifier the manager cannot keep.
+            PrintingLog.DiscoveryRanToResolve(_logger, id);
             _ = await DiscoverAsync(null, false, cancellationToken).ConfigureAwait(false);
         }
         finally

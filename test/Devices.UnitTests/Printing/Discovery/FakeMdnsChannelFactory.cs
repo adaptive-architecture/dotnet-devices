@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using AdaptArch.Devices.Printing;
+using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.UnitTests.Printing.Discovery;
 
@@ -9,7 +10,7 @@ internal sealed class FakeMdnsChannelFactory : IMdnsChannelFactory
 
     public FakeMdnsChannelFactory(params IUdpChannel[] channels) => _channels = channels;
 
-    public IReadOnlyList<(IUdpChannel Channel, IPEndPoint Destination)> Create(MdnsPrinterDiscoveryOptions options)
+    public IReadOnlyList<(IUdpChannel Channel, IPEndPoint Destination)> Create(MdnsPrinterDiscoveryOptions options, ILogger logger)
     {
         List<(IUdpChannel, IPEndPoint)> created = [];
         foreach (var channel in _channels)

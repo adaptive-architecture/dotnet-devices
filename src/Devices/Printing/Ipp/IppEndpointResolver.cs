@@ -4,7 +4,6 @@ using SharpIpp;
 using SharpIpp.Exceptions;
 using SharpIpp.Models.Requests;
 using SharpIpp.Protocol;
-using SharpIpp.Protocol.Models;
 
 namespace AdaptArch.Devices.Printing.Ipp;
 
@@ -12,29 +11,27 @@ namespace AdaptArch.Devices.Printing.Ipp;
 // well-known paths, over TLS and then plain. The answer is kept until a transport failure.
 internal sealed class IppEndpointResolver
 {
+    private const string ProbeOperation = "Get-Printer-Attributes";
     private static readonly string[] WellKnownPaths = ["/ipp/print", "/ipp/port1"];
     private static readonly string[] ProbeAttributes = ["printer-state"];
 
-    private readonly HttpClient _httpClient;
+    private readonly IppContext _context;
     private readonly string _host;
     private readonly int _port;
     private readonly string? _resourcePath;
-    private readonly IppTransportOptions _options;
     private Uri? _resolved;
 
-    public IppEndpointResolver(HttpClient httpClient, string host, int port, string? resourcePath)
-        : this(httpClient, host, port, resourcePath, new IppTransportOptions())
+    public IppEndpointResolver(IppContext context, string host, int port, string? resourcePath)
     {
-    }
-
-    public IppEndpointResolver(HttpClient httpClient, string host, int port, string? resourcePath, IppTransportOptions options)
-    {
-        _httpClient = httpClient;
+        ArgumentNullException.ThrowIfNull(context);
+        _context = context;
         _host = host;
         _port = port;
         _resourcePath = resourcePath;
-        _options = options;
     }
+
+    // The endpoint that answered, or null before one did. A transport failure clears it.
+    public Uri? Resolved => Volatile.Read(ref _resolved);
 
     // Concurrent first calls each probe. The first answer wins and the others are equal.
     public async Task<Uri> ResolveAsync(CancellationToken cancellationToken)
@@ -45,8 +42,13 @@ internal sealed class IppEndpointResolver
             return resolved;
         }
 
-        Exception? lastFailure = null;
-        var schemes = _options.AllowPlainIpp ? ["ipps", "ipp"] : new[] { "ipps" };
+        // Every probe is kept. The first failure is usually the true cause: a TLS handshake
+        // that failed over IPPS says more than the "connection refused" of a later plain port.
+        Dictionary<Uri, Exception> failures = [];
+
+        // Kept apart from the dictionary, whose order the BCL does not promise.
+        Exception? firstFailure = null;
+        var schemes = _context.Options.AllowPlainIpp ? ["ipps", "ipp"] : new[] { "ipps" };
         foreach (var scheme in schemes)
         {
             foreach (var path in GetPaths(_resourcePath))
@@ -55,15 +57,20 @@ internal sealed class IppEndpointResolver
                 var failure = await ProbeAsync(uri, cancellationToken).ConfigureAwait(false);
                 if (failure is null)
                 {
-                    return Interlocked.CompareExchange(ref _resolved, uri, null) ?? uri;
+                    IppLog.EndpointProbed(_context.Logger, uri);
+                    var winner = Interlocked.CompareExchange(ref _resolved, uri, null) ?? uri;
+                    IppLog.EndpointResolved(_context.Logger, winner, _host, _port);
+                    return winner;
                 }
 
-                lastFailure = failure;
+                IppLog.EndpointProbeFailed(_context.Logger, uri, failure);
+                failures[uri] = failure;
+                firstFailure ??= failure;
             }
         }
 
-        var over = _options.AllowPlainIpp ? "IPPS or IPP" : "IPPS";
-        throw new InvalidOperationException($"Printer '{_host}:{_port}' did not answer IPP over {over}.", lastFailure);
+        var over = _context.Options.AllowPlainIpp ? "IPPS or IPP" : "IPPS";
+        throw new PrinterConnectionException(_host, _port, over, failures, firstFailure!);
     }
 
     // A transport failure clears the URI, so a printer that moved is found again.
@@ -84,8 +91,9 @@ internal sealed class IppEndpointResolver
     // Returns null when the endpoint answered, the reason when it is not there.
     private async Task<Exception?> ProbeAsync(Uri uri, CancellationToken cancellationToken)
     {
+        IppCall call = new(_context, uri, ProbeOperation);
         CapturingIppProtocol capture = new(new IppProtocol());
-        using SharpIppClient client = new(_httpClient, capture);
+        using SharpIppClient client = new(_context.Client, capture);
         GetPrinterAttributesRequest request = new()
         {
             OperationAttributes = new() { PrinterUri = uri, RequestedAttributes = ProbeAttributes },
@@ -104,7 +112,7 @@ internal sealed class IppEndpointResolver
         {
             return new TimeoutException($"IPP probe of '{uri}' timed out.", exception);
         }
-        catch (HttpRequestException exception) when (_options.StrictTls && IsTlsFailure(exception))
+        catch (HttpRequestException exception) when (_context.Options.StrictTls && IsTlsFailure(exception))
         {
             // A plain IPP retry would send the document in clear text to an untrusted host.
             throw new AuthenticationException($"The TLS handshake with '{uri}' failed, and plain IPP is not used for a validating client.", exception);
@@ -117,26 +125,28 @@ internal sealed class IppEndpointResolver
                 return exception;
             }
 
-            throw new InvalidOperationException($"IPP query to '{uri}' failed with HTTP {exception.StatusCode:d}.", exception);
+            throw call.Failure($"IPP query to '{uri}' failed with HTTP {exception.StatusCode:d}.", exception);
         }
         catch (IppResponseException exception) when (exception.InnerException is HttpRequestException http)
         {
             // An HTTP error with an IPP body, for example 401: an answer, not a malformed one.
-            throw new InvalidOperationException($"IPP query to '{uri}' failed with HTTP {http.StatusCode:d}.", exception);
+            call.Response = capture.Response;
+            throw call.Failure($"IPP query to '{uri}' failed with HTTP {http.StatusCode:d}.", exception);
         }
         catch (IppResponseException exception) when (exception.InnerException is not null)
         {
             // No status was read, so the response is malformed, not an IPP error.
             throw IppFailureMapping.ToMalformedResponse(uri, exception);
         }
-        catch (IppResponseException exception) when (IppFailureMapping.StatusCodeOf(capture.Response) == IppStatusCode.ClientErrorNotFound)
+        catch (IppResponseException exception) when (IppFailureMapping.StatusCodeOf(capture.Response) == IppStatusCodes.ClientErrorNotFound)
         {
             // CUPS answers an unknown path with HTTP 200 and this IPP status.
             return exception;
         }
         catch (IppResponseException exception)
         {
-            throw IppFailureMapping.ToIppError(uri, exception);
+            call.Response = capture.Response;
+            throw IppFailureMapping.ToIppError(call, exception);
         }
         catch (IppRequestException exception)
         {

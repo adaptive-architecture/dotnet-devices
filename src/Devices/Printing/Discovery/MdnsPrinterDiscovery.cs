@@ -1,6 +1,7 @@
 ﻿using System.Net;
 using System.Net.Sockets;
 using Makaretu.Dns;
+using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.Printing;
 
@@ -27,6 +28,22 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
 
     internal MdnsPrinterDiscovery(IMdnsChannelFactory channelFactory) => _channelFactory = channelFactory;
 
+    private ILogger? _logger;
+
+    /// <summary>
+    /// Gets the factory that makes the log. Defaults to <c>null</c>, which writes nothing.
+    /// The log category is <c>AdaptArch.Devices.Printing.Discovery</c>.
+    /// </summary>
+    /// <remarks>
+    /// An application that uses <c>AddDevices()</c> or <c>AddPrinters()</c> needs no call
+    /// here: the registration takes the <see cref="ILoggerFactory"/> of the container.
+    /// Read <see href="https://github.com/adaptive-architecture/dotnet-devices/blob/main/docs/troubleshooting.md">Troubleshooting</see>.
+    /// </remarks>
+    public ILoggerFactory? LoggerFactory { get; init; }
+
+    // Built on first use: an init property is set after the constructor runs.
+    private ILogger Logger => LazyInitializer.EnsureInitialized(ref _logger, () => DiscoveryLog.Create(LoggerFactory));
+
     /// <inheritdoc />
     public async Task<IReadOnlyList<DiscoveredPrinter>> DiscoverAsync(MdnsPrinterDiscoveryOptions options, CancellationToken cancellationToken)
     {
@@ -42,9 +59,12 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
             return [];
         }
 
-        var channels = _channelFactory.Create(options);
+        var channels = _channelFactory.Create(options, Logger);
         if (channels.Count == 0)
         {
+            // "No printers" and "no network interface this browse can use" look the same to
+            // a caller, and they need different answers.
+            DiscoveryLog.NoUsableInterface(Logger);
             return [];
         }
 
@@ -53,7 +73,7 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
             List<Task<List<ResourceRecord>>> browses = new(channels.Count);
             foreach ((var channel, var destination) in channels)
             {
-                browses.Add(BrowseAsync(channel, destination, options, cancellationToken));
+                browses.Add(BrowseAsync(channel, destination, options, Logger, cancellationToken));
             }
 
             var results = await Task.WhenAll(browses).ConfigureAwait(false);
@@ -63,7 +83,9 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
                 records.AddRange(result);
             }
 
-            return MdnsRecordAssembler.Assemble(records);
+            var printers = MdnsRecordAssembler.Assemble(records);
+            DiscoveryLog.BrowseCompleted(Logger, records.Count, channels.Count, printers.Count);
+            return printers;
         }
         finally
         {
@@ -78,13 +100,14 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
         IUdpChannel channel,
         IPEndPoint destination,
         MdnsPrinterDiscoveryOptions options,
+        ILogger logger,
         CancellationToken cancellationToken)
     {
         using var windowSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         windowSource.CancelAfter(options.BrowseTimeout);
 
         var sender = SendQueriesAsync(channel, destination, options, windowSource.Token);
-        var records = await ReceiveAsync(channel, options.MaxRecords, cancellationToken, windowSource.Token).ConfigureAwait(false);
+        var records = await ReceiveAsync(channel, options.MaxRecords, logger, cancellationToken, windowSource.Token).ConfigureAwait(false);
 
         try
         {
@@ -94,9 +117,10 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
         {
             // The browse window ended mid-query.
         }
-        catch (SocketException)
+        catch (SocketException exception)
         {
             // The answers that already arrived are still valid.
+            DiscoveryLog.BrowseChannelFailed(logger, records.Count, exception);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -106,10 +130,12 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
     private static async Task<List<ResourceRecord>> ReceiveAsync(
         IUdpChannel channel,
         int maxRecords,
+        ILogger logger,
         CancellationToken cancellationToken,
         CancellationToken windowToken)
     {
         List<ResourceRecord> records = [];
+        MalformedPacketReporter malformed = new();
         try
         {
             // The cap bounds the memory a flood of answers can take.
@@ -120,19 +146,31 @@ public sealed class MdnsPrinterDiscovery : IMdnsPrinterDiscovery
                 {
                     records.AddRange(MdnsMessages.ReadRecords(result.Buffer));
                 }
-                catch (InvalidDataException)
+                catch (InvalidDataException exception)
                 {
                     // One responder that sends a malformed packet must not fail the browse.
+                    if (malformed.ShouldReport(result.RemoteEndPoint))
+                    {
+                        DiscoveryLog.MalformedMdnsPacket(logger, result.RemoteEndPoint, exception);
+                    }
                 }
             }
+
+            DiscoveryLog.BrowseTruncated(logger, maxRecords);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             // The end of the browse window is the normal finish.
         }
-        catch (SocketException)
+        catch (SocketException exception)
         {
             // Keep whatever arrived before the socket failed.
+            DiscoveryLog.BrowseChannelFailed(logger, records.Count, exception);
+        }
+
+        if (malformed.HasMore)
+        {
+            DiscoveryLog.MalformedMdnsPacketsSkipped(logger, malformed.Count, malformed.SenderCount);
         }
 
         return records;

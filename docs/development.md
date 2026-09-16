@@ -63,6 +63,11 @@ Windows. The Windows code that is pure logic — the layout, the parsers and the
 stays in the coverage, and the tests cover it. Add a new Windows-only file to that list
 only when a test on Linux cannot reach it.
 
+The `samples/` directory is demonstration code. Sonar does not analyze it and does not
+count it in the coverage: `sonar.exclusions` and `sonar.coverage.exclusions` in
+`.github/workflows/test.yml` both list `**/samples/**/*`, and
+`samples/Directory.Build.props` sets `SonarQubeExclude` to `true`.
+
 Integration tests (when added later) require Docker. Set `TESTCONTAINERS_RYUK_DISABLED=true` in CI environments.
 
 ## Trim and native AOT
@@ -76,6 +81,15 @@ self-contained, and native AOT — into `./artifacts/samples/<rid>/`. The `src/`
 `IsAotCompatible`, and the sample is the only application that consumes them, so this script
 is where a trim or an AOT problem shows up. Warnings stay errors, so an `IL2xxx` or an
 `IL3xxx` warning fails the publish.
+
+The sample is an ASP.NET Core web application, and it takes no NuGet dependency for that:
+`Microsoft.NET.Sdk.Web` adds a framework reference and nothing else. It is built to keep the
+native AOT publish green — `WebApplication.CreateSlimBuilder`, a source-generated
+`JsonSerializerContext` for every contract, and `EnableRequestDelegateGenerator` on in the
+project file, so an endpoint the generator cannot read fails `dotnet build` and not only the
+publish. A trimmed publish turns reflection-based JSON off
+(`JsonSerializerIsReflectionEnabledByDefault=false`), so a contract missing from the context
+fails at start-up, where the endpoint is mapped.
 
 The script passes `-p:BuildDocFx=true`. That keeps the `ProjectReference` inside
 `Devices.DependencyInjection`, which a `Release` build otherwise replaces with a

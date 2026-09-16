@@ -14,6 +14,7 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
 {
     private readonly HttpClient _httpClient;
     private readonly bool _ownsClient;
+    private readonly IppContext _context;
     private readonly IppEndpointResolver _resolver;
     private PrinterConfiguration? _configuration;
     private bool _disposed;
@@ -69,7 +70,8 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
         Info = new PrinterInfo(Id, endpoint.Host);
         _httpClient = httpClient;
         _ownsClient = ownsClient;
-        _resolver = new IppEndpointResolver(httpClient, endpoint.Host, endpoint.Port, resourcePath, options);
+        _context = new IppContext(httpClient, options);
+        _resolver = new IppEndpointResolver(_context, endpoint.Host, endpoint.Port, resourcePath);
     }
 
     /// <inheritdoc />
@@ -80,6 +82,16 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
 
     /// <inheritdoc />
     public PrinterInfo Info { get; }
+
+    /// <summary>
+    /// Gets the transport and the endpoint that answered, or <c>null</c> before the first
+    /// call resolved one. A transport failure clears it, so the next call probes again.
+    /// </summary>
+    /// <remarks>
+    /// This printer tries IPPS (TLS) first and plain IPP next, so a downgrade to clear text
+    /// is otherwise invisible. Read this after a call to see which one answered.
+    /// </remarks>
+    public PrinterConnection? Connection => PrinterConnections.From(_resolver.Resolved);
 
     /// <summary>
     /// Gets the formats this printer knows. Defaults to <see cref="PrintFormatPolicy.Default"/>.
@@ -117,10 +129,20 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
         {
             var configuration = await GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
             format = IppDocumentFormat.Negotiate(format, configuration.SupportedDocumentFormats, Formats);
+
+            var endpoint = _resolver.Resolved ?? await _resolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
+            IppLog.DocumentFormatChosen(_context.Logger, payload.ContentType, endpoint, format);
+
+            // The printer named no format it knows, so the job goes as opaque bytes. A
+            // server that re-types them prints the command source of the label instead.
+            if (String.Equals(format, PrinterContentTypes.OctetStream, StringComparison.OrdinalIgnoreCase))
+            {
+                IppLog.DocumentFormatDowngraded(_context.Logger, endpoint, payload.ContentType, format);
+            }
         }
 
         return await _resolver.RunAsync(
-            (uri, token) => IppRequests.SubmitAsync(_httpClient, uri, Id, new IppSubmission(payload, format, effectiveOptions, dropped), token),
+            (uri, token) => IppRequests.SubmitAsync(_context, uri, Id, new IppSubmission(payload, format, effectiveOptions, dropped), token),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -130,7 +152,7 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
     public Task<PrinterStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return _resolver.RunAsync((uri, token) => IppRequests.GetStatusAsync(_httpClient, uri, Id, token), cancellationToken);
+        return _resolver.RunAsync((uri, token) => IppRequests.GetStatusAsync(_context, uri, Id, token), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -146,7 +168,7 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
         }
 
         var configuration = await _resolver.RunAsync(
-            (uri, token) => IppRequests.GetConfigurationAsync(_httpClient, uri, Id, token),
+            (uri, token) => IppRequests.GetConfigurationAsync(_context, uri, Id, token),
             cancellationToken).ConfigureAwait(false);
         _configuration = configuration;
         return configuration;
@@ -158,7 +180,7 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var identity = await _resolver.RunAsync(
-            (uri, token) => IppRequests.GetIdentityAsync(_httpClient, uri, token),
+            (uri, token) => IppRequests.GetIdentityAsync(_context, uri, token),
             cancellationToken).ConfigureAwait(false);
         return identity.IsEmpty ? null : identity;
     }
@@ -169,7 +191,7 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         return _resolver.RunAsync(
-            (uri, token) => IppRequests.GetQueueFingerprintsAsync(_httpClient, uri, requestingUserName, token),
+            (uri, token) => IppRequests.GetQueueFingerprintsAsync(_context, uri, requestingUserName, token),
             cancellationToken);
     }
 
@@ -177,7 +199,7 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         return _resolver.RunAsync(
-            (uri, token) => IppRequests.GetTracerSupportAsync(_httpClient, uri, token),
+            (uri, token) => IppRequests.GetTracerSupportAsync(_context, uri, token),
             cancellationToken);
     }
 
@@ -185,7 +207,7 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         return _resolver.RunAsync(
-            (uri, token) => IppRequests.CreateTracerJobAsync(_httpClient, uri, jobName, requestingUserName, token),
+            (uri, token) => IppRequests.CreateTracerJobAsync(_context, uri, jobName, requestingUserName, token),
             cancellationToken);
     }
 
@@ -193,7 +215,7 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         _ = await _resolver.RunAsync(
-            (uri, token) => IppRequests.CancelJobAsync(_httpClient, uri, jobId, requestingUserName, token),
+            (uri, token) => IppRequests.CancelJobAsync(_context, uri, jobId, requestingUserName, token),
             cancellationToken).ConfigureAwait(false);
     }
 

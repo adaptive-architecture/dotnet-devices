@@ -1,4 +1,7 @@
-﻿namespace AdaptArch.Devices.Printing;
+﻿
+using Microsoft.Extensions.Logging;
+
+namespace AdaptArch.Devices.Printing;
 
 /// <summary>
 /// Prints to a printer that offers only the raw TCP port 9100 channel, with no job
@@ -15,8 +18,9 @@ public sealed class RawPrinter : IPrinter
     // IPrinter is not IDisposable, so a client per instance would have no owner.
     private static readonly Lazy<IppPrinterStatusClient> SharedIppClient = new(static () => new IppPrinterStatusClient());
 
-    private readonly TcpPrinterTransport _transport;
     private readonly string _host;
+    private ILogger? _logger;
+    private TcpPrinterTransport? _transport;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RawPrinter"/> class with the default
@@ -52,10 +56,27 @@ public sealed class RawPrinter : IPrinter
         _host = endpoint.Host;
         Id = PrinterId.FromEndpoint(endpoint);
         Info = new PrinterInfo(Id, _host);
-        _transport = new TcpPrinterTransport();
         SnmpStatusClient = snmpClient;
         IppStatusClient = ippClient;
     }
+
+    /// <summary>
+    /// Gets the factory that makes the log. Defaults to <c>null</c>, which writes nothing.
+    /// The log category is <c>AdaptArch.Devices.Printing</c>.
+    /// </summary>
+    /// <remarks>
+    /// An application that uses <c>AddDevices()</c> or <c>AddPrinters()</c> needs no call
+    /// here: the registration takes the <see cref="ILoggerFactory"/> of the container.
+    /// Read <see href="https://github.com/adaptive-architecture/dotnet-devices/blob/main/docs/troubleshooting.md">Troubleshooting</see>.
+    /// </remarks>
+    public ILoggerFactory? LoggerFactory { get; init; }
+
+    // Both are built on first use: an init property is set after the constructor runs, so a
+    // transport built in the constructor would carry no log.
+    private ILogger Logger => LazyInitializer.EnsureInitialized(ref _logger, () => PrintingLog.Create(LoggerFactory));
+
+    private TcpPrinterTransport Transport =>
+        LazyInitializer.EnsureInitialized(ref _transport, () => new TcpPrinterTransport { LoggerFactory = LoggerFactory });
 
     /// <inheritdoc />
     public PrinterId Id { get; }
@@ -80,7 +101,7 @@ public sealed class RawPrinter : IPrinter
     {
         ArgumentNullException.ThrowIfNull(payload);
 
-        await _transport.WriteAsync(Endpoint, payload, cancellationToken).ConfigureAwait(false);
+        await Transport.WriteAsync(Endpoint, payload, cancellationToken).ConfigureAwait(false);
 
         var completedAt = DateTimeOffset.UtcNow;
         return new PrintJobInfo(Guid.NewGuid().ToString("n"), Id, PrintJobState.Completed)
@@ -102,8 +123,9 @@ public sealed class RawPrinter : IPrinter
             var snmpDetails = await SnmpStatusClient.GetDetailsAsync(_host, cancellationToken).ConfigureAwait(false);
             return snmpDetails.Status;
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException exception)
         {
+            PrintingLog.SnmpStatusFailed(Logger, Id, _host, exception);
             // SNMP did not answer, so try IPP.
         }
 
@@ -112,9 +134,11 @@ public sealed class RawPrinter : IPrinter
             var ippDetails = await IppStatusClient.GetDetailsAsync(_host, cancellationToken).ConfigureAwait(false);
             return ippDetails.Status;
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException exception)
         {
-            // Neither status channel answered.
+            // Neither status channel answered. Error: the caller gets a plausible-looking
+            // Unknown, which reads as "nothing is wrong" and means "nothing answered".
+            PrintingLog.NoStatusSource(Logger, Id, _host, exception);
         }
 
         return new PrinterStatus(Id, PrinterStatusState.Unknown);

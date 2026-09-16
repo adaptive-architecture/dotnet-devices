@@ -1,0 +1,31 @@
+{
+  "name": "Queue sweep",
+  "description": "Five documents through one queue. Each job changes exactly one option from the job before it, so a wrong page names its own option.",
+  "mode": "queue",
+  "jobs": [
+    {
+      "file": "document.pdf",
+      "description": "a PDF with the printer defaults"
+    },
+    {
+      "file": "image.png",
+      "description": "a PNG in colour, at its own size",
+      "options": { "colorMode": "Color", "scaling": "None" }
+    },
+    {
+      "file": "image.png",
+      "description": "a PNG in grayscale, rotated 90 degrees",
+      "options": { "colorMode": "Monochrome", "orientation": "Landscape" }
+    },
+    {
+      "file": "photo.jpeg",
+      "description": "a JPEG rotated 180 degrees",
+      "options": { "orientation": "ReversePortrait" }
+    },
+    {
+      "file": "photo.jpeg",
+      "description": "a JPEG in grayscale, filling the media",
+      "options": { "colorMode": "Monochrome", "scaling": "Fill" }
+    }
+  ]
+}

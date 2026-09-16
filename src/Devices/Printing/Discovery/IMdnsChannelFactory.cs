@@ -1,4 +1,5 @@
 ﻿using System.Net;
+using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.Printing;
 
@@ -13,6 +14,7 @@ internal interface IMdnsChannelFactory
     /// multicast group address to send to.
     /// </summary>
     /// <param name="options">The interface selection and the address family choice.</param>
+    /// <param name="logger">The log of the discovery.</param>
     /// <returns>The channels and their destinations. Empty when no interface is usable.</returns>
-    IReadOnlyList<(IUdpChannel Channel, IPEndPoint Destination)> Create(MdnsPrinterDiscoveryOptions options);
+    IReadOnlyList<(IUdpChannel Channel, IPEndPoint Destination)> Create(MdnsPrinterDiscoveryOptions options, ILogger logger);
 }

@@ -1,4 +1,4 @@
-# Packages
+﻿# Packages
 
 `dotnet-devices` is distributed as NuGet packages under the `AdaptArch.` prefix. Packages are built from `src/` projects.
 
@@ -6,7 +6,7 @@
 
 | Package | Description |
 | :--- | :--- |
-| `AdaptArch.Devices` | Core cross-platform device abstractions (printers, scanners, peripherals). Three reviewed runtime dependencies, listed below. |
+| `AdaptArch.Devices` | Core cross-platform device abstractions (printers, scanners, peripherals). Four reviewed runtime dependencies, listed below. |
 | `AdaptArch.Devices.DependencyInjection` | `Microsoft.Extensions.DependencyInjection` registrations for `AdaptArch.Devices` (`AddDevices`, `AddPrinters`). |
 | `AdaptArch.Devices.Windows` | Windows-only extensions for `AdaptArch.Devices`: spooler PDF rendering through the in-box engine. No runtime NuGet dependency of its own. |
 
@@ -26,9 +26,24 @@ Approved dependencies of `AdaptArch.Devices`:
 | `SharpIppNext` | MIT | None on `net10.0` | A complete IPP 1.1 implementation. It replaces a hand-written IPP encoder and decoder, states native AOT support with zero reflection, and opens the way to job submission. |
 | `Lextm.SharpSnmpLib` | MIT | None | A maintained SNMP implementation. It replaces a hand-written BER encoder and decoder. Taken at `13.0.0-beta.3`; see the exception below. |
 | `Makaretu.Dns.New` | MIT | None | A DNS data model with a wire-format reader and writer. It replaces a hand-written DNS codec, including the name decompression that was the highest risk in the mDNS browse. |
+| `Microsoft.Extensions.Logging.Abstractions` | MIT | `Microsoft.Extensions.DependencyInjection.Abstractions` | The logging seam of .NET. Approved in [issue 10](https://github.com/adaptive-architecture/dotnet-devices/issues/10): a stopped print job could not be diagnosed, because the library wrote no log at all. Microsoft maintains it, it supports `net10.0`, and its `LoggerMessage` source generator uses no reflection, so the package stays trim-safe and AOT-safe. It is an abstraction package, not an implementation: an application that registers no logger pays for `NullLogger` only. |
 
-No library is exposed in the public API surface: each one stays behind a client class, so
-any of them can be replaced without a breaking change.
+The first three libraries are not exposed in the public API surface: each one stays behind a
+client class, so any of them can be replaced without a breaking change.
+
+### Approved exception: the logging abstraction is in the public API
+
+`Microsoft.Extensions.Logging.Abstractions` breaks the rule above, on purpose. The
+`LoggerFactory` members of `IppTransportOptions`, of `PrinterManagerOptions` and of each
+printing type a caller can build by itself are all `ILoggerFactory`, and they are the only
+members of this library that name a type of the package. The reason is that `ILoggerFactory`
+**is** the seam a .NET application
+already holds. A wrapper of our own would make every consumer write an adapter to give the
+library the logger it already has, which is the cost this dependency was taken to remove.
+The type is an abstraction that Microsoft keeps stable, so it does not tie the library to
+one logging implementation.
+
+Read [Troubleshooting](troubleshooting.md) for what the log reports and how to turn it on.
 
 Windows image printing deliberately adds no package: PNG and JPEG jobs are drawn with
 GDI+ through `gdi32.dll` and `gdiplus.dll`, which are system components, so there is

@@ -22,6 +22,7 @@
   <ItemGroup>
     <PackageReference Include="Lextm.SharpSnmpLib" />
     <PackageReference Include="Makaretu.Dns.New" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="SharpIppNext" />
   </ItemGroup>
 

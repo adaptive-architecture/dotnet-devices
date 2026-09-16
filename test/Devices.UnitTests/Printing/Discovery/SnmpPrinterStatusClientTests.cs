@@ -191,6 +191,9 @@ public class SnmpPrinterStatusClientTests
             .GetDetailsAsync(Host, TestContext.Current.CancellationToken);
 
         Assert.Equal("noPaper; doorOpen; inputTrayEmpty", details.Status.Detail);
+
+        // The same reasons, one for each entry, so a caller can match one of them.
+        Assert.Equal(["noPaper", "doorOpen", "inputTrayEmpty"], details.Status.StateReasons);
         Assert.Equal(PrinterStatusState.Error, details.Status.State);
     }
 
@@ -207,6 +210,7 @@ public class SnmpPrinterStatusClientTests
             .GetDetailsAsync(Host, TestContext.Current.CancellationToken);
 
         Assert.Null(details.Status.Detail);
+        Assert.Empty(details.Status.StateReasons);
         Assert.Equal(PrinterStatusState.Idle, details.Status.State);
     }
 

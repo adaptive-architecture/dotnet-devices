@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Linq;
 using AdaptArch.Devices.Printing;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace AdaptArch.Devices.UnitTests.Printing;
@@ -285,5 +286,70 @@ public class PollingPrintJobMonitorTests
             _now += _step;
             return _now;
         }
+    }
+
+    [Fact]
+    public async Task WatchJobAsync_AJobThatPrintedAndThenVanishedIsInformation()
+    {
+        // The normal end on CUPS: the queue drops a job that finished.
+        FakeLoggerFactory factory = new();
+        FakeQueue queue = new(Job(PrintJobState.Printing, 1), null);
+        PollingPrintJobMonitor monitor = new(queue) { LoggerFactory = factory };
+
+        await foreach (var _ in monitor.WatchJobAsync(Printer, "42", Fast, TestContext.Current.CancellationToken))
+        {
+        }
+
+        Assert.Equal(LogLevel.Information, Assert.Single(factory.WithId(2061)).Level);
+        Assert.Empty(factory.WithId(2062));
+    }
+
+    [Fact]
+    public async Task WatchJobAsync_AJobThatVanishedBeforeItPrintedIsAWarning()
+    {
+        // A cancel and a purge arrive as the same signal, and the watch reports Completed
+        // for all three, so the entry is the only thing that keeps them apart.
+        FakeLoggerFactory factory = new();
+        FakeQueue queue = new(Job(PrintJobState.Queued, null), null);
+        PollingPrintJobMonitor monitor = new(queue) { LoggerFactory = factory };
+
+        await foreach (var _ in monitor.WatchJobAsync(Printer, "42", Fast, TestContext.Current.CancellationToken))
+        {
+        }
+
+        var warning = Assert.Single(factory.WithId(2062));
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Contains("42", warning.Message, StringComparison.Ordinal);
+        Assert.Empty(factory.WithId(2061));
+    }
+
+    [Fact]
+    public async Task WatchJobAsync_SaysWhyTheWatchEnded()
+    {
+        FakeLoggerFactory factory = new();
+        FakeQueue queue = new(Job(PrintJobState.Completed, 1));
+        PollingPrintJobMonitor monitor = new(queue) { LoggerFactory = factory };
+
+        await foreach (var _ in monitor.WatchJobAsync(Printer, "42", Fast, TestContext.Current.CancellationToken))
+        {
+        }
+
+        Assert.Contains("terminal state", Assert.Single(factory.WithId(2063)).Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WatchJobAsync_TheTraceReadingsStopAtTheLevelThatIsOn()
+    {
+        // Proves the guard the generator writes: nothing below the level costs a message.
+        FakeLoggerFactory factory = new() { MinimumLevel = LogLevel.Information };
+        FakeQueue queue = new(Job(PrintJobState.Printing, 1), Job(PrintJobState.Completed, 1));
+        PollingPrintJobMonitor monitor = new(queue) { LoggerFactory = factory };
+
+        await foreach (var _ in monitor.WatchJobAsync(Printer, "42", Fast, TestContext.Current.CancellationToken))
+        {
+        }
+
+        Assert.Empty(factory.WithId(2064));
+        Assert.NotEmpty(factory.WithId(2060));
     }
 }
