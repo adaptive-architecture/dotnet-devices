@@ -93,9 +93,10 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
         int? lastCount = null;
         var readings = 0;
 
-        // A job seen printing and then gone has finished. A job that is gone before that
-        // may have been cancelled or purged, and the two are the same signal.
-        var sawItPrint = false;
+        // The state of the newest reading, kept from the first reading that showed the job
+        // print. A job seen printing and then gone has finished. Null means the job never
+        // printed: a cancel and a purge arrive here as well, and the two are the same signal.
+        PrintJobState? printedAs = null;
 
         // When the job last moved. A job that is slow is not a job that is stuck, so it is
         // the absence of change that ends the watch, never the time the job has taken.
@@ -106,32 +107,16 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
             var reading = await _queue.GetJobAsync(printerId, jobId, cancellationToken).ConfigureAwait(false);
             if (reading is null)
             {
-                // Both spoolers drop a finished job, so a job that is gone has finished.
-                if (sawItPrint)
-                {
-                    PrintingLog.JobLeftTheQueue(Logger, jobId, printerId, lastState ?? PrintJobState.Printing);
-                }
-                else
-                {
-                    // It never printed, so "complete" is the library's guess and not what
-                    // the queue said. A cancel and a purge arrive here as well.
-                    PrintingLog.JobVanishedBeforeItPrinted(Logger, jobId, printerId);
-                }
-
-                PrintingLog.WatchEnded(Logger, jobId, printerId, "the job left the queue", readings);
-                var now = _timeProvider.GetUtcNow();
-                var done = new PrintJobInfo(jobId, printerId, PrintJobState.Completed)
-                {
-                    CreatedAt = now,
-                    CompletedAt = now,
-                };
-                yield return done;
+                yield return CompleteAfterTheQueueDroppedIt(printerId, jobId, printedAs, readings);
                 yield break;
             }
 
             readings++;
             PrintingLog.JobRead(Logger, jobId, printerId, reading.State, reading.ImpressionsCompleted, reading.TotalImpressions);
-            sawItPrint |= reading.State == PrintJobState.Printing || reading.ImpressionsCompleted > 0;
+            if (printedAs is not null || reading.State == PrintJobState.Printing || reading.ImpressionsCompleted > 0)
+            {
+                printedAs = reading.State;
+            }
 
             if (reading.State != lastState || reading.ImpressionsCompleted != lastCount)
             {
@@ -168,6 +153,29 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
         }
 
         PrintingLog.WatchEnded(Logger, jobId, printerId, "the whole timeout passed", readings);
+    }
+
+    // Both spoolers drop a finished job, so a job that is gone has finished.
+    private PrintJobInfo CompleteAfterTheQueueDroppedIt(PrinterId printerId, string jobId, PrintJobState? printedAs, int readings)
+    {
+        if (printedAs is PrintJobState printed)
+        {
+            PrintingLog.JobLeftTheQueue(Logger, jobId, printerId, printed);
+        }
+        else
+        {
+            // It never printed, so "complete" is the library's guess and not what the queue
+            // said. A cancel and a purge arrive here as well.
+            PrintingLog.JobVanishedBeforeItPrinted(Logger, jobId, printerId);
+        }
+
+        PrintingLog.WatchEnded(Logger, jobId, printerId, "the job left the queue", readings);
+        var now = _timeProvider.GetUtcNow();
+        return new PrintJobInfo(jobId, printerId, PrintJobState.Completed)
+        {
+            CreatedAt = now,
+            CompletedAt = now,
+        };
     }
 
     private static bool IsTerminal(PrintJobState state) =>

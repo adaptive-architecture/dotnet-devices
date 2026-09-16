@@ -36,5 +36,5 @@ internal static partial class IppLog
     public static partial void DocumentFormatDowngraded(ILogger logger, Uri endpoint, string contentType, string format);
 
     [LoggerMessage(EventId = 1021, Level = LogLevel.Debug, Message = "IPP job {JobId} on {Endpoint} is {State}; reasons {Reasons}; message {Message}.")]
-    public static partial void JobRead(ILogger logger, string jobId, Uri endpoint, string state, string? reasons, string? message);
+    public static partial void JobRead(ILogger logger, string jobId, Uri endpoint, PrintJobState state, string? reasons, string? message);
 }

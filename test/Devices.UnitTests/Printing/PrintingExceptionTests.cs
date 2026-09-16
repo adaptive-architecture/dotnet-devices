@@ -46,7 +46,7 @@ public class PrintingExceptionTests
 
     [Fact]
     public void PrinterConnectionException_IsCaughtAsAnInvalidOperationException() =>
-        Assert.IsAssignableFrom<InvalidOperationException>(new PrinterConnectionException());
+        Assert.IsType<InvalidOperationException>(new PrinterConnectionException(), exactMatch: false);
 
     [Fact]
     public void PrinterOperationException_CarriesTheCauseAsData()
@@ -76,5 +76,5 @@ public class PrintingExceptionTests
 
     [Fact]
     public void PrinterOperationException_IsCaughtAsAnInvalidOperationException() =>
-        Assert.IsAssignableFrom<InvalidOperationException>(new PrinterOperationException());
+        Assert.IsType<InvalidOperationException>(new PrinterOperationException(), exactMatch: false);
 }

@@ -157,7 +157,7 @@ internal static class IppRequests
             // RawAttributes stays empty here: one answer must not be copied into every job.
             if (IppJobMapper.Map(printerId, attributes[i], raw, i) is PrintJobInfo mapped)
             {
-                IppLog.JobRead(context.Logger, mapped.JobId, uri, mapped.State.ToString(), mapped.Detail, mapped.PrinterStateMessage ?? mapped.StateMessage);
+                IppLog.JobRead(context.Logger, mapped.JobId, uri, mapped.State, mapped.Detail, mapped.PrinterStateMessage ?? mapped.StateMessage);
                 jobs.Add(mapped);
             }
         }
@@ -194,7 +194,7 @@ internal static class IppRequests
             var job = IppJobMapper.Map(printerId, response.JobAttributes, operations.LastRawResponse, 0, operations.RawAttributes);
             if (job is not null)
             {
-                IppLog.JobRead(context.Logger, job.JobId, uri, job.State.ToString(), job.Detail, job.PrinterStateMessage ?? job.StateMessage);
+                IppLog.JobRead(context.Logger, job.JobId, uri, job.State, job.Detail, job.PrinterStateMessage ?? job.StateMessage);
             }
 
             return job;

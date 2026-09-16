@@ -18,6 +18,10 @@ internal static class PrinterQueueCorrelator
     /// </summary>
     internal sealed record Candidate(DiscoveredPrinter Channel, IQueueEvidenceChannel Evidence);
 
+    // What every stage needs and no stage changes: the policy, the user each read and write
+    // speaks for, how many channels may be busy at once, and where a stage reports.
+    private sealed record Run(QueueCorrelationOptions Options, string User, int MaxConcurrency, ILogger Logger);
+
     /// <summary>
     /// Picks the channels worth correlating: one per provisional device, on a transport the
     /// manager may open, and only where no source has already named the device.
@@ -100,8 +104,8 @@ internal static class PrinterQueueCorrelator
             return new Dictionary<PrinterId, IReadOnlyList<PrinterDeviceKey>>();
         }
 
-        var user = options.EffectiveUserName;
-        var first = await ReadAllAsync(candidates, user, maxConcurrency, logger, cancellationToken).ConfigureAwait(false);
+        Run run = new(options, options.EffectiveUserName, maxConcurrency, logger);
+        var first = await ReadAllAsync(candidates, run, cancellationToken).ConfigureAwait(false);
 
         PrinterKeyUnionFind proved = new();
         foreach (var candidate in candidates)
@@ -113,7 +117,7 @@ internal static class PrinterQueueCorrelator
 
         if (allowTracer && options.AllowTracerJob)
         {
-            await TraceAsync(candidates, first, proved, options, user, maxConcurrency, logger, cancellationToken).ConfigureAwait(false);
+            await TraceAsync(candidates, first, proved, run, cancellationToken).ConfigureAwait(false);
         }
 
         var groups = Collect(candidates, proved);
@@ -164,10 +168,7 @@ internal static class PrinterQueueCorrelator
         IReadOnlyList<Candidate> candidates,
         IReadOnlyDictionary<PrinterId, IReadOnlyList<PrinterQueueFingerprint>?> first,
         PrinterKeyUnionFind proved,
-        QueueCorrelationOptions options,
-        string user,
-        int maxConcurrency,
-        ILogger logger,
+        Run run,
         CancellationToken cancellationToken)
     {
         // A channel whose queue held a distinctive job that nobody else reported is not
@@ -188,7 +189,7 @@ internal static class PrinterQueueCorrelator
         Lock guard = new();
         try
         {
-            await ForEachAsync(unproven, maxConcurrency, logger, "create-tracer", async (candidate, token) =>
+            await ForEachAsync(unproven, run, "create-tracer", async (candidate, token) =>
             {
                 var support = await candidate.Evidence.ReadTracerSupportAsync(token).ConfigureAwait(false);
                 if (!support.IsUsable)
@@ -207,8 +208,8 @@ internal static class PrinterQueueCorrelator
 
                 // A write to a real printer. It is reported whatever the log level allows
                 // below Information, because a customer must be able to see that it happened.
-                DiscoveryLog.TracerJobWritten(logger, name, candidate.Channel.Id);
-                var jobId = await candidate.Evidence.CreateTracerJobAsync(name, user, token).ConfigureAwait(false);
+                DiscoveryLog.TracerJobWritten(run.Logger, name, candidate.Channel.Id);
+                var jobId = await candidate.Evidence.CreateTracerJobAsync(name, run.User, token).ConfigureAwait(false);
                 if (jobId is not null)
                 {
                     lock (guard)
@@ -226,13 +227,13 @@ internal static class PrinterQueueCorrelator
             // Every candidate is read again, not only the ones that got a tracer: a channel
             // that showed an empty queue and a channel that showed a populated one can still
             // be one queue seen through two different filters.
-            var second = await ReadAllAsync(candidates, user, maxConcurrency, logger, cancellationToken).ConfigureAwait(false);
-            JoinByTracer(logger, names, second, proved);
+            var second = await ReadAllAsync(candidates, run, cancellationToken).ConfigureAwait(false);
+            JoinByTracer(run.Logger, names, second, proved);
             Sweep(candidates, second, created);
         }
         finally
         {
-            await CleanUpAsync(candidates, created, options, user, logger).ConfigureAwait(false);
+            await CleanUpAsync(candidates, created, run).ConfigureAwait(false);
         }
     }
 
@@ -299,16 +300,14 @@ internal static class PrinterQueueCorrelator
     private static async Task CleanUpAsync(
         IReadOnlyList<Candidate> candidates,
         Dictionary<PrinterId, string> created,
-        QueueCorrelationOptions options,
-        string user,
-        ILogger logger)
+        Run run)
     {
         if (created.Count == 0)
         {
             return;
         }
 
-        using CancellationTokenSource cleanup = new(options.CleanupTimeout);
+        using CancellationTokenSource cleanup = new(run.Options.CleanupTimeout);
         foreach (var candidate in candidates)
         {
             if (!created.TryGetValue(candidate.Channel.Id, out var jobId))
@@ -319,27 +318,25 @@ internal static class PrinterQueueCorrelator
             // A cancel that fails is survivable by construction: the tracer holds no
             // document, is held indefinitely, and its name says what it is, so a printer
             // that keeps it prints nothing and says who left it.
-            var error = await TryAsync(() => candidate.Evidence.CancelTracerJobAsync(jobId, user, cleanup.Token), CancellationToken.None).ConfigureAwait(false);
+            var error = await TryAsync(() => candidate.Evidence.CancelTracerJobAsync(jobId, run.User, cleanup.Token), CancellationToken.None).ConfigureAwait(false);
             if (error is not null)
             {
                 // A job left in a customer queue is what they will telephone about.
-                DiscoveryLog.TracerJobNotCancelled(logger, jobId, candidate.Channel.Id, error);
+                DiscoveryLog.TracerJobNotCancelled(run.Logger, jobId, candidate.Channel.Id, error);
             }
         }
     }
 
     private static async Task<IReadOnlyDictionary<PrinterId, IReadOnlyList<PrinterQueueFingerprint>?>> ReadAllAsync(
         IReadOnlyList<Candidate> candidates,
-        string user,
-        int maxConcurrency,
-        ILogger logger,
+        Run run,
         CancellationToken cancellationToken)
     {
         Dictionary<PrinterId, IReadOnlyList<PrinterQueueFingerprint>?> queues = [];
         Lock guard = new();
-        await ForEachAsync(candidates, maxConcurrency, logger, "read-queue", async (candidate, token) =>
+        await ForEachAsync(candidates, run, "read-queue", async (candidate, token) =>
         {
-            var queue = await candidate.Evidence.ReadQueueAsync(user, token).ConfigureAwait(false);
+            var queue = await candidate.Evidence.ReadQueueAsync(run.User, token).ConfigureAwait(false);
             lock (guard)
             {
                 queues[candidate.Channel.Id] = queue;
@@ -352,8 +349,7 @@ internal static class PrinterQueueCorrelator
     // One channel that will not answer costs its own evidence and nothing else.
     private static async Task ForEachAsync(
         IReadOnlyList<Candidate> candidates,
-        int maxConcurrency,
-        ILogger logger,
+        Run run,
         string step,
         Func<Candidate, CancellationToken, Task> body,
         CancellationToken cancellationToken)
@@ -361,7 +357,7 @@ internal static class PrinterQueueCorrelator
         ParallelOptions parallel = new()
         {
             CancellationToken = cancellationToken,
-            MaxDegreeOfParallelism = maxConcurrency,
+            MaxDegreeOfParallelism = run.MaxConcurrency,
         };
 
         // A channel that did not answer contributes no evidence and stays as the discovery
@@ -374,7 +370,7 @@ internal static class PrinterQueueCorrelator
                 var error = await TryAsync(() => body(candidate, token), cancellationToken).ConfigureAwait(false);
                 if (error is not null)
                 {
-                    DiscoveryLog.CorrelationStepFailed(logger, step, candidate.Channel.Id, error);
+                    DiscoveryLog.CorrelationStepFailed(run.Logger, step, candidate.Channel.Id, error);
                 }
             }).ConfigureAwait(false);
     }

@@ -282,7 +282,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // mode. PageRanges is additionally honoured by the PDF render, which selects
     // pages rather than naming a mode field.
     // The join costs an allocation for each job, so it runs only when a reader wants it.
-    private void ReportDropped(string queueName, IReadOnlyList<string> dropped)
+    private void ReportDropped(string queueName, List<string> dropped)
     {
         if (dropped.Count > 0 && _logger.IsEnabled(LogLevel.Warning))
         {

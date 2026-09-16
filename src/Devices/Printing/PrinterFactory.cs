@@ -73,8 +73,6 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
     {
     }
 
-    private ILogger? _logger;
-
     /// <summary>
     /// Gets the factory that makes the log. Defaults to <c>null</c>, which writes nothing.
     /// The log category is <c>AdaptArch.Devices.Printing</c>.
@@ -85,9 +83,6 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
     /// Read <see href="https://github.com/adaptive-architecture/dotnet-devices/blob/main/docs/troubleshooting.md">Troubleshooting</see>.
     /// </remarks>
     public ILoggerFactory? LoggerFactory { get; init; }
-
-    // Built on first use: an init property is set after the constructor runs.
-    private ILogger Logger => LazyInitializer.EnsureInitialized(ref _logger, () => PrintingLog.Create(LoggerFactory));
 
     /// <summary>
     /// Gets the formats every printer this factory opens knows, and the converters they

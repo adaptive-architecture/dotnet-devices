@@ -110,6 +110,8 @@ public class PrintingLogTests
 // Reaches one generated method, so the test above reads a real template and not a copy.
 internal static class PrintingLogProbe
 {
+    private static readonly PrinterId Printer = PrinterId.ForRaw("printer.local");
+
     public static void WriteOne(ILogger logger) =>
-        PrintingLog.DiscoveryRanToResolve(logger, PrinterId.ForRaw("printer.local"));
+        PrintingLog.DiscoveryRanToResolve(logger, Printer);
 }
