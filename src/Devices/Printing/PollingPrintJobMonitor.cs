@@ -1,4 +1,5 @@
 ﻿using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.Printing;
 
@@ -33,6 +34,22 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
         _queue = queue;
         _timeProvider = timeProvider;
     }
+
+    private ILogger? _logger;
+
+    /// <summary>
+    /// Gets the factory that makes the log. Defaults to <c>null</c>, which writes nothing.
+    /// The log category is <c>AdaptArch.Devices.Printing</c>.
+    /// </summary>
+    /// <remarks>
+    /// An application that uses <c>AddDevices()</c> or <c>AddPrinters()</c> needs no call
+    /// here: the registration takes the <see cref="ILoggerFactory"/> of the container.
+    /// Read <see href="https://github.com/adaptive-architecture/dotnet-devices/blob/main/docs/troubleshooting.md">Troubleshooting</see>.
+    /// </remarks>
+    public ILoggerFactory? LoggerFactory { get; init; }
+
+    // Built on first use: an init property is set after the constructor runs.
+    private ILogger Logger => LazyInitializer.EnsureInitialized(ref _logger, () => PrintingLog.Create(LoggerFactory));
 
     /// <inheritdoc />
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <see cref="PrintJobMonitorOptions.PollInterval"/>, <see cref="PrintJobMonitorOptions.Timeout"/> or <see cref="PrintJobMonitorOptions.IdleTimeout"/> is zero or negative.</exception>
@@ -74,6 +91,11 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
 
         PrintJobState? lastState = null;
         int? lastCount = null;
+        var readings = 0;
+
+        // A job seen printing and then gone has finished. A job that is gone before that
+        // may have been cancelled or purged, and the two are the same signal.
+        var sawItPrint = false;
 
         // When the job last moved. A job that is slow is not a job that is stuck, so it is
         // the absence of change that ends the watch, never the time the job has taken.
@@ -85,6 +107,18 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
             if (reading is null)
             {
                 // Both spoolers drop a finished job, so a job that is gone has finished.
+                if (sawItPrint)
+                {
+                    PrintingLog.JobLeftTheQueue(Logger, jobId, printerId, lastState ?? PrintJobState.Printing);
+                }
+                else
+                {
+                    // It never printed, so "complete" is the library's guess and not what
+                    // the queue said. A cancel and a purge arrive here as well.
+                    PrintingLog.JobVanishedBeforeItPrinted(Logger, jobId, printerId);
+                }
+
+                PrintingLog.WatchEnded(Logger, jobId, printerId, "the job left the queue", readings);
                 var now = _timeProvider.GetUtcNow();
                 var done = new PrintJobInfo(jobId, printerId, PrintJobState.Completed)
                 {
@@ -94,6 +128,10 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
                 yield return done;
                 yield break;
             }
+
+            readings++;
+            PrintingLog.JobRead(Logger, jobId, printerId, reading.State, reading.ImpressionsCompleted, reading.TotalImpressions);
+            sawItPrint |= reading.State == PrintJobState.Printing || reading.ImpressionsCompleted > 0;
 
             if (reading.State != lastState || reading.ImpressionsCompleted != lastCount)
             {
@@ -105,6 +143,8 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
 
             if (IsTerminal(reading.State))
             {
+                PrintingLog.JobReachedTerminalState(Logger, jobId, printerId, reading.State);
+                PrintingLog.WatchEnded(Logger, jobId, printerId, "the job reached a terminal state", readings);
                 yield break;
             }
 
@@ -113,6 +153,7 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
             // way, and one clock reading is cheaper than another token to wait on.
             if (options.IdleTimeout is TimeSpan quiet && _timeProvider.GetUtcNow() - lastChange >= quiet)
             {
+                PrintingLog.WatchEnded(Logger, jobId, printerId, "nothing changed for the idle timeout", readings);
                 yield break;
             }
 
@@ -125,6 +166,8 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
                 // The deadline fired, not the caller: the loop condition ends the watch.
             }
         }
+
+        PrintingLog.WatchEnded(Logger, jobId, printerId, "the whole timeout passed", readings);
     }
 
     private static bool IsTerminal(PrintJobState state) =>

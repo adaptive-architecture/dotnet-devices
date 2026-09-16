@@ -67,7 +67,7 @@ public class IppPrintJobQueueTests
         });
         IppPrintJobQueue queue = new(Endpoint, new HttpClient(handler));
 
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(
+        _ = await Assert.ThrowsAsync<PrinterOperationException>(
             () => queue.GetJobAsync(Printer, "1", TestContext.Current.CancellationToken));
     }
 
@@ -117,7 +117,7 @@ public class IppPrintJobQueueTests
         });
         IppPrintJobQueue queue = new(Endpoint, new HttpClient(handler));
 
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(
+        _ = await Assert.ThrowsAsync<PrinterOperationException>(
             () => queue.CancelJobAsync(Printer, "1", TestContext.Current.CancellationToken));
     }
 

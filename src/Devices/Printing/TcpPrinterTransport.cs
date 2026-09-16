@@ -1,4 +1,5 @@
 ﻿using System.Net.Sockets;
+using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.Printing;
 
@@ -28,6 +29,22 @@ public sealed class TcpPrinterTransport : IPrinterTransport
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(connectTimeout, TimeSpan.Zero);
         _timeout = connectTimeout;
     }
+
+    private ILogger? _logger;
+
+    /// <summary>
+    /// Gets the factory that makes the log. Defaults to <c>null</c>, which writes nothing.
+    /// The log category is <c>AdaptArch.Devices.Printing</c>.
+    /// </summary>
+    /// <remarks>
+    /// An application that uses <c>AddDevices()</c> or <c>AddPrinters()</c> needs no call
+    /// here: the registration takes the <see cref="ILoggerFactory"/> of the container.
+    /// Read <see href="https://github.com/adaptive-architecture/dotnet-devices/blob/main/docs/troubleshooting.md">Troubleshooting</see>.
+    /// </remarks>
+    public ILoggerFactory? LoggerFactory { get; init; }
+
+    // Built on first use: an init property is set after the constructor runs.
+    private ILogger Logger => LazyInitializer.EnsureInitialized(ref _logger, () => PrintingLog.Create(LoggerFactory));
 
     /// <inheritdoc />
     public bool CanHandle(PrinterEndpoint endpoint) => endpoint is NetworkPrinterEndpoint;
@@ -76,6 +93,12 @@ public sealed class TcpPrinterTransport : IPrinterTransport
         catch (Exception exception) when (exception is SocketException or ObjectDisposedException)
         {
             // The payload is already delivered, so a failed close is not a failed print.
+            // Error even so: a raw job reports Completed the moment the bytes go out, so
+            // this entry is the only evidence that the last page may be missing.
+            PrintingLog.RawShutdownFailed(Logger, network.Host, network.Port, payload.Data.Length, exception);
+            return;
         }
+
+        PrintingLog.RawJobWritten(Logger, payload.Data.Length, network.Host, network.Port);
     }
 }

@@ -93,11 +93,10 @@ internal static class IppMessages
     public static async Task<(PrinterDescriptionAttributes Attributes, IIppResponseMessage Raw)> DecodeWithRawAsync(byte[] body)
     {
         Uri uri = new("ipp://printer.local:631/ipp/print");
-        IppOperations operations = new(new HttpClient(new StubHandler(_ => Ok(body))));
+        IppOperations operations = new(new IppContext(new HttpClient(new StubHandler(_ => Ok(body)))), uri, "Get-Printer-Attributes");
         var response = await operations.SendAsync(
             static (client, request, token) => client.GetPrinterAttributesAsync(request, token),
             new GetPrinterAttributesRequest { OperationAttributes = new() { PrinterUri = uri } },
-            uri,
             CancellationToken.None).ConfigureAwait(false);
         return (response.PrinterAttributes, operations.LastRawResponse);
     }

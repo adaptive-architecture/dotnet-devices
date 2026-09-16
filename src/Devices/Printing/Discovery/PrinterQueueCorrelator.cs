@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.Printing;
 
@@ -67,6 +68,7 @@ internal static class PrinterQueueCorrelator
     /// <param name="options">The correlation policy.</param>
     /// <param name="allowTracer">Whether this call may write a tracer job. It is <c>false</c> when the manager is only refreshing to resolve an identifier.</param>
     /// <param name="maxConcurrency">How many channels may be read at once.</param>
+    /// <param name="logger">The log of the discovery. Use <c>NullLogger.Instance</c> for none.</param>
     /// <param name="cancellationToken">Token to cancel the correlation.</param>
     /// <returns>The proved aliases, by channel identifier. A channel that was proved alone is absent.</returns>
     public static async Task<IReadOnlyDictionary<PrinterId, IReadOnlyList<PrinterDeviceKey>>> CorrelateAsync(
@@ -74,6 +76,7 @@ internal static class PrinterQueueCorrelator
         QueueCorrelationOptions options,
         bool allowTracer,
         int maxConcurrency,
+        ILogger logger,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(candidates);
@@ -83,11 +86,22 @@ internal static class PrinterQueueCorrelator
         // set would depend on which channel sorted first, so both refuse rather than guess.
         if (candidates.Count < 2 || candidates.Count > options.MaxChannels)
         {
+            if (candidates.Count > options.MaxChannels)
+            {
+                // A network with many IPP channels gets no correlation at all, and today
+                // nothing says so: the devices simply stay separate.
+                DiscoveryLog.CorrelationOverLimit(logger, candidates.Count, options.MaxChannels);
+            }
+            else
+            {
+                DiscoveryLog.CorrelationTooFewCandidates(logger, candidates.Count);
+            }
+
             return new Dictionary<PrinterId, IReadOnlyList<PrinterDeviceKey>>();
         }
 
         var user = options.EffectiveUserName;
-        var first = await ReadAllAsync(candidates, user, maxConcurrency, cancellationToken).ConfigureAwait(false);
+        var first = await ReadAllAsync(candidates, user, maxConcurrency, logger, cancellationToken).ConfigureAwait(false);
 
         PrinterKeyUnionFind proved = new();
         foreach (var candidate in candidates)
@@ -95,18 +109,21 @@ internal static class PrinterQueueCorrelator
             proved.Add(candidate.Channel.Id.DeviceKey);
         }
 
-        JoinBySummary(candidates, first, proved);
+        JoinBySummary(logger, candidates, first, proved);
 
         if (allowTracer && options.AllowTracerJob)
         {
-            await TraceAsync(candidates, first, proved, options, user, maxConcurrency, cancellationToken).ConfigureAwait(false);
+            await TraceAsync(candidates, first, proved, options, user, maxConcurrency, logger, cancellationToken).ConfigureAwait(false);
         }
 
-        return Collect(candidates, proved);
+        var groups = Collect(candidates, proved);
+        DiscoveryLog.CorrelationCompleted(logger, candidates.Count, groups.Count);
+        return groups;
     }
 
     // Stage A. Two channels whose queues summarise to the same text read one queue.
     private static void JoinBySummary(
+        ILogger logger,
         IReadOnlyList<Candidate> candidates,
         IReadOnlyDictionary<PrinterId, IReadOnlyList<PrinterQueueFingerprint>?> queues,
         PrinterKeyUnionFind proved)
@@ -129,6 +146,7 @@ internal static class PrinterQueueCorrelator
             var key = id.DeviceKey;
             if (bySummary.TryGetValue(summary, out var seen))
             {
+                DiscoveryLog.JoinedByQueue(logger, seen, key);
                 proved.Union(seen, key);
             }
             else
@@ -149,6 +167,7 @@ internal static class PrinterQueueCorrelator
         QueueCorrelationOptions options,
         string user,
         int maxConcurrency,
+        ILogger logger,
         CancellationToken cancellationToken)
     {
         // A channel whose queue held a distinctive job that nobody else reported is not
@@ -169,7 +188,7 @@ internal static class PrinterQueueCorrelator
         Lock guard = new();
         try
         {
-            await ForEachAsync(unproven, maxConcurrency, async (candidate, token) =>
+            await ForEachAsync(unproven, maxConcurrency, logger, "create-tracer", async (candidate, token) =>
             {
                 var support = await candidate.Evidence.ReadTracerSupportAsync(token).ConfigureAwait(false);
                 if (!support.IsUsable)
@@ -186,6 +205,9 @@ internal static class PrinterQueueCorrelator
                     names[candidate.Channel.Id] = name;
                 }
 
+                // A write to a real printer. It is reported whatever the log level allows
+                // below Information, because a customer must be able to see that it happened.
+                DiscoveryLog.TracerJobWritten(logger, name, candidate.Channel.Id);
                 var jobId = await candidate.Evidence.CreateTracerJobAsync(name, user, token).ConfigureAwait(false);
                 if (jobId is not null)
                 {
@@ -204,18 +226,19 @@ internal static class PrinterQueueCorrelator
             // Every candidate is read again, not only the ones that got a tracer: a channel
             // that showed an empty queue and a channel that showed a populated one can still
             // be one queue seen through two different filters.
-            var second = await ReadAllAsync(candidates, user, maxConcurrency, cancellationToken).ConfigureAwait(false);
-            JoinByTracer(names, second, proved);
+            var second = await ReadAllAsync(candidates, user, maxConcurrency, logger, cancellationToken).ConfigureAwait(false);
+            JoinByTracer(logger, names, second, proved);
             Sweep(candidates, second, created);
         }
         finally
         {
-            await CleanUpAsync(candidates, created, options, user).ConfigureAwait(false);
+            await CleanUpAsync(candidates, created, options, user, logger).ConfigureAwait(false);
         }
     }
 
     // A channel that reports another channel's tracer is that channel's queue.
     private static void JoinByTracer(
+        ILogger logger,
         Dictionary<PrinterId, string> names,
         IReadOnlyDictionary<PrinterId, IReadOnlyList<PrinterQueueFingerprint>?> queues,
         PrinterKeyUnionFind proved)
@@ -237,6 +260,7 @@ internal static class PrinterQueueCorrelator
             {
                 if (job.JobName is string jobName && owners.TryGetValue(jobName, out var owner))
                 {
+                    DiscoveryLog.JoinedByTracer(logger, owner.DeviceKey, id.DeviceKey, jobName);
                     proved.Union(owner.DeviceKey, id.DeviceKey);
                 }
             }
@@ -276,7 +300,8 @@ internal static class PrinterQueueCorrelator
         IReadOnlyList<Candidate> candidates,
         Dictionary<PrinterId, string> created,
         QueueCorrelationOptions options,
-        string user)
+        string user,
+        ILogger logger)
     {
         if (created.Count == 0)
         {
@@ -294,7 +319,12 @@ internal static class PrinterQueueCorrelator
             // A cancel that fails is survivable by construction: the tracer holds no
             // document, is held indefinitely, and its name says what it is, so a printer
             // that keeps it prints nothing and says who left it.
-            _ = await TryAsync(() => candidate.Evidence.CancelTracerJobAsync(jobId, user, cleanup.Token), CancellationToken.None).ConfigureAwait(false);
+            var error = await TryAsync(() => candidate.Evidence.CancelTracerJobAsync(jobId, user, cleanup.Token), CancellationToken.None).ConfigureAwait(false);
+            if (error is not null)
+            {
+                // A job left in a customer queue is what they will telephone about.
+                DiscoveryLog.TracerJobNotCancelled(logger, jobId, candidate.Channel.Id, error);
+            }
         }
     }
 
@@ -302,11 +332,12 @@ internal static class PrinterQueueCorrelator
         IReadOnlyList<Candidate> candidates,
         string user,
         int maxConcurrency,
+        ILogger logger,
         CancellationToken cancellationToken)
     {
         Dictionary<PrinterId, IReadOnlyList<PrinterQueueFingerprint>?> queues = [];
         Lock guard = new();
-        await ForEachAsync(candidates, maxConcurrency, async (candidate, token) =>
+        await ForEachAsync(candidates, maxConcurrency, logger, "read-queue", async (candidate, token) =>
         {
             var queue = await candidate.Evidence.ReadQueueAsync(user, token).ConfigureAwait(false);
             lock (guard)
@@ -322,6 +353,8 @@ internal static class PrinterQueueCorrelator
     private static async Task ForEachAsync(
         IReadOnlyList<Candidate> candidates,
         int maxConcurrency,
+        ILogger logger,
+        string step,
         Func<Candidate, CancellationToken, Task> body,
         CancellationToken cancellationToken)
     {
@@ -336,26 +369,35 @@ internal static class PrinterQueueCorrelator
         await Parallel.ForEachAsync(
             candidates,
             parallel,
-            async (candidate, token) => _ = await TryAsync(() => body(candidate, token), cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
+            async (candidate, token) =>
+            {
+                var error = await TryAsync(() => body(candidate, token), cancellationToken).ConfigureAwait(false);
+                if (error is not null)
+                {
+                    DiscoveryLog.CorrelationStepFailed(logger, step, candidate.Channel.Id, error);
+                }
+            }).ConfigureAwait(false);
     }
 
     // Only the caller's own cancellation fails a step. This is the rule PrinterManager
     // already uses for an enrichment read: a timeout also arrives as a cancellation, and
     // must not read as one the caller asked for.
-    private static async Task<bool> TryAsync(Func<Task> step, CancellationToken cancellationToken)
+    private static async Task<Exception?> TryAsync(Func<Task> step, CancellationToken cancellationToken)
     {
         try
         {
             await step().ConfigureAwait(false);
-            return true;
+            return null;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception exception)
         {
-            return false;
+            // Given back, not swallowed here: this method knows no printer, and the caller
+            // that owns the channel writes the entry.
+            return exception;
         }
     }
 

@@ -15,32 +15,35 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     // leak a connection pool each time the factory makes one.
     private static readonly Lazy<HttpClient> SharedClient = new(static () => IppHttpClientFactory.Create(new IppTransportOptions()));
 
-    private readonly HttpClient _httpClient;
+    private readonly IppContext _context;
     private readonly Uri _baseUri;
     private readonly PrintFormatPolicy _formats;
 
-    public CupsSpoolerDriver(PrintFormatPolicy? formats = null)
-        : this(SharedClient.Value, DefaultBaseUri, formats)
+    public CupsSpoolerDriver(PrintFormatPolicy? formats = null, IppTransportOptions? options = null)
+        : this(SharedClient.Value, DefaultBaseUri, formats, options)
     {
     }
 
     public CupsSpoolerDriver(HttpClient httpClient)
-        : this(httpClient, DefaultBaseUri, null)
+        : this(httpClient, DefaultBaseUri, null, null)
     {
     }
 
-    internal CupsSpoolerDriver(HttpClient httpClient, Uri baseUri, PrintFormatPolicy? formats = null)
+    internal CupsSpoolerDriver(HttpClient httpClient, Uri baseUri, PrintFormatPolicy? formats = null, IppTransportOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(baseUri);
-        _httpClient = httpClient;
+
+        // The whole policy, not only the log: the raw-response switch must reach a CUPS
+        // queue as well, because that is the channel a stopped spooler job runs on.
+        _context = new IppContext(httpClient, options);
         _baseUri = baseUri;
         _formats = formats ?? PrintFormatPolicy.Default;
     }
 
     public async Task<IReadOnlyList<DiscoveredPrinter>> EnumeratePrintersAsync(CancellationToken cancellationToken)
     {
-        IppOperations operations = new(_httpClient);
+        IppOperations operations = new(_context, _baseUri, "CUPS-Get-Printers");
         CUPSGetPrintersRequest request = new()
         {
             OperationAttributes = new() { PrinterUri = _baseUri },
@@ -48,7 +51,6 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         var response = await operations.SendAsync(
             static (client, message, token) => client.GetCUPSPrintersAsync(message, token),
             request,
-            _baseUri,
             cancellationToken).ConfigureAwait(false);
 
         var attributes = response.PrintersAttributes ?? [];
@@ -93,7 +95,7 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         ArgumentNullException.ThrowIfNull(payload);
         // The daemon is CUPS by construction, so the format needs no negotiation.
         return IppRequests.SubmitAsync(
-            _httpClient,
+            _context,
             QueueUri(queueName),
             PrinterId.ForSpooler(queueName),
             new IppSubmission(payload, IppDocumentFormat.ForCups(payload.ContentType, _formats), options, []),
@@ -103,38 +105,38 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     public Task<PrinterStatus> GetStatusAsync(string queueName, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.GetStatusAsync(_httpClient, QueueUri(queueName), PrinterId.ForSpooler(queueName), cancellationToken);
+        return IppRequests.GetStatusAsync(_context, QueueUri(queueName), PrinterId.ForSpooler(queueName), cancellationToken);
     }
 
     public Task<PrinterConfiguration> GetConfigurationAsync(string queueName, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.GetConfigurationAsync(_httpClient, QueueUri(queueName), PrinterId.ForSpooler(queueName), cancellationToken);
+        return IppRequests.GetConfigurationAsync(_context, QueueUri(queueName), PrinterId.ForSpooler(queueName), cancellationToken);
     }
 
     public async Task<PrinterIdentity?> GetIdentityAsync(string queueName, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        var identity = await IppRequests.GetQueueIdentityAsync(_httpClient, QueueUri(queueName), cancellationToken).ConfigureAwait(false);
+        var identity = await IppRequests.GetQueueIdentityAsync(_context, QueueUri(queueName), cancellationToken).ConfigureAwait(false);
         return identity.IsEmpty ? null : identity;
     }
 
     public Task<IReadOnlyList<PrintJobInfo>> GetJobsAsync(string queueName, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.GetJobsAsync(_httpClient, QueueUri(queueName), PrinterId.ForSpooler(queueName), cancellationToken);
+        return IppRequests.GetJobsAsync(_context, QueueUri(queueName), PrinterId.ForSpooler(queueName), cancellationToken);
     }
 
     public Task<PrintJobInfo?> GetJobAsync(string queueName, string jobId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.GetJobAsync(_httpClient, QueueUri(queueName), PrinterId.ForSpooler(queueName), jobId, cancellationToken);
+        return IppRequests.GetJobAsync(_context, QueueUri(queueName), PrinterId.ForSpooler(queueName), jobId, cancellationToken);
     }
 
     public Task<bool> CancelJobAsync(string queueName, string jobId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.CancelJobAsync(_httpClient, QueueUri(queueName), jobId, cancellationToken);
+        return IppRequests.CancelJobAsync(_context, QueueUri(queueName), jobId, cancellationToken);
     }
 
     // The escape also covers a name handed to this driver directly, without an endpoint.

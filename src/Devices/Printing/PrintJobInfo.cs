@@ -66,6 +66,47 @@ public sealed class PrintJobInfo
     public string? Detail { get; set; }
 
     /// <summary>
+    /// Gets or sets each state reason the source reported, one for each entry. Defaults to
+    /// empty.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Detail"/> holds the same reasons joined into one line. Read this list to
+    /// match one reason, for example <c>resources-are-not-ready</c>. IPP uses the keyword
+    /// <c>none</c> to say that there is no reason at all, so an empty list says the same
+    /// thing and the keyword is never an entry.
+    /// </remarks>
+    public IReadOnlyList<string> StateReasons { get; set; } = [];
+
+    /// <summary>
+    /// Gets or sets the readable message the source reported for the job state, or
+    /// <c>null</c> when it reported none. This is the IPP <c>job-state-message</c> attribute.
+    /// </summary>
+    public string? StateMessage { get; set; }
+
+    /// <summary>
+    /// Gets or sets the readable message the printer reported while it held this job, or
+    /// <c>null</c> when it reported none. This is the IPP <c>job-printer-state-message</c>
+    /// attribute, which CUPS fills with the text of its own log. It often names the cause
+    /// that the job state reasons cannot say.
+    /// </summary>
+    public string? PrinterStateMessage { get; set; }
+
+    /// <summary>
+    /// Gets or sets the detailed status messages the source reported. Defaults to empty.
+    /// This is the IPP <c>job-detailed-status-messages</c> attribute, which is for a person
+    /// to read. Do not parse it.
+    /// </summary>
+    public IReadOnlyList<string> DetailedStatusMessages { get; set; } = [];
+
+    /// <summary>
+    /// Gets or sets the attributes of the raw IPP answer. Empty unless
+    /// <see cref="IppTransportOptions.CaptureRawResponses"/> is <c>true</c>. A read of one
+    /// job fills it; a read of the whole queue does not, so one answer is not copied into
+    /// every job.
+    /// </summary>
+    public IReadOnlyList<IppAttributeSnapshot> RawAttributes { get; set; } = [];
+
+    /// <summary>
     /// Gets or sets the options that did not reach the device. An option is listed when
     /// <see cref="UnsupportedOptionBehavior.Drop"/> removed it, or when the channel cannot
     /// apply it at all, as the Windows spooler does for an option that no device mode

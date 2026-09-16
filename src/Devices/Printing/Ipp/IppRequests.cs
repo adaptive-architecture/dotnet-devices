@@ -10,8 +10,10 @@ namespace AdaptArch.Devices.Printing.Ipp;
 // PrinterId it reports, so the network path and the CUPS path cannot drift apart.
 internal static class IppRequests
 {
+    private const string ReadAttributesOperation = "Get-Printer-Attributes";
+
     public static async Task<PrintJobInfo> SubmitAsync(
-        HttpClient httpClient,
+        IppContext context,
         Uri uri,
         PrinterId printerId,
         IppSubmission submission,
@@ -34,42 +36,63 @@ internal static class IppRequests
             JobTemplateAttributes = IppJobTemplateMapper.Map(options),
         };
 
-        IppOperations operations = new(httpClient);
+        IppOperations operations = new(context, uri, "Print-Job", printerId);
         SharpIpp.Models.Responses.PrintJobResponse response;
         try
         {
             response = await operations.SendAsync(
                 static (client, message, token) => client.PrintJobAsync(message, token),
                 request,
-                uri,
                 cancellationToken).ConfigureAwait(false);
         }
-        catch (InvalidOperationException exception)
-            when (IppFailureMapping.StatusCodeOf(operations.LastRawResponse) == IppStatusCode.ClientErrorDocumentFormatNotSupported)
+        catch (PrinterOperationException exception)
+            when (exception.IppStatusCode == IppStatusCodes.ClientErrorDocumentFormatNotSupported)
         {
             // The generic IPP error hides the one cause a caller can act on.
-            throw IppFailureMapping.ToUnsupportedDocumentFormat(uri, documentFormat, exception);
+            throw IppFailureMapping.ToUnsupportedDocumentFormat(operations.Call, documentFormat, exception);
         }
 
         var job = response.JobAttributes
             ?? throw new InvalidDataException($"The IPP response from '{uri}' did not include job attributes.");
+
+        // A printer may refuse a job in the answer to the submission itself, so the reasons
+        // are read here too and not only on a later read of the queue.
+        var reasons = StateReasons.Read(job.JobStateReasons);
         return new PrintJobInfo(job.JobId.ToString(CultureInfo.InvariantCulture), printerId, IppJobStateMapper.Map(job.JobState))
         {
             JobName = options?.JobName,
             DroppedOptions = dropped,
+            Detail = StateReasons.Join(reasons),
+            StateReasons = reasons,
+            StateMessage = IppStatusMapper.Trim(job.JobStateMessage),
+            PrinterStateMessage = IppRawAttributes.ReadJobText(operations.LastRawResponse, 0, "job-printer-state-message"),
+            RawAttributes = operations.RawAttributes,
         };
     }
 
-    public static async Task<PrinterStatus> GetStatusAsync(HttpClient httpClient, Uri uri, PrinterId printerId, CancellationToken cancellationToken)
+    public static async Task<PrinterStatus> GetStatusAsync(IppContext context, Uri uri, PrinterId printerId, CancellationToken cancellationToken)
     {
-        IppOperations operations = new(httpClient);
-        var response = await ReadAttributesAsync(operations, uri, IppStatusMapper.RequestedAttributes, cancellationToken).ConfigureAwait(false);
-        return IppStatusMapper.Map(printerId, response.PrinterAttributes, operations.LastRawResponse).Status;
+        var details = await GetDetailsAsync(context, uri, printerId, cancellationToken).ConfigureAwait(false);
+        return details.Status;
     }
 
-    public static async Task<PrinterIdentity> GetIdentityAsync(HttpClient httpClient, Uri uri, CancellationToken cancellationToken)
+    // The status attribute set has one home: the status client reads the same answer, and a
+    // second request here would let the two drift apart.
+    public static async Task<IppPrinterDetails> GetDetailsAsync(IppContext context, Uri uri, PrinterId printerId, CancellationToken cancellationToken)
     {
-        IppOperations operations = new(httpClient);
+        IppOperations operations = new(context, uri, ReadAttributesOperation, printerId);
+        var response = await ReadAttributesAsync(operations, uri, IppStatusMapper.RequestedAttributes, cancellationToken).ConfigureAwait(false);
+        return IppStatusMapper.Map(
+            printerId,
+            response.PrinterAttributes,
+            operations.LastRawResponse,
+            PrinterConnections.From(uri),
+            operations.RawAttributes);
+    }
+
+    public static async Task<PrinterIdentity> GetIdentityAsync(IppContext context, Uri uri, CancellationToken cancellationToken)
+    {
+        IppOperations operations = new(context, uri, ReadAttributesOperation);
         var response = await ReadAttributesAsync(operations, uri, IppIdentityMapper.RequestedAttributes, cancellationToken).ConfigureAwait(false);
         return IppIdentityMapper.Map(response.PrinterAttributes);
     }
@@ -77,9 +100,9 @@ internal static class IppRequests
     // A CUPS queue answers with its device-uri, which the typed model does not carry.
     // Asking for no attribute list at all makes CUPS answer with every attribute, which
     // is what carries it.
-    public static async Task<PrinterIdentity> GetQueueIdentityAsync(HttpClient httpClient, Uri uri, CancellationToken cancellationToken)
+    public static async Task<PrinterIdentity> GetQueueIdentityAsync(IppContext context, Uri uri, CancellationToken cancellationToken)
     {
-        IppOperations operations = new(httpClient);
+        IppOperations operations = new(context, uri, ReadAttributesOperation);
         var response = await ReadAttributesAsync(operations, uri, [], cancellationToken).ConfigureAwait(false);
         var identity = IppIdentityMapper.Map(response.PrinterAttributes);
         var deviceUri = IppRawAttributes.ReadText(operations.LastRawResponse, 0, "device-uri");
@@ -101,33 +124,40 @@ internal static class IppRequests
         };
     }
 
-    public static async Task<PrinterConfiguration> GetConfigurationAsync(HttpClient httpClient, Uri uri, PrinterId printerId, CancellationToken cancellationToken)
+    public static async Task<PrinterConfiguration> GetConfigurationAsync(IppContext context, Uri uri, PrinterId printerId, CancellationToken cancellationToken)
     {
-        IppOperations operations = new(httpClient);
+        IppOperations operations = new(context, uri, ReadAttributesOperation, printerId);
         var response = await ReadAttributesAsync(operations, uri, IppConfigurationMapper.RequestedAttributes, cancellationToken).ConfigureAwait(false);
         return IppConfigurationMapper.Map(printerId, response.PrinterAttributes, operations.LastRawResponse);
     }
 
-    public static async Task<IReadOnlyList<PrintJobInfo>> GetJobsAsync(HttpClient httpClient, Uri uri, PrinterId printerId, CancellationToken cancellationToken)
+    public static async Task<IReadOnlyList<PrintJobInfo>> GetJobsAsync(IppContext context, Uri uri, PrinterId printerId, CancellationToken cancellationToken)
     {
-        IppOperations operations = new(httpClient);
+        IppOperations operations = new(context, uri, "Get-Jobs", printerId);
         GetJobsRequest request = new()
         {
-            // WhichJobs stays unset, so the printer reports its own default set.
-            OperationAttributes = new() { PrinterUri = uri },
+            // WhichJobs stays unset, so the printer reports its own default set. The
+            // attribute list is stated, because a printer left to its own default answers
+            // with the job identifier alone and none of the messages that say why it stopped.
+            OperationAttributes = new() { PrinterUri = uri, RequestedAttributes = IppJobMapper.RequestedAttributes },
         };
         var response = await operations.SendAsync(
             static (client, message, token) => client.GetJobsAsync(message, token),
             request,
-            uri,
             cancellationToken).ConfigureAwait(false);
 
         var attributes = response.JobsAttributes ?? [];
+        var raw = operations.LastRawResponse;
         List<PrintJobInfo> jobs = new(attributes.Length);
-        foreach (var job in attributes)
+
+        // An indexed loop, not a foreach: the raw job groups line up with the typed
+        // attributes by position, and a skipped entry would shift every one after it.
+        for (var i = 0; i < attributes.Length; i++)
         {
-            if (IppJobMapper.Map(printerId, job) is PrintJobInfo mapped)
+            // RawAttributes stays empty here: one answer must not be copied into every job.
+            if (IppJobMapper.Map(printerId, attributes[i], raw, i) is PrintJobInfo mapped)
             {
+                IppLog.JobRead(context.Logger, mapped.JobId, uri, mapped.State.ToString(), mapped.Detail, mapped.PrinterStateMessage ?? mapped.StateMessage);
                 jobs.Add(mapped);
             }
         }
@@ -136,17 +166,17 @@ internal static class IppRequests
     }
 
     // Returns null for a non-numeric identifier: the caller may hold a spooler one.
-    public static async Task<PrintJobInfo?> GetJobAsync(HttpClient httpClient, Uri uri, PrinterId printerId, string jobId, CancellationToken cancellationToken)
+    public static async Task<PrintJobInfo?> GetJobAsync(IppContext context, Uri uri, PrinterId printerId, string jobId, CancellationToken cancellationToken)
     {
         if (!Int32.TryParse(jobId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
         {
             return null;
         }
 
-        IppOperations operations = new(httpClient);
+        IppOperations operations = new(context, uri, "Get-Job-Attributes", printerId);
         GetJobAttributesRequest request = new()
         {
-            OperationAttributes = new() { PrinterUri = uri, JobId = id },
+            OperationAttributes = new() { PrinterUri = uri, JobId = id, RequestedAttributes = IppJobMapper.RequestedAttributes },
         };
 
         try
@@ -154,33 +184,43 @@ internal static class IppRequests
             var response = await operations.SendAsync(
                 static (client, message, token) => client.GetJobAttributesAsync(message, token),
                 request,
-                uri,
                 cancellationToken).ConfigureAwait(false);
 
-            return response.JobAttributes is null ? null : IppJobMapper.Map(printerId, response.JobAttributes);
+            if (response.JobAttributes is null)
+            {
+                return null;
+            }
+
+            var job = IppJobMapper.Map(printerId, response.JobAttributes, operations.LastRawResponse, 0, operations.RawAttributes);
+            if (job is not null)
+            {
+                IppLog.JobRead(context.Logger, job.JobId, uri, job.State.ToString(), job.Detail, job.PrinterStateMessage ?? job.StateMessage);
+            }
+
+            return job;
         }
-        catch (InvalidOperationException) when (IppFailureMapping.StatusCodeOf(operations.LastRawResponse) == IppStatusCode.ClientErrorNotFound)
+        catch (PrinterOperationException exception) when (exception.IppStatusCode == IppStatusCodes.ClientErrorNotFound)
         {
             // Only not-found means "unknown job". A printer hiccup must not read as one.
             return null;
         }
     }
 
-    public static Task<bool> CancelJobAsync(HttpClient httpClient, Uri uri, string jobId, CancellationToken cancellationToken) =>
-        CancelJobAsync(httpClient, uri, jobId, null, cancellationToken);
+    public static Task<bool> CancelJobAsync(IppContext context, Uri uri, string jobId, CancellationToken cancellationToken) =>
+        CancelJobAsync(context, uri, jobId, null, cancellationToken);
 
     // The user name is optional because the queue callers never sent one and a printer that
     // never asked for one must keep behaving as it did. The correlation does send one: a
     // server with an owner-based cancel policy refuses to take back an anonymous request's
     // job, which would leave the tracer in the queue.
-    public static async Task<bool> CancelJobAsync(HttpClient httpClient, Uri uri, string jobId, string? requestingUserName, CancellationToken cancellationToken)
+    public static async Task<bool> CancelJobAsync(IppContext context, Uri uri, string jobId, string? requestingUserName, CancellationToken cancellationToken)
     {
         if (!Int32.TryParse(jobId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
         {
             return false;
         }
 
-        IppOperations operations = new(httpClient);
+        IppOperations operations = new(context, uri, "Cancel-Job");
         CancelJobRequest request = new()
         {
             OperationAttributes = new() { PrinterUri = uri, JobId = id, RequestingUserName = requestingUserName },
@@ -191,11 +231,10 @@ internal static class IppRequests
             _ = await operations.SendAsync(
                 static (client, message, token) => client.CancelJobAsync(message, token),
                 request,
-                uri,
                 cancellationToken).ConfigureAwait(false);
             return true;
         }
-        catch (InvalidOperationException) when (IppFailureMapping.StatusCodeOf(operations.LastRawResponse) == IppStatusCode.ClientErrorNotFound)
+        catch (PrinterOperationException exception) when (exception.IppStatusCode == IppStatusCodes.ClientErrorNotFound)
         {
             // Same not-found narrowing as GetJobAsync.
             return false;
@@ -208,12 +247,12 @@ internal static class IppRequests
     // printer left to its own default answers Get-Jobs with the job identifier alone, and a
     // bare identifier tells one queue from another not at all.
     public static async Task<IReadOnlyList<PrinterQueueFingerprint>> GetQueueFingerprintsAsync(
-        HttpClient httpClient,
+        IppContext context,
         Uri uri,
         string requestingUserName,
         CancellationToken cancellationToken)
     {
-        IppOperations operations = new(httpClient);
+        IppOperations operations = new(context, uri, "Get-Jobs");
         GetJobsRequest request = new()
         {
             OperationAttributes = new()
@@ -233,7 +272,6 @@ internal static class IppRequests
         var response = await operations.SendAsync(
             static (client, message, token) => client.GetJobsAsync(message, token),
             request,
-            uri,
             cancellationToken).ConfigureAwait(false);
 
         var attributes = response.JobsAttributes ?? [];
@@ -250,9 +288,9 @@ internal static class IppRequests
     }
 
     // Whether this printer can hold a job that carries no document at all.
-    public static async Task<QueueTracerSupport> GetTracerSupportAsync(HttpClient httpClient, Uri uri, CancellationToken cancellationToken)
+    public static async Task<QueueTracerSupport> GetTracerSupportAsync(IppContext context, Uri uri, CancellationToken cancellationToken)
     {
-        IppOperations operations = new(httpClient);
+        IppOperations operations = new(context, uri, ReadAttributesOperation);
         var response = await ReadAttributesAsync(operations, uri, TracerSupportAttributes, cancellationToken).ConfigureAwait(false);
         var attributes = response.PrinterAttributes;
         var canCreate = attributes?.OperationsSupported?.Contains(IppOperation.CreateJob) ?? false;
@@ -266,13 +304,13 @@ internal static class IppRequests
     // holds no document cannot print, whatever a printer does with the hold. The hold is
     // sent as well, so the job does not sit at the head of the queue blocking the next one.
     public static async Task<string?> CreateTracerJobAsync(
-        HttpClient httpClient,
+        IppContext context,
         Uri uri,
         string jobName,
         string requestingUserName,
         CancellationToken cancellationToken)
     {
-        IppOperations operations = new(httpClient);
+        IppOperations operations = new(context, uri, "Create-Job");
         CreateJobRequest request = new()
         {
             OperationAttributes = new()
@@ -287,7 +325,6 @@ internal static class IppRequests
         var response = await operations.SendAsync(
             static (client, message, token) => client.CreateJobAsync(message, token),
             request,
-            uri,
             cancellationToken).ConfigureAwait(false);
 
         return response.JobAttributes?.JobId.ToString(CultureInfo.InvariantCulture);
@@ -312,7 +349,6 @@ internal static class IppRequests
         return operations.SendAsync(
             static (client, message, token) => client.GetPrinterAttributesAsync(message, token),
             request,
-            uri,
             cancellationToken);
     }
 }

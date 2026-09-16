@@ -1,6 +1,5 @@
 ﻿using System.Collections.Concurrent;
 using AdaptArch.Devices.Printing.Ipp;
-using SharpIpp.Models.Requests;
 
 namespace AdaptArch.Devices.Printing;
 
@@ -22,7 +21,7 @@ public sealed class IppPrinterStatusClient : IDisposable
     public const int DefaultPort = 631;
 
     private readonly HttpClient _httpClient;
-    private readonly IppTransportOptions _options;
+    private readonly IppContext _context;
     private readonly bool _ownsClient;
     // One resolver per printer, so a repeated status read needs no second probe.
     private readonly ConcurrentDictionary<string, IppEndpointResolver> _resolvers = new(StringComparer.OrdinalIgnoreCase);
@@ -80,7 +79,7 @@ public sealed class IppPrinterStatusClient : IDisposable
     {
         ArgumentNullException.ThrowIfNull(options);
         _httpClient = httpClient;
-        _options = options;
+        _context = new IppContext(httpClient, options);
         _ownsClient = ownsClient;
     }
 
@@ -119,23 +118,7 @@ public sealed class IppPrinterStatusClient : IDisposable
 
         var resolver = _resolvers.GetOrAdd(
             $"{host}:{port}/{resourcePath}",
-            _ => new IppEndpointResolver(_httpClient, host, port, resourcePath, _options));
-        return resolver.RunAsync((uri, token) => ReadDetailsAsync(uri, PrinterId.ForIpp(host), token), cancellationToken);
-    }
-
-    private async Task<IppPrinterDetails> ReadDetailsAsync(Uri uri, PrinterId id, CancellationToken cancellationToken)
-    {
-        IppOperations operations = new(_httpClient);
-        GetPrinterAttributesRequest request = new()
-        {
-            OperationAttributes = new() { PrinterUri = uri, RequestedAttributes = IppStatusMapper.RequestedAttributes },
-        };
-        var response = await operations.SendAsync(
-            static (client, message, token) => client.GetPrinterAttributesAsync(message, token),
-            request,
-            uri,
-            cancellationToken).ConfigureAwait(false);
-
-        return IppStatusMapper.Map(id, response.PrinterAttributes, operations.LastRawResponse);
+            _ => new IppEndpointResolver(_context, host, port, resourcePath));
+        return resolver.RunAsync((uri, token) => IppRequests.GetDetailsAsync(_context, uri, PrinterId.ForIpp(host), token), cancellationToken);
     }
 }

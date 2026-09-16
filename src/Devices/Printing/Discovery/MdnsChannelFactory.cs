@@ -2,6 +2,7 @@
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.Printing;
 
@@ -45,7 +46,7 @@ internal sealed class MdnsChannelFactory : IMdnsChannelFactory
     private const int MaxDatagramSize = 9000;
 
     /// <inheritdoc />
-    public IReadOnlyList<(IUdpChannel Channel, IPEndPoint Destination)> Create(MdnsPrinterDiscoveryOptions options)
+    public IReadOnlyList<(IUdpChannel Channel, IPEndPoint Destination)> Create(MdnsPrinterDiscoveryOptions options, ILogger logger)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -63,13 +64,13 @@ internal sealed class MdnsChannelFactory : IMdnsChannelFactory
             var v4 = FirstAddress(properties, AddressFamily.InterNetwork);
             if (v4 is not null)
             {
-                AddChannel(channels, v4, GroupV4, 0);
+                AddChannel(channels, v4, GroupV4, 0, logger);
             }
 
             var v6 = options.IncludeIPv6 ? FirstAddress(properties, AddressFamily.InterNetworkV6) : null;
             if (v6 is not null && adapter.Supports(NetworkInterfaceComponent.IPv6))
             {
-                AddChannel(channels, v6, GroupV6, properties.GetIPv6Properties().Index);
+                AddChannel(channels, v6, GroupV6, properties.GetIPv6Properties().Index, logger);
             }
         }
 
@@ -116,15 +117,18 @@ internal sealed class MdnsChannelFactory : IMdnsChannelFactory
         List<(IUdpChannel, IPEndPoint)> channels,
         IPAddress address,
         IPAddress group,
-        int interfaceIndex)
+        int interfaceIndex,
+        ILogger logger)
     {
         try
         {
             UdpChannel channel = new(address, MaxDatagramSize, TimeToLive, interfaceIndex);
             channels.Add((channel, new IPEndPoint(group, Port)));
         }
-        catch (SocketException)
+        catch (SocketException exception)
         {
+            // "Discovery found nothing on this machine" is usually answered here.
+            DiscoveryLog.InterfaceRefused(logger, address, exception);
             // One interface that refuses a socket must not stop the browse on the others.
         }
     }

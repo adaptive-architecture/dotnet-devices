@@ -10,6 +10,8 @@ internal static class IppStatusMapper
     [
         "printer-state",
         "printer-state-reasons",
+        "printer-state-message",
+        "printer-detailed-status-messages",
         "printer-is-accepting-jobs",
         "printer-make-and-model",
         "printer-location",
@@ -18,16 +20,26 @@ internal static class IppStatusMapper
         "marker-levels",
     ];
 
-    public static IppPrinterDetails Map(PrinterId id, PrinterDescriptionAttributes? attributes, IIppResponseMessage? raw)
+    public static IppPrinterDetails Map(
+        PrinterId id,
+        PrinterDescriptionAttributes? attributes,
+        IIppResponseMessage? raw,
+        PrinterConnection? connection = null,
+        IReadOnlyList<IppAttributeSnapshot>? rawAttributes = null)
     {
         var state = MapState(attributes?.PrinterState, attributes?.PrinterStateReasons);
-        var detail = JoinReasons(attributes?.PrinterStateReasons);
+        var reasons = StateReasons.Read(attributes?.PrinterStateReasons);
         var accepting = attributes?.PrinterIsAcceptingJobs ?? state is not (PrinterStatusState.Paused or PrinterStatusState.Error);
 
         PrinterStatus status = new(id, state)
         {
             IsAcceptingJobs = accepting,
-            Detail = detail,
+            Detail = StateReasons.Join(reasons),
+            StateReasons = reasons,
+            StateMessage = Trim(attributes?.PrinterStateMessage),
+            DetailedStatusMessages = Messages(attributes?.PrinterDetailedStatusMessages),
+            Connection = connection,
+            RawAttributes = rawAttributes ?? [],
             Markers = IppMarkers.Read(raw),
         };
         PrinterInfo info = new(id, attributes?.PrinterMakeAndModel ?? attributes?.PrinterName ?? id.Authority)
@@ -37,28 +49,30 @@ internal static class IppStatusMapper
         return new IppPrinterDetails(info, status);
     }
 
-    private static bool HasErrorReason(PrinterStateReason[]? reasons) =>
-        reasons is not null && Array.Exists(reasons, static reason => reason.ToString().EndsWith("-error", StringComparison.OrdinalIgnoreCase));
+    // A message a printer never set comes back as an empty string, which says nothing.
+    internal static string? Trim(string? message) => String.IsNullOrWhiteSpace(message) ? null : message.Trim();
 
-    private static string? JoinReasons(PrinterStateReason[]? reasons)
+    internal static IReadOnlyList<string> Messages(string[]? messages)
     {
-        if (reasons is null || reasons.Length == 0)
+        if (messages is null || messages.Length == 0)
         {
-            return null;
+            return [];
         }
 
         List<string> named = [];
-        foreach (var reason in reasons)
+        foreach (var message in messages)
         {
-            var text = reason.ToString();
-            if (!String.IsNullOrWhiteSpace(text) && !String.Equals(text, "none", StringComparison.OrdinalIgnoreCase))
+            if (Trim(message) is string text)
             {
                 named.Add(text);
             }
         }
 
-        return named.Count == 0 ? null : String.Join("; ", named);
+        return named;
     }
+
+    private static bool HasErrorReason(PrinterStateReason[]? reasons) =>
+        reasons is not null && Array.Exists(reasons, static reason => reason.ToString().EndsWith("-error", StringComparison.OrdinalIgnoreCase));
 
     private static PrinterStatusState MapState(PrinterState? state, PrinterStateReason[]? reasons)
     {
@@ -73,7 +87,8 @@ internal static class IppStatusMapper
         }
 
         // IPP reports a halted printer as "stopped". An "-error" reason suffix
-        // (RFC 8011 §5.4.12) says the halt is a fault, not a pause.
+        // (RFC 8011 §5.4.12) says the halt is a fault, not a pause. The unfiltered list is
+        // read on purpose: the state rule must not change with the reason filter.
         if (state == PrinterState.Stopped)
         {
             return HasErrorReason(reasons) ? PrinterStatusState.Error : PrinterStatusState.Paused;

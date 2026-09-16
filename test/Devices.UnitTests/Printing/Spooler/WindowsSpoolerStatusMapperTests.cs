@@ -113,6 +113,28 @@ public class WindowsSpoolerStatusMapperTests
         Assert.Null(WindowsSpoolerStatusMapper.DescribeJobStatus(0x00000000u));
 
     [Fact]
+    public void JobStateReasons_NamesEachSetBitSeparately() =>
+        Assert.Equal(["Paused", "Printing"], WindowsSpoolerStatusMapper.JobStateReasons(0x00000011u));
+
+    [Fact]
+    public void JobStateReasons_IsEmptyWhenNoBitIsSet() =>
+        Assert.Empty(WindowsSpoolerStatusMapper.JobStateReasons(0x00000000u));
+
+    [Fact]
+    public void PrinterStateReasons_NamesEachSetBitSeparately() =>
+        Assert.Equal(
+            ["PRINTER_ATTRIBUTE_WORK_OFFLINE"],
+            WindowsSpoolerStatusMapper.PrinterStateReasons(0x00000000u, 0x00000400u));
+
+    [Fact]
+    public void PrinterStateReasons_JoinIntoTheSameDetailAsBefore()
+    {
+        var reasons = WindowsSpoolerStatusMapper.PrinterStateReasons(0x00000003u, 0x00000000u);
+
+        Assert.Equal(String.Join("; ", reasons), WindowsSpoolerStatusMapper.DescribePrinterStatus(0x00000003u, 0x00000000u));
+    }
+
+    [Fact]
     public void DescribeJobStatus_NamesEachSetBit()
     {
         // PAUSED (0x1) and PRINTING (0x10) both set.

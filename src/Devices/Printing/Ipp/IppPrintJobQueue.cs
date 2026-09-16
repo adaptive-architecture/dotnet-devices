@@ -11,7 +11,7 @@
 /// </remarks>
 public sealed class IppPrintJobQueue : IPrintJobQueue
 {
-    private readonly HttpClient _httpClient;
+    private readonly IppContext _context;
     private readonly IppEndpointResolver _resolver;
 
     /// <summary>
@@ -41,27 +41,33 @@ public sealed class IppPrintJobQueue : IPrintJobQueue
         ArgumentNullException.ThrowIfNull(endpoint);
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(options);
-        _httpClient = httpClient;
-        _resolver = new IppEndpointResolver(httpClient, endpoint.Host, endpoint.Port, null, options);
+        _context = new IppContext(httpClient, options);
+        _resolver = new IppEndpointResolver(_context, endpoint.Host, endpoint.Port, null);
     }
+
+    /// <summary>
+    /// Gets the transport and the endpoint that answered, or <c>null</c> before the first
+    /// call resolved one. A transport failure clears it, so the next call probes again.
+    /// </summary>
+    public PrinterConnection? Connection => PrinterConnections.From(_resolver.Resolved);
 
     /// <inheritdoc />
     /// <exception cref="InvalidOperationException">Thrown when no IPP endpoint answers, or the printer reports an IPP error.</exception>
     /// <exception cref="InvalidDataException">Thrown when the printer returns a malformed IPP response.</exception>
     public Task<IReadOnlyList<PrintJobInfo>> GetJobsAsync(PrinterId printerId, CancellationToken cancellationToken) =>
-        _resolver.RunAsync((uri, token) => IppRequests.GetJobsAsync(_httpClient, uri, printerId, token), cancellationToken);
+        _resolver.RunAsync((uri, token) => IppRequests.GetJobsAsync(_context, uri, printerId, token), cancellationToken);
 
     /// <inheritdoc />
     /// <remarks>Returns <c>null</c> when <paramref name="jobId"/> is not a number, or the printer reports the job as not found.</remarks>
     /// <exception cref="InvalidOperationException">Thrown when no IPP endpoint answers, or the printer reports an IPP error other than "job not found".</exception>
     /// <exception cref="InvalidDataException">Thrown when the printer returns a malformed IPP response.</exception>
     public Task<PrintJobInfo?> GetJobAsync(PrinterId printerId, string jobId, CancellationToken cancellationToken) =>
-        _resolver.RunAsync((uri, token) => IppRequests.GetJobAsync(_httpClient, uri, printerId, jobId, token), cancellationToken);
+        _resolver.RunAsync((uri, token) => IppRequests.GetJobAsync(_context, uri, printerId, jobId, token), cancellationToken);
 
     /// <inheritdoc />
     /// <remarks>Returns <c>false</c> when <paramref name="jobId"/> is not a number, or the printer reports the job as not found.</remarks>
     /// <exception cref="InvalidOperationException">Thrown when no IPP endpoint answers, or the printer reports an IPP error other than "job not found".</exception>
     /// <exception cref="InvalidDataException">Thrown when the printer returns a malformed IPP response.</exception>
     public Task<bool> CancelJobAsync(PrinterId printerId, string jobId, CancellationToken cancellationToken) =>
-        _resolver.RunAsync((uri, token) => IppRequests.CancelJobAsync(_httpClient, uri, jobId, token), cancellationToken);
+        _resolver.RunAsync((uri, token) => IppRequests.CancelJobAsync(_context, uri, jobId, token), cancellationToken);
 }

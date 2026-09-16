@@ -54,7 +54,10 @@ internal static class WindowsSpoolerStatusMapper
     }
 
     // Full Win32 macro names, so PrinterStatus.Detail compares against the Windows docs.
-    internal static string? DescribePrinterStatus(uint status, uint attributes)
+    internal static string? DescribePrinterStatus(uint status, uint attributes) =>
+        StateReasons.Join(PrinterStateReasons(status, attributes));
+
+    internal static IReadOnlyList<string> PrinterStateReasons(uint status, uint attributes)
     {
         List<string> named = [];
         AddIfSet(named, status, PrinterStatusPaused, "PRINTER_STATUS_PAUSED");
@@ -72,7 +75,7 @@ internal static class WindowsSpoolerStatusMapper
         AddIfSet(named, status, PrinterStatusDoorOpen, "PRINTER_STATUS_DOOR_OPEN");
         AddIfSet(named, attributes, PrinterAttributeWorkOffline, "PRINTER_ATTRIBUTE_WORK_OFFLINE");
 
-        return named.Count == 0 ? null : String.Join("; ", named);
+        return named;
     }
 
     // The same bit groups MapPrinterStatus treats as Error, Offline or Paused.
@@ -120,7 +123,9 @@ internal static class WindowsSpoolerStatusMapper
         return PrintJobState.Queued;
     }
 
-    internal static string? DescribeJobStatus(uint status)
+    internal static string? DescribeJobStatus(uint status) => StateReasons.Join(JobStateReasons(status));
+
+    internal static IReadOnlyList<string> JobStateReasons(uint status)
     {
         List<string> named = [];
         AddIfSet(named, status, JobStatusPaused, "Paused");
@@ -131,7 +136,7 @@ internal static class WindowsSpoolerStatusMapper
         AddIfSet(named, status, JobStatusDeleted, "Deleted");
         AddIfSet(named, status, JobStatusComplete, "Complete");
 
-        return named.Count == 0 ? null : String.Join("; ", named);
+        return named;
     }
 
     private static void AddIfSet(List<string> named, uint status, uint flag, string name)

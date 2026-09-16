@@ -1,6 +1,7 @@
 ﻿using System.Net;
 using System.Net.Sockets;
 using DotNetSnmp.Asn1.SyntaxObjects;
+using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.Printing;
 
@@ -41,6 +42,22 @@ public sealed class SnmpPrinterStatusClient
     private readonly SnmpPrinterStatusOptions _options;
     private readonly Func<AddressFamily, IUdpChannel> _channelFactory;
     private int _requestId;
+
+    private ILogger? _logger;
+
+    /// <summary>
+    /// Gets the factory that makes the log. Defaults to <c>null</c>, which writes nothing.
+    /// The log category is <c>AdaptArch.Devices.Printing.Discovery</c>.
+    /// </summary>
+    /// <remarks>
+    /// An application that uses <c>AddDevices()</c> or <c>AddPrinters()</c> needs no call
+    /// here: the registration takes the <see cref="ILoggerFactory"/> of the container.
+    /// Read <see href="https://github.com/adaptive-architecture/dotnet-devices/blob/main/docs/troubleshooting.md">Troubleshooting</see>.
+    /// </remarks>
+    public ILoggerFactory? LoggerFactory { get; init; }
+
+    // Built on first use: an init property is set after the constructor runs.
+    private ILogger Logger => LazyInitializer.EnsureInitialized(ref _logger, () => DiscoveryLog.Create(LoggerFactory));
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SnmpPrinterStatusClient"/> class with
@@ -125,6 +142,7 @@ public sealed class SnmpPrinterStatusClient
             {
                 // The agent said tooBig. Ask for half as many rows, one time.
                 maxRepetitions = Math.Max(1, maxRepetitions / 2);
+                DiscoveryLog.SnmpTooBig(Logger, host, maxRepetitions);
                 reply = await BulkRequestAsync(destination, host, cursors, maxRepetitions, cancellationToken).ConfigureAwait(false)
                     ?? throw new SnmpTooBigException();
             }
@@ -139,6 +157,13 @@ public sealed class SnmpPrinterStatusClient
                     slots.RemoveAt(slot);
                 }
             }
+        }
+
+        // Columns still open means the round limit stopped the walk, not the agent, so the
+        // supply list the caller gets is incomplete and says nothing about it.
+        if (slots.Count > 0)
+        {
+            DiscoveryLog.SnmpWalkTruncated(Logger, host, MaxWalkRounds, slots.Count);
         }
 
         return collected;
@@ -218,7 +243,7 @@ public sealed class SnmpPrinterStatusClient
             var request = createRequest(requestId);
             try
             {
-                var reply = await TrySendAsync(destination, request, requestId, cancellationToken).ConfigureAwait(false);
+                var reply = await TrySendAsync(destination, host, request, requestId, cancellationToken).ConfigureAwait(false);
                 if (reply is not null)
                 {
                     return reply;
@@ -226,7 +251,10 @@ public sealed class SnmpPrinterStatusClient
             }
             catch (SocketException exception)
             {
-                // Keep the cause, so the final error can name it.
+                // Keep the cause, so the final error can name it. Debug, not Warning: the
+                // exception thrown below carries the last cause, and these entries add the
+                // attempts that it drops.
+                DiscoveryLog.SnmpAttemptFailed(Logger, attempt + 1, _options.Retries + 1, host, destination.Port, exception);
                 lastFailure = exception;
             }
         }
@@ -238,10 +266,12 @@ public sealed class SnmpPrinterStatusClient
 
     private async Task<SnmpReply?> TrySendAsync(
         IPEndPoint destination,
+        string host,
         byte[] request,
         int requestId,
         CancellationToken cancellationToken)
     {
+        MalformedPacketReporter malformed = new();
         using var channel = _channelFactory(destination.AddressFamily);
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutSource.CancelAfter(_options.RequestTimeout);
@@ -261,9 +291,14 @@ public sealed class SnmpPrinterStatusClient
                 {
                     reply = SnmpMessages.Parse(result.Buffer);
                 }
-                catch (InvalidDataException)
+                catch (InvalidDataException exception)
                 {
                     // One malformed datagram must not end the attempt.
+                    if (malformed.ShouldReport(result.RemoteEndPoint))
+                    {
+                        DiscoveryLog.MalformedSnmpDatagram(Logger, result.RemoteEndPoint, exception);
+                    }
+
                     continue;
                 }
 
@@ -272,12 +307,22 @@ public sealed class SnmpPrinterStatusClient
                 {
                     return reply;
                 }
+
+                DiscoveryLog.StaleSnmpDatagram(Logger, result.RemoteEndPoint, reply.RequestId, requestId);
             }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             // The attempt timed out; the caller decides whether to try again.
+            DiscoveryLog.SnmpAttemptTimedOut(Logger, requestId, host, destination.Port);
             return null;
+        }
+        finally
+        {
+            if (malformed.HasMore)
+            {
+                DiscoveryLog.MalformedSnmpDatagramsSkipped(Logger, malformed.Count, malformed.SenderCount);
+            }
         }
     }
 

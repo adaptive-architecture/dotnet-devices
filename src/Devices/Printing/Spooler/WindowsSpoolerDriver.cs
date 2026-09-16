@@ -2,6 +2,7 @@
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.Printing.Spooler;
 
@@ -22,10 +23,12 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     private const string WindowsOnlyMessage = "The Windows spooler driver needs Windows.";
 
     private readonly PrintFormatPolicy _formats;
+    private readonly ILogger _logger;
 
-    public WindowsSpoolerDriver(PrintFormatPolicy? formats = null)
+    public WindowsSpoolerDriver(PrintFormatPolicy? formats = null, ILoggerFactory? loggerFactory = null)
     {
         _formats = formats ?? PrintFormatPolicy.Default;
+        _logger = SpoolerLog.Create(loggerFactory);
     }
 
     public Task<IReadOnlyList<DiscoveredPrinter>> EnumeratePrintersAsync(CancellationToken cancellationToken)
@@ -68,6 +71,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 }
             }
 
+            SpoolerLog.QueuesEnumerated(_logger, printers.Count);
             return Task.FromResult<IReadOnlyList<DiscoveredPrinter>>(printers);
         }
         finally
@@ -115,10 +119,13 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             };
             return Task.FromResult<PrinterIdentity?>(identity.IsEmpty ? null : identity);
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException exception)
         {
             // A queue that cannot be opened tells nothing about its device. That is not
-            // a failure of the discovery that found it.
+            // a failure of the discovery that found it. Error even so: the aliases this
+            // read would have given are what group the queue with its printer, so a
+            // caller silently sees one printer as two.
+            SpoolerLog.QueueIdentityNotRead(_logger, queueName, exception);
             return Task.FromResult<PrinterIdentity?>(null);
         }
         finally
@@ -183,6 +190,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         var request = WindowsSpoolerDeviceModeMapper.Build(options, MediaFor(queueName, options), SourcesFor(queueName, options));
         var imageRequest = WithoutImageLayout(request);
         var dropped = WithoutGdiDropped(request.Dropped, true);
+        ReportDropped(queueName, dropped);
         var copies = options?.Copies ?? 1;
         var bytes = payload.Data.ToArray();
         var jobName = options?.JobName ?? queueName;
@@ -204,6 +212,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 new WindowsGdiJob(queueName, WindowsSpoolerContent.FileExtension(PrinterContentTypes.Png), jobName, deviceMode, copies, options?.Orientation, options?.Scaling, renderDpi),
                 rendered);
 
+            SpoolerLog.JobSpooled(_logger, queueName, jobId, bytes.Length, payload.ContentType);
             return new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
             {
                 JobName = options?.JobName,
@@ -220,13 +229,14 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // rasterises it. Orientation and scaling are applied by the layout math, not by
     // the device mode, so both are kept out of DroppedOptions and out of the mode.
     // Copies travel as dmCopies, which the GDI path honours, so one job prints all.
-    private static Task<PrintJobInfo> SubmitImageAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
+    private Task<PrintJobInfo> SubmitImageAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         var request = WindowsSpoolerDeviceModeMapper.Build(options, MediaFor(queueName, options), SourcesFor(queueName, options));
         var imageRequest = WithoutImageLayout(request);
         var dropped = WithoutGdiDropped(request.Dropped, false);
+        ReportDropped(queueName, dropped);
         var copies = options?.Copies ?? 1;
         var bytes = payload.Data.ToArray();
         var jobName = options?.JobName ?? queueName;
@@ -239,6 +249,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 new WindowsGdiJob(queueName, WindowsSpoolerContent.FileExtension(payload.ContentType), jobName, deviceMode, copies, options?.Orientation, options?.Scaling),
                 bytes);
 
+            SpoolerLog.JobSpooled(_logger, queueName, jobId, bytes.Length, payload.ContentType);
             return Task.FromResult(new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
             {
                 JobName = options?.JobName,
@@ -270,6 +281,15 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // Orientation and scaling are laid out on the GDI page, never in the device
     // mode. PageRanges is additionally honoured by the PDF render, which selects
     // pages rather than naming a mode field.
+    // The join costs an allocation for each job, so it runs only when a reader wants it.
+    private void ReportDropped(string queueName, IReadOnlyList<string> dropped)
+    {
+        if (dropped.Count > 0 && _logger.IsEnabled(LogLevel.Warning))
+        {
+            SpoolerLog.DeviceModeOptionsDropped(_logger, queueName, String.Join(", ", dropped));
+        }
+    }
+
     private static List<string> WithoutGdiDropped(IReadOnlyList<string> dropped, bool honorPageRanges)
     {
         List<string> kept = new(dropped.Count);
@@ -373,6 +393,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 }
             }
 
+            SpoolerLog.JobSpooled(_logger, queueName, firstJobId, bytes.Length, payload.ContentType);
             return Task.FromResult(new PrintJobInfo(firstJobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
             {
                 JobName = options?.JobName,
@@ -591,6 +612,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             {
                 IsAcceptingJobs = WindowsSpoolerStatusMapper.IsAcceptingJobs(info.Status, info.Attributes),
                 Detail = WindowsSpoolerStatusMapper.DescribePrinterStatus(info.Status, info.Attributes),
+                StateReasons = WindowsSpoolerStatusMapper.PrinterStateReasons(info.Status, info.Attributes),
             });
         }
         finally
@@ -865,6 +887,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             TotalImpressions = info.TotalPages == 0 ? null : (int)info.TotalPages,
             ImpressionsCompleted = (int)info.PagesPrinted,
             Detail = WindowsSpoolerStatusMapper.DescribeJobStatus(info.Status),
+            StateReasons = WindowsSpoolerStatusMapper.JobStateReasons(info.Status),
         };
     }
 
@@ -952,6 +975,10 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         }
     }
 
+    // No log entry here on purpose. The exception carries the operation and the message of
+    // the operating system, and it reaches the caller unchanged, so a second report of the
+    // same failure adds nothing. Reaching a logger from here would mean an instance method,
+    // and about twenty helpers above it would have to stop being static for one entry.
     private static void ThrowLastError(string operation) =>
         throw new InvalidOperationException(Describe(operation, Marshal.GetLastWin32Error()));
 

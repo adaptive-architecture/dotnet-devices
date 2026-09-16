@@ -1,6 +1,7 @@
 ﻿using AdaptArch.Devices.Printing;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
-
 namespace AdaptArch.Devices.UnitTests.Printing.Discovery;
 
 public class PrinterQueueCorrelatorTests
@@ -30,12 +31,14 @@ public class PrinterQueueCorrelatorTests
     private static Task<IReadOnlyDictionary<PrinterId, IReadOnlyList<PrinterDeviceKey>>> RunAsync(
         List<PrinterQueueCorrelator.Candidate> candidates,
         QueueCorrelationOptions options = null,
-        bool allowTracer = true) =>
+        bool allowTracer = true,
+        ILogger logger = null) =>
         PrinterQueueCorrelator.CorrelateAsync(
             candidates,
             options ?? new QueueCorrelationOptions(),
             allowTracer,
             4,
+            logger ?? NullLogger.Instance,
             TestContext.Current.CancellationToken);
 
     // --- choosing the candidates ------------------------------------------------------
@@ -289,6 +292,7 @@ public class PrinterQueueCorrelatorTests
             new QueueCorrelationOptions { AllowTracerJob = true },
             true,
             1,
+            NullLogger.Instance,
             source.Token));
 
         Assert.Single(fakes[0].Canceled);

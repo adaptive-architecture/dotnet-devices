@@ -1,4 +1,5 @@
-﻿using AdaptArch.Devices.Printing.Ipp;
+﻿using AdaptArch.Devices.Printing;
+using AdaptArch.Devices.Printing.Ipp;
 using SharpIpp.Models.Requests;
 using Xunit;
 
@@ -6,34 +7,38 @@ namespace AdaptArch.Devices.UnitTests.Printing.Ipp;
 
 public class IppOperationsTests
 {
+    private const string Operation = "Get-Printer-Attributes";
     private static readonly Uri Printer = new("ipp://printer.local:631/ipp/print");
 
     [Fact]
-    public async Task SendAsync_MapsAnIppErrorToInvalidOperationException()
+    public async Task SendAsync_MapsAnIppErrorToAPrinterOperationException()
     {
         // 0x0400 is client-error-bad-request.
         var body = IppMessages.Response(0x0400);
-        IppOperations operations = new(new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(body))));
+        IppOperations operations = new(new IppContext(new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(body)))), Printer, Operation);
 
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => operations.SendAsync(
+        var error = await Assert.ThrowsAsync<PrinterOperationException>(() => operations.SendAsync(
             (client, request, token) => client.GetPrinterAttributesAsync(request, token),
             NewRequest(),
-            Printer,
             TestContext.Current.CancellationToken));
 
         Assert.Contains("printer.local", error.Message, StringComparison.Ordinal);
+
+        // The status code, the endpoint and the operation reach the caller as data.
+        Assert.Equal(0x0400, error.IppStatusCode);
+        Assert.Equal(Printer, error.Endpoint);
+        Assert.Equal(Operation, error.Operation);
     }
 
     [Fact]
     public async Task SendAsync_MapsAMalformedAnswerToInvalidDataException()
     {
-        IppOperations operations = new(new HttpClient(new IppMessages.StubHandler(
-            _ => IppMessages.Ok([0x09, 0x09, 0x00]))));
+        IppOperations operations = new(new IppContext(new HttpClient(new IppMessages.StubHandler(
+            _ => IppMessages.Ok([0x09, 0x09, 0x00])))), Printer, Operation);
 
         _ = await Assert.ThrowsAsync<InvalidDataException>(() => operations.SendAsync(
             (client, request, token) => client.GetPrinterAttributesAsync(request, token),
             NewRequest(),
-            Printer,
             TestContext.Current.CancellationToken));
     }
 
@@ -43,12 +48,11 @@ public class IppOperationsTests
         // A refused connection reports no HttpStatusCode, so the message must not format
         // an empty "HTTP .".
         ThrowingHandler handler = new(new HttpRequestException("Connection refused"));
-        IppOperations operations = new(new HttpClient(handler));
+        IppOperations operations = new(new IppContext(new HttpClient(handler)), Printer, Operation);
 
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => operations.SendAsync(
+        var error = await Assert.ThrowsAsync<PrinterOperationException>(() => operations.SendAsync(
             (client, request, token) => client.GetPrinterAttributesAsync(request, token),
             NewRequest(),
-            Printer,
             TestContext.Current.CancellationToken));
 
         Assert.DoesNotContain("HTTP .", error.Message, StringComparison.Ordinal);
@@ -59,12 +63,11 @@ public class IppOperationsTests
     public async Task SendAsync_KeepsTheRawResponseForMarkerReads()
     {
         var body = IppMessages.Response(0x0000, (0x42, "marker-names", "Black ink"));
-        IppOperations operations = new(new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(body))));
+        IppOperations operations = new(new IppContext(new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(body)))), Printer, Operation);
 
         _ = await operations.SendAsync(
             (client, request, token) => client.GetPrinterAttributesAsync(request, token),
             NewRequest(),
-            Printer,
             TestContext.Current.CancellationToken);
 
         Assert.NotNull(operations.LastRawResponse);
@@ -89,13 +92,12 @@ public class IppOperationsTests
     {
         // A printer needing authentication answers 401 with an IPP body.
         var body = IppMessages.Response(0x0000);
-        IppOperations operations = new(new HttpClient(new IppMessages.StubHandler(
-            _ => new HttpResponseMessage(System.Net.HttpStatusCode.Unauthorized) { Content = new ByteArrayContent(body) })));
+        IppOperations operations = new(new IppContext(new HttpClient(new IppMessages.StubHandler(
+            _ => new HttpResponseMessage(System.Net.HttpStatusCode.Unauthorized) { Content = new ByteArrayContent(body) }))), Printer, Operation);
 
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => operations.SendAsync(
+        var error = await Assert.ThrowsAsync<PrinterOperationException>(() => operations.SendAsync(
             (client, request, token) => client.GetPrinterAttributesAsync(request, token),
             NewRequest(),
-            Printer,
             TestContext.Current.CancellationToken));
 
         Assert.Contains("401", error.Message, StringComparison.Ordinal);
@@ -106,12 +108,11 @@ public class IppOperationsTests
     {
         // HttpClient reports its own timeout as a TaskCanceledException.
         ThrowingHandler handler = new(new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout."));
-        IppOperations operations = new(new HttpClient(handler));
+        IppOperations operations = new(new IppContext(new HttpClient(handler)), Printer, Operation);
 
         _ = await Assert.ThrowsAsync<TimeoutException>(() => operations.SendAsync(
             (client, request, token) => client.GetPrinterAttributesAsync(request, token),
             NewRequest(),
-            Printer,
             TestContext.Current.CancellationToken));
     }
 }

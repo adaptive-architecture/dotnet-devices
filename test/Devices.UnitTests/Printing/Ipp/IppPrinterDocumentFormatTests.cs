@@ -115,7 +115,7 @@ public class IppPrinterDocumentFormatTests
             IppMessages.Response(0x040A, 0x02));
         using IppPrinter printer = new(Endpoint, new HttpClient(handler));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => printer.PrintAsync(
+        var exception = await Assert.ThrowsAsync<PrinterOperationException>(() => printer.PrintAsync(
             PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
             null,
             TestContext.Current.CancellationToken));

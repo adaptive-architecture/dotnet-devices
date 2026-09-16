@@ -95,7 +95,8 @@ internal static class SnmpPrinterMapper
         return new PrinterStatus(id, state)
         {
             IsAcceptingJobs = state != PrinterStatusState.Error && state != PrinterStatusState.Offline,
-            Detail = reasons.Count == 0 ? null : String.Join("; ", reasons),
+            Detail = StateReasons.Join(reasons),
+            StateReasons = reasons,
             Markers = MapMarkers(supplies),
             SerialNumber = GetText(values, PrinterMibOids.SerialNumber),
             LifetimePageCount = GetNumber(values, PrinterMibOids.MarkerLifeCount),

@@ -1,5 +1,6 @@
 ﻿using AdaptArch.Devices.Printing.Ipp;
 using AdaptArch.Devices.Printing.Spooler;
+using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.Printing;
 
@@ -72,6 +73,22 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
     {
     }
 
+    private ILogger? _logger;
+
+    /// <summary>
+    /// Gets the factory that makes the log. Defaults to <c>null</c>, which writes nothing.
+    /// The log category is <c>AdaptArch.Devices.Printing</c>.
+    /// </summary>
+    /// <remarks>
+    /// An application that uses <c>AddDevices()</c> or <c>AddPrinters()</c> needs no call
+    /// here: the registration takes the <see cref="ILoggerFactory"/> of the container.
+    /// Read <see href="https://github.com/adaptive-architecture/dotnet-devices/blob/main/docs/troubleshooting.md">Troubleshooting</see>.
+    /// </remarks>
+    public ILoggerFactory? LoggerFactory { get; init; }
+
+    // Built on first use: an init property is set after the constructor runs.
+    private ILogger Logger => LazyInitializer.EnsureInitialized(ref _logger, () => PrintingLog.Create(LoggerFactory));
+
     /// <summary>
     /// Gets the formats every printer this factory opens knows, and the converters they
     /// may use. Defaults to <see cref="PrintFormatPolicy.Default"/>.
@@ -104,7 +121,7 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
 
         if (printer.Endpoint is SpoolerPrinterEndpoint spooler)
         {
-            return new SpoolerPrinter(spooler) { Formats = Formats };
+            return new SpoolerPrinter(spooler) { Formats = Formats, IppTransport = _options };
         }
 
         throw new NotSupportedException($"Endpoint type '{printer.Endpoint.GetType().Name}' is not supported.");

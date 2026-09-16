@@ -203,7 +203,7 @@ public class CupsSpoolerDriverTests
         var error = IppMessages.Response(0x0501, 0x02);
         CupsSpoolerDriver driver = new(new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(error))));
 
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(
+        _ = await Assert.ThrowsAsync<PrinterOperationException>(
             () => driver.GetJobAsync("lobby", "1", TestContext.Current.CancellationToken));
     }
 
@@ -226,7 +226,48 @@ public class CupsSpoolerDriverTests
         var error = IppMessages.Response(0x0501, 0x02);
         CupsSpoolerDriver driver = new(new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(error))));
 
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(
+        _ = await Assert.ThrowsAsync<PrinterOperationException>(
             () => driver.CancelJobAsync("lobby", "1", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task GetJobAsync_ReportsTheMessageThatNamesTheCause()
+    {
+        // The channel of the reported failure: a job on a CUPS queue that stopped.
+        var job = IppMessages.Response(
+            0x0000,
+            0x02,
+            (0x21, "job-id", 41),
+            (0x23, "job-state", 6),
+            (0x44, "job-state-reasons", "resources-are-not-ready"),
+            (0x41, "job-printer-state-message", "Unable to connect: certificate expired."));
+        CupsSpoolerDriver driver = new(new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(job))));
+
+        var read = await driver.GetJobAsync("lobby", "41", TestContext.Current.CancellationToken);
+
+        Assert.NotNull(read);
+        Assert.Equal(["resources-are-not-ready"], read.StateReasons);
+        Assert.Equal("Unable to connect: certificate expired.", read.PrinterStateMessage);
+    }
+
+    [Fact]
+    public async Task GetJobAsync_TheRawSwitchOfTheTransportOptionsReachesTheQueue()
+    {
+        var job = IppMessages.Response(
+            0x0000,
+            0x02,
+            (0x21, "job-id", 41),
+            (0x23, "job-state", 6),
+            (0x44, "an-attribute-the-library-does-not-map", "a value"));
+        CupsSpoolerDriver driver = new(
+            new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(job))),
+            new Uri("ipp://localhost:631/"),
+            null,
+            new IppTransportOptions { CaptureRawResponses = true });
+
+        var read = await driver.GetJobAsync("lobby", "41", TestContext.Current.CancellationToken);
+
+        Assert.NotNull(read);
+        Assert.Contains(read.RawAttributes, attribute => attribute.Name == "an-attribute-the-library-does-not-map");
     }
 }

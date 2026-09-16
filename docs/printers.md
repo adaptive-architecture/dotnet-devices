@@ -273,6 +273,21 @@ returns make and model, state, state reasons and the supply markers. All operati
 read-only. The wire format is handled by `SharpIppNext`; see
 [Packages](packages.md#runtime-dependencies).
 
+`PrinterStatus` reports the state reasons three ways, and each one has a purpose:
+
+- `StateReasons` holds one entry for each reason. **Match this one**, for example
+  `cups-pki-expired`. A printer with no reason gives an empty list: the protocol keyword
+  `none` means "no reason at all", so it is never an entry.
+- `Detail` holds the same list joined with `"; "`, for a person to read. It kept its exact
+  shape when `StateReasons` was added, so no caller broke.
+- `StateMessage` and `DetailedStatusMessages` hold `printer-state-message` and
+  `printer-detailed-status-messages`: free text the printer wrote. Do not parse either one.
+
+`PrintJobInfo` carries the same four fields for a job, plus `PrinterStateMessage`, which is
+the `job-printer-state-message` attribute. **CUPS puts the text of its own log there**, so it
+is usually the only field that names why a job stopped.
+[Troubleshooting](troubleshooting.md) works through that case.
+
 - It tries IPPS (TLS) first and falls back to plain IPP, across `/ipp/print` and
   `/ipp/port1`. The optional `resourcePath` parameter is tried before those well-known
   paths: pass the `rp` attribute of a DNS-SD TXT record to reach a printer that serves IPP
@@ -327,6 +342,61 @@ each constructor. That factory sets the connect timeout, turns off redirects (ev
 operation is a POST that carries the document), and installs the certificate policy. The
 caller owns that client.
 
+## Diagnostics
+
+A job that will not print is the case the library is measured on.
+[Troubleshooting](troubleshooting.md) is the guide; this section names the parts.
+
+**The transport that answered.** `IppPrinter.Connection` and `IppPrintJobQueue.Connection`
+report the scheme and the endpoint that answered, and `PrinterStatus.Connection` carries the
+same. A downgrade from IPPS to plain IPP is then visible. Each one is `null` until the first
+call finds an endpoint, and a transport failure clears it. A local CUPS queue always reports
+`Ipp`, because the server listens on the IPP socket of the machine and no TLS attempt is
+made there, so read this for a network printer and not for a `spooler://` one.
+
+**Failures carry data, not only text.**
+
+- `PrinterConnectionException.Failures` holds the cause of **each** endpoint that was tried,
+  and `InnerException` is the **first** one. The order matters: the probe tries up to six
+  endpoints, and a TLS handshake that failed over IPPS says more than the "connection
+  refused" of a plain IPP port tried later. Keeping only the last cause reported the wrong
+  one. Read `InnerException` for that first cause; `Failures` is a dictionary and promises
+  no order.
+- `PrinterOperationException` carries `PrinterId`, `Endpoint`, `Operation` and
+  `IppStatusCode`, the status code of RFC 8011 section 13.1. A caller matches the code
+  instead of the message.
+- Both derive from `InvalidOperationException`, which this API documented before, so an
+  existing `catch` block still catches them.
+
+**The log.** Register an `ILoggerFactory` and let `AddPrinters()` take it, or set
+`PrinterManagerOptions.LoggerFactory` and `IppTransportOptions.LoggerFactory` by hand. The
+library writes in four categories that nest under `AdaptArch.Devices.Printing`, so one filter
+rule turns on the manager, the IPP wire, the discovery sources and the Windows spooler
+together.
+
+The level says what the library did about a failure: `Error` means it swallowed one and gave
+you a result anyway, `Warning` means it continued with less than you asked for, `Information`
+marks a milestone that is safe to leave on, `Debug` is one entry for each operation, and
+`Trace` is one for each item. **A failure that reaches your code as an exception stays at
+`Debug`**, because the exception already carries it. A job name and a user name are personal
+data, so they are at `Debug` and below only.
+
+[Troubleshooting](troubleshooting.md) lists every event with its identifier, which is stable
+across versions so a report can name one. An application that sets no factory writes nothing
+and pays almost nothing.
+
+**The raw answer.** Set `IppTransportOptions.CaptureRawResponses` to read what the printer
+sent, including the attributes the library does not map. The attributes reach
+`PrinterStatus.RawAttributes`, `PrintJobInfo.RawAttributes` and
+`PrinterOperationException.RawAttributes` as `IppAttributeSnapshot` records, which carry text
+only: no `SharpIppNext` type is in the public API. Keep the switch off in normal operation.
+
+SNMP and the Windows spooler fill `StateReasons` beside `Detail`, and both write a log.
+Neither reports a state message or raw attributes. The CUPS spooler speaks IPP, so it reports
+everything above: `SpoolerPrinter`, `SpoolerPrinterDiscovery` and `SpoolerPrintJobQueue` each
+carry an `IppTransport` property that holds the same `IppTransportOptions`, and
+`AddPrinters()` gives them the registered one.
+
 ## Job queues and progress
 
 `IPrintJobQueue` inspects and manages the jobs of a printer. `CompositePrintJobQueue`
@@ -335,6 +405,11 @@ IPP.
 
 The manager can also read a queue as evidence of which device a channel belongs to. See
 [Correlating channels by their job queue](#correlating-channels-by-their-job-queue).
+
+**The IPP queue states which attributes it wants.** A printer left to its own default
+answers Get-Jobs with the job identifier alone, and none of the messages that say why a job
+stopped. Both `GetJobsAsync` and `GetJobAsync` therefore send an explicit
+`requested-attributes` list that holds every attribute the mapper reads.
 
 `IPrintJobMonitor.WatchJobAsync` yields a reading each time the state or the progress of one
 job changes, until the job reaches a terminal state or leaves the queue.
@@ -558,7 +633,8 @@ Console.WriteLine($"{details.Info.Name}: {details.Status.SerialNumber}, {details
 - When the agent answers the supply walk with `tooBig`, the client asks again one time for
   half as many rows. Every other SNMP error status is an `InvalidOperationException`.
 - `hrPrinterStatus` gives the state. The bits of `hrPrinterDetectedErrorState` can raise it
-  to `Error` or `Offline`, and every set bit is named in `PrinterStatus.Detail`. A bit that
+  to `Error` or `Offline`, and every set bit is named in `PrinterStatus.StateReasons`, and
+  joined into `PrinterStatus.Detail`. A bit that
   is only a warning, such as `lowToner`, does not change the state, because a printer low on
   toner still prints.
 - The Printer MIB uses a negative supply level for a value that is not a quantity: `-1` is
