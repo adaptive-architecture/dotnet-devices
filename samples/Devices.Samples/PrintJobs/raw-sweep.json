@@ -1,0 +1,19 @@
+{
+  "name": "Raw sweep",
+  "description": "Three files unchanged to one channel. A format the channel says it does not read is skipped, because a raw send is not converted and would only waste paper.",
+  "mode": "raw",
+  "jobs": [
+    {
+      "file": "photo.jpeg",
+      "description": "a JPEG the printer firmware must read itself"
+    },
+    {
+      "file": "label.zpl",
+      "description": "a Zebra ZPL label"
+    },
+    {
+      "file": "label.epl",
+      "description": "an EPL label with an embedded bitmap"
+    }
+  ]
+}

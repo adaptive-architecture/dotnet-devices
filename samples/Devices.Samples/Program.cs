@@ -1,12 +1,11 @@
-﻿using AdaptArch.Devices.DependencyInjection;
+﻿using System.Text.Json.Serialization;
+using AdaptArch.Devices.DependencyInjection;
 using AdaptArch.Devices.Samples;
-using Microsoft.Extensions.DependencyInjection;
+using AdaptArch.Devices.Samples.Api;
+using AdaptArch.Devices.Samples.Contracts;
 
-Console.WriteLine("AdaptArch.Devices samples");
-Console.WriteLine($"Current OS: {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
-
-// The Windows package is referenced on Windows only (see the sample project file),
-// so the call needs the same compile-time guard as the reference.
+// The Windows package is referenced on Windows only (see the sample project file), so the
+// call needs the same compile-time guard as the reference.
 #if WINDOWS10_0_19041_0_OR_GREATER
 if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240, 0))
 {
@@ -14,167 +13,40 @@ if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240, 0))
 }
 #endif
 
-ServiceCollection services = new();
-services.AddPrinters();
-using var provider = services.BuildServiceProvider();
+// The slim builder leaves out what a printer manager never uses, and it is the shape the
+// native AOT publish supports. That publish is why this sample exists: it is the only
+// application that consumes src/, so a trim or an AOT problem in the library shows up here.
+var builder = WebApplication.CreateSlimBuilder(args);
 
-var printFilesDirectory = Path.Combine(AppContext.BaseDirectory, "PrintFiles");
-Console.WriteLine($"Printable files: {String.Join(", ", SampleHelpers.GetPrintFiles(printFilesDirectory))}");
+// This application prints to real hardware on the local network, so it listens on the
+// loopback address only. Set ASPNETCORE_URLS to move it, and know what that means.
+builder.WebHost.UseUrls(Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "http://localhost:5080");
 
-// The menu starts with a discovery, so it replaces the old default listing.
-if (args.Length == 0)
+// Native AOT has no reflection to fall back on, so every contract is source-generated.
+// The options of the source generator govern what the context reads from disk; these
+// govern what the endpoints write, so the two must agree about a null.
+builder.Services.ConfigureHttpJsonOptions(options =>
 {
-    PrintHelp();
-    await InteractiveScenario.RunAsync(provider, printFilesDirectory).ConfigureAwait(false);
-    return;
-}
+    options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+    options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default);
+});
 
-switch (args[0])
-{
-    case "interactive":
-        await InteractiveScenario.RunAsync(provider, printFilesDirectory).ConfigureAwait(false);
-        return;
-    case "test-run":
-        _ = await InteractiveScenario.TestRunAsync(provider, printFilesDirectory).ConfigureAwait(false);
-        return;
-    case "print-manager":
-        await RunPrinterManagerAsync(args).ConfigureAwait(false);
-        return;
-    case "manual-management":
-        await RunManualManagementAsync(args).ConfigureAwait(false);
-        return;
-    case "win-printer-test":
-        await RunWinPrinterTestAsync(args).ConfigureAwait(false);
-        return;
-    default:
-        PrintHelp();
-        return;
-}
+_ = builder.Services.AddPrinters();
+builder.Services.AddSingleton<SamplePaths>();
+builder.Services.AddSingleton<PrinterCatalog>();
+builder.Services.AddSingleton<PrintJobRunner>();
 
-async Task RunPrinterManagerAsync(string[] commandArgs)
-{
-    if (commandArgs.Length >= 2 && commandArgs[1] == "discover")
-    {
-        await PrinterManagerScenario.DiscoverAsync(provider).ConfigureAwait(false);
-        return;
-    }
+var app = builder.Build();
 
-    if (commandArgs.Length >= 2 && commandArgs[1] == "correlate")
-    {
-        var allowTracer = commandArgs.Length >= 3 && commandArgs[2] == "tracer";
-        if (allowTracer && !SampleHelpers.Confirm(
-            "Create a held job that carries no document on each printer with an empty queue, then cancel it?"))
-        {
-            Console.WriteLine("Cancelled; the queues were only read.");
-            allowTracer = false;
-        }
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
-        await PrinterManagerScenario.CorrelateAsync(allowTracer).ConfigureAwait(false);
-        return;
-    }
+PrintersApi.Map(app);
+JobsApi.Map(app);
+JobSetsApi.Map(app);
+DiagnosticsApi.Map(app);
 
-    if (commandArgs.Length == 4 && commandArgs[1] == "send")
-    {
-        if (!SampleHelpers.Confirm($"Send '{commandArgs[3]}' to printer {commandArgs[2]}?"))
-        {
-            Console.WriteLine("Cancelled; nothing was sent.");
-            return;
-        }
+Console.WriteLine($"Current OS: {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
+Console.WriteLine("Open the printer manager in a browser. Press Ctrl+C to stop it.");
 
-        await PrinterManagerScenario.SendAsync(provider, printFilesDirectory, commandArgs[2], commandArgs[3]).ConfigureAwait(false);
-        return;
-    }
-
-    if (commandArgs.Length == 4 && commandArgs[1] == "watch")
-    {
-        if (!SampleHelpers.Confirm($"Send '{commandArgs[3]}' to printer {commandArgs[2]} and watch the job?"))
-        {
-            Console.WriteLine("Cancelled; nothing was sent.");
-            return;
-        }
-
-        await PrinterManagerScenario.WatchAsync(provider, printFilesDirectory, commandArgs[2], commandArgs[3]).ConfigureAwait(false);
-        return;
-    }
-
-    if (commandArgs.Length == 3 && commandArgs[1] == "zpl")
-    {
-        if (!SampleHelpers.Confirm($"Send a ZPL test label to printer {commandArgs[2]} over its passthrough channel?"))
-        {
-            Console.WriteLine("Cancelled; nothing was sent.");
-            return;
-        }
-
-        await PrinterManagerScenario.SendZplAsync(provider, commandArgs[2]).ConfigureAwait(false);
-        return;
-    }
-
-    PrintHelp();
-}
-
-async Task RunManualManagementAsync(string[] commandArgs)
-{
-    if (commandArgs.Length >= 2 && commandArgs[1] == "discover")
-    {
-        await ManualManagementScenario.DiscoverAsync(provider).ConfigureAwait(false);
-        return;
-    }
-
-    if (commandArgs.Length == 3 && commandArgs[1] == "status")
-    {
-        await ManualManagementScenario.StatusAsync(provider, commandArgs[2]).ConfigureAwait(false);
-        return;
-    }
-
-    if (commandArgs.Length == 4 && commandArgs[1] == "send")
-    {
-        if (!SampleHelpers.Confirm($"Send '{commandArgs[3]}' to printer {commandArgs[2]} on TCP port 9100?"))
-        {
-            Console.WriteLine("Cancelled; nothing was sent.");
-            return;
-        }
-
-        await ManualManagementScenario.SendAsync(provider, printFilesDirectory, commandArgs[2], commandArgs[3]).ConfigureAwait(false);
-        return;
-    }
-
-    PrintHelp();
-}
-
-async Task RunWinPrinterTestAsync(string[] commandArgs)
-{
-    if (commandArgs.Length < 2)
-    {
-        PrintHelp();
-        return;
-    }
-
-    var wantsPrint = commandArgs.Length >= 3 && commandArgs[2] == "--print";
-    await WindowsPrinterTestScenario.RunAsync(commandArgs[1], wantsPrint).ConfigureAwait(false);
-}
-
-static void PrintHelp()
-{
-    Console.WriteLine();
-    Console.WriteLine("Usage:");
-    Console.WriteLine("  dotnet run -- interactive        (a menu; also the default)");
-    Console.WriteLine("  dotnet run -- test-run           (the whole test sequence, once)");
-    Console.WriteLine();
-    Console.WriteLine("  dotnet run -- print-manager discover");
-    Console.WriteLine("  dotnet run -- print-manager correlate [tracer]");
-    Console.WriteLine("  dotnet run -- print-manager send  <printer-id> <file>");
-    Console.WriteLine("  dotnet run -- print-manager watch <printer-id> <file>");
-    Console.WriteLine("  dotnet run -- print-manager zpl   <printer-id>");
-    Console.WriteLine();
-    Console.WriteLine("  dotnet run -- manual-management discover");
-    Console.WriteLine("  dotnet run -- manual-management status <printer-id>");
-    Console.WriteLine("  dotnet run -- manual-management send   <printer-id> <file>");
-    Console.WriteLine();
-    Console.WriteLine("  dotnet run -- win-printer-test <queue-name> [--print]");
-    Console.WriteLine();
-    Console.WriteLine("<file> is a name from PrintFiles, above.");
-    Console.WriteLine("<printer-id> is a printer identifier URI, such as raw://192.168.0.152, ipp://192.168.0.152");
-    Console.WriteLine("or spooler://EPSON_L6270_Series. The scheme names the channel: raw, ipp, ipps, spooler.");
-    Console.WriteLine("A bare address, such as 192.168.0.152, is read as the raw channel of that host.");
-    Console.WriteLine("'discover' prints the exact identifier to use for each printer it finds.");
-}
+app.Run();

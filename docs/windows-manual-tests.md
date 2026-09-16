@@ -33,25 +33,21 @@ below are still necessary.
 
 ## Gather the evidence with the sample
 
-Run this on the Windows machine, from the `samples/Devices.Samples` directory:
+Start the sample on the Windows machine, and open the address it prints:
 
 ```
-dotnet run -- win-printer-test <queue-name>
+dotnetup dotnet run --project samples/Devices.Samples
 ```
 
-Pass the name of a real, installed print queue. The scenario prints the job list, the
-printer status bits, the configuration, and the two error paths. It labels each section
-with the check number below, and it prints what it read next to what that reading became,
-for example `Status: Paused  (PRINTER_STATUS_PAUSED)`. A person still judges the result
-against the checklist; the command only gathers the evidence to judge.
+Open the **Diagnostics** tab, and enter the name of a real, installed print queue under
+**The Windows spooler checks**. Press **Gather the evidence**. The checks report the job
+list, the printer status bits, the configuration, and the two error paths. Each section is
+labelled with the check number below, and each reading is reported next to what that
+reading became, for example `Status: Paused (PRINTER_STATUS_PAUSED)`. A person still judges
+the result against the checklist; the sample only gathers the evidence to judge.
 
-Check 3, the print cycle, needs the `--print` switch, because it submits a real job:
-
-```
-dotnet run -- win-printer-test <queue-name> --print
-```
-
-The scenario asks for confirmation before it sends anything.
+Check 3, the print cycle, needs the **Also submit the check 3 test job** box, because it
+submits a real job. The browser asks for confirmation before it sends anything.
 
 ## The tests to do on Windows
 
@@ -64,7 +60,7 @@ after it, because each wrong field size moves every later field.
 
 1. Pause a print queue, so the jobs stay in it.
 2. Send **three** jobs with different names and different page counts.
-3. Run `win-printer-test`.
+3. Run the Windows spooler checks.
 4. Look at the **second and the third** job, not only the first. `JobName`,
    `TotalImpressions` and `ImpressionsCompleted` must all be correct.
 
@@ -73,7 +69,7 @@ is wrong.
 
 ### 2. The printer status bits, on real hardware
 
-1. Pause the queue. `win-printer-test` must report `Paused`.
+1. Pause the queue. The checks must report `Paused`.
 2. Put the printer offline. It must report `Offline`.
 3. Cause an error, such as an empty paper tray or an open door. It must report `Error`.
 4. Select **Use Printer Offline** in the queue menu. The queue has no
@@ -86,7 +82,7 @@ In each case, check the `Detail` text too. It must name the bit you expect, for 
 
 ### 3. A full print cycle
 
-Run `win-printer-test <queue-name> --print`. It sends a small `RAW` job through the
+Run the checks with the test job box ticked. They send a small `RAW` job through the
 complete sequence: `OpenPrinter`, `StartDocPrinter`, `StartPagePrinter`, `WritePrinter`,
 `EndPagePrinter`, `EndDocPrinter`, `ClosePrinter`.
 - The job must reach the device or the output file.
@@ -120,7 +116,7 @@ complete sequence: `OpenPrinter`, `StartDocPrinter`, `StartPagePrinter`, `WriteP
 A clean `dotnet build -c Release` runs the trim and AOT analyzers, but it **does not prove**
 that the marshalling works. The driver uses `Marshal.SizeOf<T>()` and
 `Marshal.PtrToStructure<T>()` on structures that hold `string` fields. Only a published AOT
-binary proves these behave correctly. `win-printer-test` cannot do this check; it runs as a
+binary proves these behave correctly. The checks cannot do this one; they run as a
 normal, non-AOT build.
 
 1. Run `dotnet publish -r win-x64 -p:PublishAot=true`.
@@ -128,7 +124,7 @@ normal, non-AOT build.
 
 ### 5. The error paths
 
-`win-printer-test` runs both of these for you.
+The checks run both of these for you.
 
 1. Open a queue name that does not exist. The `InvalidOperationException` must carry a
    sensible Win32 error code and the Windows error text after it, for example
@@ -148,7 +144,7 @@ normal, non-AOT build.
 
 ### 6. The configuration, against a real driver
 
-Run `win-printer-test` on a queue that has a real printer driver.
+Run the checks on a queue that has a real printer driver.
 
 - The paper names print inside brackets, for example `[A4]`. Each name must be a complete
   word, not cut short and not full of stray characters.
@@ -170,14 +166,14 @@ Run `win-printer-test` on a queue that has a real printer driver.
 
 The driver asks for `PRINTER_ACCESS_USE`. Confirm this level is enough to submit a job, to
 read the status, and to cancel a job with `SetJob`. If your work needs it, also confirm that
-a user can cancel a job that another user sent. `win-printer-test` cannot check this: it
-proves what the level allows, not what a different level would forbid.
+a user can cancel a job that another user sent. The checks cannot cover this: they
+prove what the level allows, not what a different level would forbid.
 
 ### 8. Cleanup after a failed open
 
 Windows does not promise a value for the printer handle when `OpenPrinter` fails. Confirm
 that a failed open, such as a queue name that does not exist, does not cause a problem in
-the cleanup that follows. `win-printer-test` exercises this path in check 5, when it opens
+the cleanup that follows. The checks exercise this path in check 5, when they open
 a queue name that cannot exist; confirm the process itself stays healthy afterwards.
 
 ## What the driver does not do yet
@@ -221,7 +217,7 @@ level 2 read can fill, match what the Windows printer settings show.
 
 ### 9. A PDF through the spooler
 
-The `test-run` sample prints `document.pdf` through the spooler queue. It needs the
+The `queue-sweep` job set prints `document.pdf` through the spooler queue. It needs the
 `AdaptArch.Devices.Windows` package with `WindowsPrinting.EnableSpoolerPdfPrinting()`
 (the sample calls it on Windows); without that call the job fails with
 `NotSupportedException` before anything spools.

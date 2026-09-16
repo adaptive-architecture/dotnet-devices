@@ -1020,39 +1020,75 @@ services.AddPrinters(options => options.AllowPlainIpp = false);
 
 ## Sample
 
-`samples/Devices.Samples` has five scenarios:
+`samples/Devices.Samples` is a small web application: a printer manager the whole library
+can be driven from. Start it, and open the address it prints.
 
-- `interactive` — a menu, and the default when no argument is given. It discovers once, then
-  lets you list the printers, print a file through a queue (spooler or IPP) and watch the
-  job, print a file raw through a passthrough or spooler channel, and read status and
-  capabilities. Every selection is a number, so no identifier is copied by hand. The queue
-  flow asks for a colour mode for an image, and for a rotation and a scaling mode when the
-  printer reported which ones it accepts. The raw flow lists the spooler beside the raw
-  channel, and says which of the two promises to keep the bytes.
-- `test-run` — one scripted hardware test, also menu entry 6. It discovers, prints the
-  capabilities and the status of every printer, then sends five jobs through one spooler
-  queue: a PDF with the defaults, a PNG in colour at its own size, a PNG in grayscale
-  rotated 90 degrees, a JPEG rotated 180 degrees, and a JPEG in grayscale filling the media.
-  It then asks again, and sends a JPEG, a ZPL label and an EPL label raw to every
-  raw-capable channel. A job that fails or that is still printing when the watch ends never
-  stops the jobs after it, and the run ends with a summary of what became of each one. A format the channel says it does not read is skipped with a yellow
-  warning, because a raw send is not converted and would only waste paper. The jobs never
-  change, so two runs can be compared. An option the printer did not report is still sent,
-  and the run says so first.
-- `print-manager` — `IPrinterManager` for discovery, status, sending, watching and ZPL. This
-  is the layer most callers want. Its `correlate` command builds a manager of its own with
-  `QueueCorrelation` set and prints which channels the job queue merged; `correlate tracer`
-  asks first, then lets that manager create a tracer job where a queue is empty.
-- `manual-management` — `IMdnsPrinterDiscovery`, `INetworkPrinterDiscovery` and
-  `IPrinterTransport` directly. This shows the seams the manager sits on. Its `send` command
-  writes raw bytes over a network channel, so it cannot reach a spooler queue.
-- `win-printer-test` — reads a Windows print queue and prints the evidence for the
-  [Windows manual tests](windows-manual-tests.md). It needs Windows.
+```bash
+dotnetup dotnet run --project samples/Devices.Samples
+```
 
-The commands take a printer identifier, not a bare host, and `discover` prints the exact
-identifier of each channel it finds. A value that is not a URI is read as a raw network
-address, so a plain IP address still works. Run `dotnet run --` with no arguments for the
-command list.
+It listens on `http://localhost:5080` and on the loopback address only, because it prints
+to real hardware. Set `ASPNETCORE_URLS` to move it, and know what that means.
+
+The page has a printer list on the left and four tabs on the right:
+
+- **Print** — the channel, the file and the options, then one button. The file is one the
+  sample ships in `PrintFiles/`, or one uploaded from the machine. A switch sends the bytes
+  unchanged (raw) instead of through the queue. The options form offers only what the
+  channel reported, so the page never invents a choice. Before the button, the page calls
+  `PrinterDevice.Accepts` and warns when the channel says it does not read the format.
+- **Job sets** — the scripted hardware test. A job set is a JSON file; the sample ships
+  `PrintJobs/queue-sweep.json` (five documents through one queue, each changing one option
+  from the job before it) and `PrintJobs/raw-sweep.json` (a JPEG, a ZPL label and an EPL
+  label, unchanged). A set can also be uploaded, so the same test runs on Windows, Linux and
+  macOS and the results compare job by job. The run ends with a summary of what became of
+  each job.
+- **Printer** — the status and the capabilities of the selected device, channel by channel.
+- **Diagnostics** — which channels reach one queue (`QueueCorrelation`, with an optional
+  tracer job), what one host answers over IPP and over SNMP, and the Windows spooler checks
+  of [windows-manual-tests.md](windows-manual-tests.md).
+
+A job reports its progress over minutes, so every flow that prints answers with a stream of
+server-sent events. The browser shows each line as it arrives, and closing the page stops
+the watch. The printer keeps the job.
+
+### The job set format
+
+```json
+{
+  "name": "Queue sweep",
+  "description": "Each job changes one option from the job before it.",
+  "mode": "queue",
+  "jobs": [
+    { "file": "document.pdf", "description": "a PDF with the printer defaults" },
+    { "file": "image.png", "description": "a PNG in colour, at its own size",
+      "options": { "colorMode": "Color", "scaling": "None" } }
+  ]
+}
+```
+
+`mode` is `queue` or `raw`. `options` holds the properties of `PrintOptions`, with an enum
+written as its name and `pageRanges` written as `"1-3,5"`. `contentType` overrides what the
+file extension says. The target printer is not in the set: the printer is what differs
+between two machines, so the person selects it in the browser.
+
+### The HTTP interface
+
+| Method and path | What it does |
+| --- | --- |
+| `GET /api/printers` | The devices and their channels. `?refresh=true` browses again; `?probe=true` also probes the local subnet. |
+| `GET /api/printers/status?id=` | The status of one printer. |
+| `GET /api/printers/accepts?id=&contentType=` | The tri-state answer of `PrinterDevice.Accepts`. |
+| `GET /api/files` | The files in `PrintFiles/`. |
+| `POST /api/jobs` | Print a file from `PrintFiles/`. Answers with server-sent events. |
+| `POST /api/jobs/upload` | The same, with the bytes in a multipart form. |
+| `GET /api/job-sets` | The job sets in `PrintJobs/`. |
+| `POST /api/job-sets/run` | Run a job set. The set is in the body, so an uploaded set and a supplied set take one path. |
+| `POST /api/diagnostics/correlate` | Compare the job queues. `{"tracer": true}` permits a tracer job. |
+| `GET /api/diagnostics/details?host=` | What one host answers over IPP and over SNMP. |
+| `POST /api/diagnostics/windows-spooler` | The Windows spooler checks. |
+
+Nothing prints until a `POST` arrives, and the browser asks the person first.
 
 ### Can a raw send print a PDF?
 
@@ -1096,8 +1132,8 @@ label. And `application/octet-stream` is not read as an answer: nearly every cha
 it, and CUPS re-types such a job as `text/plain`, which prints the command source instead
 of the label.
 
-The `interactive` scenario calls it and warns before it wastes paper. A printer that
-reports nothing did not refuse; it only did not answer.
+The **Print** tab calls it and warns before it wastes paper. A printer that reports nothing
+did not refuse; it only did not answer.
 
 To print a PDF on a printer that has no PDF interpreter, send it through the CUPS
 spooler queue instead. The queue driver rasterises the document. On Windows, print
@@ -1116,6 +1152,13 @@ The script publishes the sample three times — framework-dependent, trimmed sel
 and native AOT — into `./artifacts/samples/<rid>/`. Warnings stay errors, so an `IL2xxx` trim
 warning or an `IL3xxx` AOT warning fails the publish. This is how a trim problem in the
 library is found early. Use `-o` to select another output directory.
+
+The web host is built for this. `WebApplication.CreateSlimBuilder` leaves out what a printer
+manager never uses, every contract is serialized through a source-generated
+`JsonSerializerContext`, and the project sets `EnableRequestDelegateGenerator`, which the SDK
+otherwise turns on only for a trimmed or a native AOT publish. With it on, an endpoint shape
+the generator cannot read fails an ordinary build instead of the publish at the end of the
+day.
 
 ## USB printers
 

@@ -1,12 +1,19 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
     <!-- Windows builds take the -windows TFM so the AdaptArch.Devices.Windows asset
       resolves; everywhere else the sample stays plain net10.0. One TFM per OS means
       the documented commands need no -f flag anywhere. -->
     <TargetFramework Condition="$([MSBuild]::IsOSPlatform('Windows'))">net10.0-windows10.0.19041.0</TargetFramework>
     <TargetFramework Condition="!$([MSBuild]::IsOSPlatform('Windows'))">net10.0</TargetFramework>
+    <!-- The web SDK sets DebugType to full when nothing else does. The rest of this
+      repository builds portable symbols, and publish-samples.sh prunes a .pdb from the
+      native AOT folder, so the value is pinned here instead of inherited. -->
+    <DebugType>portable</DebugType>
+    <!-- The SDK turns the request delegate generator on only for a trimmed or a native AOT
+      publish. Turning it on here means an endpoint shape the generator cannot read fails
+      an ordinary build, and not the publish at the end of the day. -->
+    <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,6 +24,7 @@
 
   <ItemGroup>
     <None Include="PrintFiles\*" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="PrintJobs\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
