@@ -68,9 +68,9 @@ internal sealed class MdnsChannelFactory : IMdnsChannelFactory
             }
 
             var v6 = options.IncludeIPv6 ? FirstAddress(properties, AddressFamily.InterNetworkV6) : null;
-            if (v6 is not null && adapter.Supports(NetworkInterfaceComponent.IPv6))
+            if (v6 is not null && adapter.Supports(NetworkInterfaceComponent.IPv6) && TryGetIndex(properties, AddressFamily.InterNetworkV6, out var v6Index))
             {
-                AddChannel(channels, v6, GroupV6, properties.GetIPv6Properties().Index, logger);
+                AddChannel(channels, v6, GroupV6, v6Index, logger);
             }
         }
 
@@ -99,18 +99,43 @@ internal sealed class MdnsChannelFactory : IMdnsChannelFactory
             return true;
         }
 
-        return options.NetworkInterfaceIndexes.Contains(GetIndex(adapter));
+        // An adapter whose index cannot be read matches no index the caller named, so it is
+        // skipped rather than allowed to fail the browse.
+        return TryGetIndex(adapter, out var index) && options.NetworkInterfaceIndexes.Contains(index);
     }
 
-    private static int GetIndex(NetworkInterface adapter)
+    // The index of an adapter, or false when neither family answers for it.
+    //
+    // GetIPv4Properties and GetIPv6Properties throw NetworkInformationException when the
+    // family is not configured on that adapter, and NetworkInterface.Supports does not
+    // promise otherwise: a Windows machine with a tunnel or a virtual adapter reports
+    // support and then refuses the properties. One such adapter used to take the whole
+    // browse down, which is a discovery that finds nothing on a machine that has printers.
+    private static bool TryGetIndex(NetworkInterface adapter, out int index)
     {
         var properties = adapter.GetIPProperties();
-        if (adapter.Supports(NetworkInterfaceComponent.IPv4))
+        if (adapter.Supports(NetworkInterfaceComponent.IPv4) && TryGetIndex(properties, AddressFamily.InterNetwork, out index))
         {
-            return properties.GetIPv4Properties().Index;
+            return true;
         }
 
-        return properties.GetIPv6Properties().Index;
+        return TryGetIndex(properties, AddressFamily.InterNetworkV6, out index);
+    }
+
+    private static bool TryGetIndex(IPInterfaceProperties properties, AddressFamily family, out int index)
+    {
+        try
+        {
+            index = family == AddressFamily.InterNetwork
+                ? properties.GetIPv4Properties().Index
+                : properties.GetIPv6Properties().Index;
+            return true;
+        }
+        catch (NetworkInformationException)
+        {
+            index = 0;
+            return false;
+        }
     }
 
     private static void AddChannel(

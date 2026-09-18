@@ -1,4 +1,4 @@
-name: Build and test.
+﻿name: Build and test.
 on:
   push:
     branches:
@@ -53,13 +53,15 @@ jobs:
       # keeps it out of the analysis, and sonar.coverage.exclusions keeps it out
       # of the coverage, so a sample never changes the quality gate.
       #
-      # The files below reach the Windows print spooler, GDI or the Windows SDK
-      # projection, all through P/Invoke or a -windows only API. This runner is
-      # ubuntu-latest, so no test here can execute that code;
-      # docs/windows-manual-tests.md lists the checks a person must run on Windows
-      # instead. Excluded from coverage only, not from analysis: Sonar still
-      # inspects every file for issues. The Windows code that is pure logic
-      # (the layout, the parsers and the mappers) stays in, and the tests cover it.
+      # What is left on the coverage list is the thin layer that cannot run here and
+      # holds no decision: the [LibraryImport] declarations, the adapters that do
+      # nothing but forward to them, and the PDF path that calls the in-box Windows
+      # engine. Everything above them is behind a seam (IWindowsSpoolerInterop,
+      # IWindowsGdiInterop, IWindowsGdiImagePrinter) and runs on this Linux runner
+      # against a fake spooler, so WindowsSpoolerDriver and WindowsGdiImagePrinter
+      # are in the coverage and stay there. Excluded from coverage only, not from
+      # analysis: Sonar still inspects every file for issues.
+      # docs/windows-manual-tests.md lists what a person must still run on Windows.
       - name: SonarQube Begin
         run: >-
           dotnet sonarscanner begin /k:"adaptive-architecture_dotnet-devices"
@@ -69,7 +71,7 @@ jobs:
           /d:sonar.cs.opencover.reportsPaths="./coverage/coverage.opencover.*.xml"
           /d:sonar.scanner.scanAll=false
           /d:sonar.exclusions="**/assets/**/*,**/coverage/**/*,**/docfx/**/*,**/docs/**/*,**/samples/**/*,**/bin/**/*,**/obj/**/*"
-          /d:sonar.coverage.exclusions="**/samples/**/*,**/Spooler/WindowsSpoolerDriver.cs,**/Spooler/WindowsSpoolerInterop.cs,**/Spooler/WindowsGdiImagePrinter.cs,**/Spooler/WindowsGdiInterop.cs,**/src/Devices.Windows/**/*"
+          /d:sonar.coverage.exclusions="**/samples/**/*,**/Spooler/WindowsSpoolerInterop.cs,**/Spooler/WindowsGdiInterop.cs,**/Spooler/WindowsSpoolerInteropAdapter.cs,**/Spooler/WindowsGdiInteropAdapter.cs,**/Devices.Windows/WindowsPdfRenderer.cs,**/Devices.Windows/WindowsPdfConverter.cs"
           /d:sonar.scanner.skipJreProvisioning=true
 
       - name: Build
@@ -82,3 +84,51 @@ jobs:
         run: dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # That the suite is platform-clean: it builds for a -windows target and no test carries a
+  # Linux assumption. Its first run found three, one of them a crash in the mDNS browse on
+  # any adapter without IPv6 configured.
+  #
+  # It does not call winspool.drv. test/Devices.InteropTests does, and it is deliberately
+  # not run here: it needs a paused print queue, and a job that provisioned one would be
+  # testing the runner image as much as this library. Those tests are run by hand, through
+  # pipeline/unit-test.sh on a Windows machine. docs/windows-manual-tests.md says how.
+  #
+  # No Sonar and no coverage here. The Linux job owns the report and the floor; a second
+  # one would have to be merged into it for no gain, since these tests are the same tests.
+  #
+  # The integration tests are left out on purpose: they need Linux containers, and a
+  # windows-latest runner has Docker in Windows-container mode.
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup dotnet
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget
+
+      - name: Install dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-incremental
+
+      # bash, not the pwsh default: PowerShell does not stop a script on a native command
+      # that failed, and the step takes the exit code of the last one. A failing project
+      # followed by a passing one reported the job green.
+      - name: Run tests that do not need a container
+        shell: bash
+        run: |
+          dotnet test test/Devices.UnitTests/Devices.UnitTests.csproj --no-build
+          dotnet test test/Devices.DependencyInjection.UnitTests/Devices.DependencyInjection.UnitTests.csproj --no-build
+          dotnet test test/Devices.Windows.UnitTests/Devices.Windows.UnitTests.csproj --no-build

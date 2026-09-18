@@ -14,23 +14,6 @@ namespace AdaptArch.Devices.Windows;
 [SupportedOSPlatform("windows10.0.10240.0")]
 internal static class WindowsPdfRenderer
 {
-    // PdfPage.Size counts device-independent pixels (1/96 inch).
-    private const double DipsPerInch = 96.0;
-
-    // No rendered side exceeds this, whatever the units turn out to be, so a
-    // poster-size page cannot exhaust the memory of an inkjet job. The number is the
-    // long side of Legal at MaxDpi, so every common office medium renders at the full
-    // resolution asked for. A page above it renders smaller than that resolution, and
-    // PrintScaling.None then prints it smaller than its own size, because the spooler
-    // sizes a converted page from the resolution it asked the converter for.
-    private const uint MaxRenderPixels = 8400;
-
-    // What this engine renders well: below the first a page turns to mush, above the
-    // second an A4 page needs more memory than an inkjet job should hold. The band is
-    // stated here, and not on the spooler path, because it describes this engine only.
-    private const int MinDpi = 150;
-    private const int MaxDpi = 600;
-
     // One page of raw pixels, packed with no padding between the lines.
     internal readonly record struct RasterPage(byte[] Pixels, int Width, int Height);
 
@@ -78,7 +61,7 @@ internal static class WindowsPdfRenderer
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        dpi = Math.Clamp(dpi, MinDpi, MaxDpi);
+        dpi = WindowsPdfLimits.ClampDpi(dpi);
 
         try
         {
@@ -199,7 +182,7 @@ internal static class WindowsPdfRenderer
             throw new InvalidOperationException($"The PDF page {index + 1} has no size to render.");
         }
 
-        var (width, height) = RenderPixels(size.Width, size.Height, dpi);
+        var (width, height) = WindowsPdfLimits.RenderPixels(size.Width, size.Height, dpi);
         var output = new InMemoryRandomAccessStream();
         PdfPageRenderOptions options = new()
         {
@@ -218,20 +201,4 @@ internal static class WindowsPdfRenderer
         return output;
     }
 
-    // The cap belongs to the longer side, and both sides take the same factor. Capping
-    // each side on its own would make an A4 page at 600 dots per inch square, because
-    // both sides are then above the cap and both stop at it.
-    private static (uint Width, uint Height) RenderPixels(double widthDips, double heightDips, int dpi)
-    {
-        var width = widthDips * dpi / DipsPerInch;
-        var height = heightDips * dpi / DipsPerInch;
-        var longest = Math.Max(width, height);
-        var scale = longest > MaxRenderPixels ? MaxRenderPixels / longest : 1.0;
-        return (ToPixelCount(width * scale), ToPixelCount(height * scale));
-    }
-
-    // A page always renders at least one pixel a side, and never more than the cap:
-    // the round up above can pass it by one when the scale lands on it exactly.
-    private static uint ToPixelCount(double value) =>
-        Math.Max(1u, Math.Min((uint)Math.Ceiling(value), MaxRenderPixels));
 }

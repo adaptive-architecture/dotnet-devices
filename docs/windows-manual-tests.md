@@ -1,9 +1,15 @@
 ﻿# Windows Manual Tests
 
-The Windows spooler driver speaks to `winspool.drv` through native interop. This code
-**cannot run** in the usual development environment: the repository is developed on Linux
-and the CI workflow uses `ubuntu-latest` only. No automated test executes a single
-`winspool.drv` call.
+The Windows spooler driver speaks to `winspool.drv` through native interop. No automated
+test executes a single `winspool.drv` call: the repository is developed on Linux and the CI
+workflow uses `ubuntu-latest` only.
+
+What that leaves is smaller than it used to be. Every native call now goes through
+`IWindowsSpoolerInterop` or `IWindowsGdiInterop`, and a fake spooler answers them with real
+`PRINTER_INFO_4`, `PRINTER_INFO_2`, `JOB_INFO_2` and `DEVMODEW` bytes, so the buffer
+protocol, the structure layouts, the page loop and the error paths all run under test on
+Linux. What is left for a person is what only a real driver and real paper can settle: that
+the bytes we send make the right marks, and that the calls themselves marshal correctly.
 
 This page lists what a person must test on a real Windows machine, and what the automated
 tests already prove.
@@ -23,8 +29,7 @@ Each test below says what it needs.
 ## What the automated tests already prove
 
 These tests run in the usual suite, on Linux, and they need no Windows machine. The driver
-keeps the native calls apart from the logic that reads their results, so the logic is
-testable.
+keeps the native calls behind a seam, so everything around them is testable.
 
 | Area | Test class | What it proves |
 | --- | --- | --- |
@@ -35,6 +40,12 @@ testable.
 | Paper names | `WindowsSpoolerCapabilityParserTests` | `DC_PAPERNAMES` gives fixed 64-character blocks. The parser reads a short name with null padding, a name that fills all 64 characters with no terminator, an empty block, and several blocks in sequence. |
 | Resolutions | `WindowsSpoolerCapabilityParserTests` | `DC_ENUMRESOLUTIONS` gives pairs of integers. The parser reads a list of pairs, one pair, and an empty buffer. |
 | Platform guard | `WindowsSpoolerDriverTests` | All seven `ISpoolerDriver` methods throw `PlatformNotSupportedException` on a machine that is not Windows, before any native call. |
+| Spooler buffer protocol | `WindowsSpoolerDriverSeamTests` | `EnumPrinters`, `GetPrinter` and `EnumJobs` are asked for the size and then for the data; an array of `JOB_INFO_2` is read back without misalignment, which is the check the structure layout only gets here; a queue with no driver reports no media rather than a guess. |
+| Spooler error paths | `WindowsSpoolerDriverSeamTests` | A short `WritePrinter` keeps writing until the document is whole and a failed one deletes the job with `JOB_CONTROL_DELETE`, so no truncated label commits; a write that makes no progress fails instead of looping; `ERROR_INVALID_PARAMETER` from `SetJob` is a `false` and any other code is an exception; a failed `OpenPrinter` closes nothing, because it leaves the handle undefined; a device mode shorter than `DEVMODEW` is refused rather than written over. |
+| Spooler job routing | `WindowsSpoolerDriverSeamTests` | A printer language goes out raw, an image and a document go through GDI, a copy count loops on the raw path and rides the device mode on the GDI path, and a page range reaches the converter on the document path only. |
+| GDI page loop | `WindowsGdiImagePrinterTests` | Every page of a job is in one document; each page is written to its own temporary file, which is read back intact and deleted afterwards; a page that fails aborts the document rather than ending it and leaves no graphics, image or device context open; the resolution arithmetic reaches GDI+ as the rectangle it drew, and a page from a converter uses the resolution it was rendered at rather than the 96 the encoder left behind. |
+| Windows PDF limits | `WindowsPdfLimitsTests` | The resolution is clamped to what the in-box engine renders well, and a page over the pixel cap keeps its shape because the cap belongs to the longer side. |
+| Windows package surface | `WindowsPrintingTests` | `PdfConverter` reads PDF only and writes both PNG and PWG Raster, and adding it to `PrinterManagerOptions.Converters` enables PDF for one manager without touching the process. |
 | Driver selection | `SpoolerDriverFactoryTests` | The factory gives a CUPS driver on Linux and macOS. |
 | PWG Raster encoding | `PwgRasterWriterTests` | The synchronization word, a page header of exactly 1796 octets, the field offsets of PWG 5102.4 Table 1, and the PackBits encoding read back through a decoder written against the specification. The sample bitmap the specification works through in section 4.4.1 is reproduced octet for octet, and all eight sides and sheet-back combinations of Table 9 give the transforms the table names. |
 | Raster keywords | `PwgRasterTests` | A printer's `pwg-raster-document-type-supported` and `pwg-raster-document-sheet-back` keywords read into the writer's options, and a keyword this library does not know falls back to colour and to `Normal`. |
@@ -66,6 +77,49 @@ the result against the checklist; the sample only gathers the evidence to judge.
 
 Check 3, the print cycle, needs the **Also submit the check 3 test job** box, because it
 submits a real job. The browser asks for confirmation before it sends anything.
+
+## The tests that run themselves on Windows
+
+`test/Devices.InteropTests` is the only set in this repository that calls `winspool.drv`.
+Everything else answers through `IWindowsSpoolerInterop`, and a fake cannot settle whether a
+structure is declared correctly: it writes the structure with the same declaration it reads
+it with, so a declaration wrong against the real header still round-trips. Only bytes the
+spooler itself wrote can tell you.
+
+They are not in CI. They need a paused print queue, and a job that provisioned one would be
+testing the runner image as much as this library.
+
+**Microsoft Print to PDF is enough** — no hardware, no driver to install. It has a real
+driver, so `DeviceCapabilities` answers with real paper names, and pausing it means nothing
+ever renders.
+
+```powershell
+# Pause it first. This is not optional: a live queue prints, and Print to PDF stops on a
+# Save As dialog that no test can answer.
+Get-CimInstance Win32_Printer -Filter "Name='Microsoft Print to PDF'" | Invoke-CimMethod -MethodName Pause
+```
+
+```bash
+sh ./pipeline/unit-test.sh
+```
+
+The script names that queue by default on Windows outside CI. Set `DEVICES_TEST_QUEUE` to use
+another one — a real printer works too, as long as it is paused. Every test checks that it is
+and refuses otherwise, so a wrong name costs a clear failure and nothing else. Each test
+cancels the jobs it sent; leave the queue paused afterwards.
+
+What they settle, which the checklist below used to ask a person for:
+
+| Call | Structure it reads from the spooler | Replaces |
+| --- | --- | --- |
+| `SpoolerPrinterDiscovery.DiscoverAsync` | `PRINTER_INFO_4` | part of test 5 |
+| Three jobs, then `GetJobsAsync` | **`JOB_INFO_2`, several entries** | **test 1** |
+| `GetStatusAsync` | `PRINTER_INFO_2`, paused | part of test 2 |
+| `GetConfigurationAsync` | `DeviceCapabilities` name blocks, `DEVMODEW` | most of test 6 |
+| `CancelJobAsync` | `SetJob`, and that 87 really means a job that left | part of test 5 |
+
+Run these before working through the list below: they take seconds, and what they cover does
+not need a person.
 
 ## The tests to do on Windows
 
@@ -150,15 +204,21 @@ The checks run both of these for you.
 2. Cancel a job that already finished, or an id that never existed, on the real queue.
    `CancelJobAsync` must return `false`, not throw. The driver gives
    `ERROR_INVALID_PARAMETER` (87) this special treatment.
-3. Call `GetConfigurationAsync` with a queue name that does not exist. `DeviceCapabilities`
+3. ~~Call `GetConfigurationAsync` with a queue name that does not exist. `DeviceCapabilities`
    returns `-1`, and the driver must throw `InvalidOperationException`, not return an empty
-   configuration.
+   configuration.~~ **Covered** by
+   `WindowsSpoolerDriverSeamTests.GetConfigurationAsync_ADriverThatRefusesTheQuery_ThrowsRatherThanReportNothing`.
+   What is left here is only whether real Windows answers `-1` for a missing queue rather
+   than `0`; the two must not read the same, and the test holds that apart.
 4. Stop the **Print Spooler** service, then call `EnumeratePrintersAsync` and `GetJobsAsync`.
    Both must throw `InvalidOperationException` with error 1722 (`RPC_S_SERVER_UNAVAILABLE`)
    or a similar code. Neither call may return an empty list. Start the service again.
-5. Pass a cancelled `CancellationToken` to any method. The call must throw
-   `OperationCanceledException` before it reaches the spooler. The token is checked on
-   entry only: a call that already runs inside `winspool.drv` completes on its own.
+5. ~~Pass a cancelled `CancellationToken` to any method. The call must throw
+   `OperationCanceledException` before it reaches the spooler.~~ **Covered** by
+   `WindowsSpoolerDriverSeamTests.EveryEntryPoint_ACancelledToken_ThrowsBeforeItReachesTheSpooler`,
+   which asserts it for all eight and that the spooler saw nothing. The token is still
+   checked on entry only: a call that already runs inside `winspool.drv` completes on its
+   own, and no test on any platform can change that.
 
 ### 6. The configuration, against a real driver
 

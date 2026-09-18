@@ -1,4 +1,4 @@
-# Development
+﻿# Development
 
 ## Toolchain
 
@@ -40,7 +40,7 @@ Test projects use `xunit.v3` (MTP v2 runner via
 with coverage from the `coverlet.MTP` extension.
 
 ```bash
-sh ./pipeline/unit-test.sh    # Preferred: unit tests with coverage
+sh ./pipeline/unit-test.sh    # Preferred: every test with coverage
 dotnetup dotnet test          # Run all tests
 dotnetup dotnet test --filter-class MyClass   # xUnit MTP filter example
 ```
@@ -53,22 +53,72 @@ The `pipeline/unit-test.sh` script:
 - Emits coverage in JSON, LCOV, and OpenCover formats under `coverage/`
   (one timestamped report per test project via `--results-directory ./coverage`)
 
-The CI runner is Linux, so no test there executes the Windows P/Invoke paths
-(`WindowsSpoolerDriver`, `WindowsSpoolerInterop`, `WindowsGdiImagePrinter`,
-`WindowsGdiInterop`) or the `AdaptArch.Devices.Windows` package. Those are listed in
-`sonar.coverage.exclusions` in `.github/workflows/test.yml`, so they do not count as
-uncovered. The exclusion is for coverage only: Sonar still inspects the files, and
-[windows-manual-tests.md](windows-manual-tests.md) states the checks a person runs on
-Windows. The Windows code that is pure logic — the layout, the parsers and the mappers —
-stays in the coverage, and the tests cover it. Add a new Windows-only file to that list
-only when a test on Linux cannot reach it.
+The CI runner is Linux, so no test there executes a native call. It does execute almost
+everything around one: `WindowsSpoolerDriver` and `WindowsGdiImagePrinter` reach
+`winspool.drv`, `gdi32` and `gdiplus` through `IWindowsSpoolerInterop`,
+`IWindowsGdiInterop` and `IWindowsGdiImagePrinter`, and the suite answers those with fakes
+that write real `PRINTER_INFO_2`, `JOB_INFO_2` and `DEVMODEW` bytes. Both files are in the
+coverage and are expected to stay above 80%.
+
+What `sonar.coverage.exclusions` in `.github/workflows/test.yml` still holds is the thin
+layer that has no logic to test: the `[LibraryImport]` declarations, the adapters that
+forward to them, and the PDF path that calls the in-box Windows engine.
+[windows-manual-tests.md](windows-manual-tests.md) states what a person still runs on
+Windows. **Add a file to that list only when a seam cannot be put in front of it** — the
+answer to a Windows-only file is usually an interface, not an exclusion.
+
+`test/Devices.InteropTests` calls `winspool.drv` and runs only on a Windows machine outside
+CI, against a paused print queue that `pipeline/unit-test.sh` names in `DEVICES_TEST_QUEUE`
+(Microsoft Print to PDF by default). Without that variable every test in it skips.
+[windows-manual-tests.md](windows-manual-tests.md#the-tests-that-run-themselves-on-windows)
+says how to pause the queue and why that matters.
+
+`pipeline/unit-test.sh` fails the build when line coverage over everything else falls below
+`THRESHOLD` (90%). The figure is computed from the merged LCOV reports, because a file is
+instrumented by every test project that references it and only the union says what really
+ran. `--coverlet-include "[AdaptArch.*]*"` keeps the report to this repository: without it
+the integration tests pull Testcontainers and Docker.DotNet into the numbers.
 
 The `samples/` directory is demonstration code. Sonar does not analyze it and does not
 count it in the coverage: `sonar.exclusions` and `sonar.coverage.exclusions` in
 `.github/workflows/test.yml` both list `**/samples/**/*`, and
 `samples/Directory.Build.props` sets `SonarQubeExclude` to `true`.
 
-Integration tests (when added later) require Docker. Set `TESTCONTAINERS_RYUK_DISABLED=true` in CI environments.
+## Integration tests
+
+`test/Devices.IntegrationTests` prints to virtual printers in containers, so the library is
+read by something it did not write. Every other test in this repository answers IPP with
+bytes we wrote ourselves, which proves the parser agrees with the fixture; these answer with
+CUPS, which proves it agrees with IPP.
+
+Two images, built from the Dockerfiles in `test/Devices.IntegrationTests/docker/`:
+
+| Image | What it is | What it covers |
+| :--- | :--- | :--- |
+| `cups` | A CUPS daemon with three queues: one that prints, one stopped so a job stays where a test can look at it, and a second live one so the enumeration has more than one answer. | `cups://` end to end, and `spooler://`, which on Linux and macOS *is* a local CUPS daemon. |
+| `ippeve` | `ippeveprinter`, the CUPS project's own IPP Everywhere test server. The formats it advertises come from an environment variable. | Capabilities, job lifecycle, and the choice between sending a PDF and converting it, taken from the printer's own answer. |
+
+```bash
+dotnetup dotnet test test/Devices.IntegrationTests/Devices.IntegrationTests.csproj
+```
+
+- **A Docker daemon is required.** These tests run in the ordinary CI job and their coverage
+  counts, so there is no separate opt-in: a machine without Docker fails them. The rest of
+  the suite is unaffected, and the tests in `RawPrintingTests` need no container at all.
+- `TESTCONTAINERS_RYUK_DISABLED=true` is exported by `pipeline/unit-test.sh` when `CI` is set.
+- **An image that is already present is reused**, so a run costs no package install. After
+  editing a Dockerfile, remove the tag to get the new one:
+  `docker rmi adaptarch-devices-cups:integration-tests adaptarch-devices-ippeve:integration-tests`.
+- A Docker daemon whose containers cannot resolve DNS on the default bridge network cannot
+  build these images. Build them once by hand with `docker build --network host -t
+  adaptarch-devices-cups:integration-tests test/Devices.IntegrationTests/docker/cups` (and
+  the same for `ippeve`); the tests then reuse them.
+
+`CupsSpoolerDriver` fixes the local daemon at `ipp://localhost:631/`, and binding a container
+to port 631 of the developer's machine would fight the `cupsd` already there. The
+`spooler://` tests therefore build that one driver on its internal constructor with the
+container's address; everything above it is the shipped code. `Directory.Build.props` grants
+the integration assembly the same `InternalsVisibleTo` the unit tests have.
 
 ## Trim and native AOT
 

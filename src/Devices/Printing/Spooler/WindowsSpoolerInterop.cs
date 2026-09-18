@@ -4,57 +4,73 @@ using System.Runtime.Versioning;
 namespace AdaptArch.Devices.Printing.Spooler;
 
 // Only the entry points this library calls are declared.
-[SupportedOSPlatform("windows")]
+//
+// The platform attribute sits on each imported method and not on the type: the constants
+// and the structures below are declarations, which Marshal reads correctly everywhere, and
+// a test that builds a PRINTER_INFO_2 on Linux needs them. Only a call needs Windows.
 internal static partial class WindowsSpoolerInterop
 {
+    [SupportedOSPlatform("windows")]
     [LibraryImport("winspool.drv", EntryPoint = "OpenPrinterW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool OpenPrinter(string printerName, out nint printerHandle, in PrinterDefaults defaults);
 
+    [SupportedOSPlatform("windows")]
     [LibraryImport("winspool.drv", EntryPoint = "ClosePrinter", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool ClosePrinter(nint printerHandle);
 
+    [SupportedOSPlatform("windows")]
     [LibraryImport("winspool.drv", EntryPoint = "StartDocPrinterW", SetLastError = true)]
     internal static partial int StartDocPrinter(nint printerHandle, int level, in DocInfo1 documentInfo);
 
+    [SupportedOSPlatform("windows")]
     [LibraryImport("winspool.drv", EntryPoint = "EndDocPrinter", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool EndDocPrinter(nint printerHandle);
 
+    [SupportedOSPlatform("windows")]
     [LibraryImport("winspool.drv", EntryPoint = "StartPagePrinter", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool StartPagePrinter(nint printerHandle);
 
+    [SupportedOSPlatform("windows")]
     [LibraryImport("winspool.drv", EntryPoint = "EndPagePrinter", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool EndPagePrinter(nint printerHandle);
 
+    [SupportedOSPlatform("windows")]
     [LibraryImport("winspool.drv", EntryPoint = "WritePrinter", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool WritePrinter(nint printerHandle, nint buffer, int count, out int written);
 
+    [SupportedOSPlatform("windows")]
     [LibraryImport("winspool.drv", EntryPoint = "EnumPrintersW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool EnumPrinters(int flags, nint name, int level, nint buffer, int bufferSize, out int needed, out int returned);
 
+    [SupportedOSPlatform("windows")]
     [LibraryImport("winspool.drv", EntryPoint = "EnumJobsW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool EnumJobs(nint printerHandle, int firstJob, int jobCount, int level, nint buffer, int bufferSize, out int needed, out int returned);
 
+    [SupportedOSPlatform("windows")]
     [LibraryImport("winspool.drv", EntryPoint = "SetJobW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool SetJob(nint printerHandle, int jobId, int level, nint job, int command);
 
+    [SupportedOSPlatform("windows")]
     [LibraryImport("winspool.drv", EntryPoint = "GetPrinterW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetPrinter(nint printerHandle, int level, nint buffer, int bufferSize, out int needed);
 
+    [SupportedOSPlatform("windows")]
     [LibraryImport("winspool.drv", EntryPoint = "DeviceCapabilitiesW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     internal static partial int DeviceCapabilities(string device, string? port, ushort capability, nint output, nint deviceMode);
 
     // The only way to get a DEVMODE whose driver-private tail is valid: the driver builds
     // it. With both buffers and both mode bits, the driver also validates what it is given.
+    [SupportedOSPlatform("windows")]
     [LibraryImport("winspool.drv", EntryPoint = "DocumentPropertiesW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     internal static partial int DocumentProperties(nint window, nint printerHandle, string deviceName, nint output, nint input, uint mode);
 
