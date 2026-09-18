@@ -35,6 +35,15 @@ internal static partial class IppLog
     [LoggerMessage(EventId = 1031, Level = LogLevel.Warning, Message = "Printer {Endpoint} lists neither {ContentType} nor application/vnd.cups-raw, so the job is sent as {Format}. A printer language sent this way may print as text instead of as a label.")]
     public static partial void DocumentFormatDowngraded(ILogger logger, Uri endpoint, string contentType, string format);
 
+    [LoggerMessage(EventId = 1032, Level = LogLevel.Information, Message = "The job of {ContentType} for {Endpoint} is converted to {Target}, because the printer reads no format of the document itself. The printer receives a raster and not the document that was handed in.")]
+    public static partial void DocumentConverted(ILogger logger, string contentType, Uri endpoint, string target);
+
+    [LoggerMessage(EventId = 1033, Level = LogLevel.Debug, Message = "The job of {ContentType} for {Endpoint} converted to {Bytes} bytes of {Target}.")]
+    public static partial void DocumentConversionSize(ILogger logger, string contentType, Uri endpoint, int bytes, string target);
+
+    [LoggerMessage(EventId = 1034, Level = LogLevel.Warning, Message = "The job of {ContentType} for {Endpoint} is not converted, because {Reason}, so it is sent unchanged and the printer may refuse it.")]
+    public static partial void DocumentNotConverted(ILogger logger, string contentType, Uri endpoint, string reason);
+
     [LoggerMessage(EventId = 1021, Level = LogLevel.Debug, Message = "IPP job {JobId} on {Endpoint} is {State}; reasons {Reasons}; message {Message}.")]
     public static partial void JobRead(ILogger logger, string jobId, Uri endpoint, PrintJobState state, string? reasons, string? message);
 }

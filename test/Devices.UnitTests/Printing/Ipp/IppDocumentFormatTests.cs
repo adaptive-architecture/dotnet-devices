@@ -84,4 +84,60 @@ public class IppDocumentFormatTests
             "application/vnd.star-line",
             IppDocumentFormat.Negotiate("application/vnd.star-line", [IppDocumentFormat.CupsRaw]));
     }
+
+    [Fact]
+    public void NegotiateConversionTarget_ChoosesPwgRasterWhenThePrinterReadsIt() =>
+        Assert.Equal(
+            PrinterContentTypes.PwgRaster,
+            IppDocumentFormat.NegotiateConversionTarget(
+                [PrinterContentTypes.Jpeg, PrinterContentTypes.PwgRaster],
+                new StubConverter(PrinterContentTypes.PwgRaster)));
+
+    [Fact]
+    public void NegotiateConversionTarget_IsNullWhenThePrinterReadsNoTargetAtAll() =>
+        Assert.Null(IppDocumentFormat.NegotiateConversionTarget(
+            [PrinterContentTypes.Jpeg, PrinterContentTypes.Pdf],
+            new StubConverter(PrinterContentTypes.PwgRaster)));
+
+    // The printer reads the target, but this converter does not write it.
+    [Fact]
+    public void NegotiateConversionTarget_IsNullWhenTheConverterWritesOnlyPng() =>
+        Assert.Null(IppDocumentFormat.NegotiateConversionTarget(
+            [PrinterContentTypes.PwgRaster],
+            new StubConverter(PrinterContentTypes.Png)));
+
+    // A printer that reported no list converts nothing, because a raster is a worse job
+    // than the document whenever the document would have been read.
+    [Fact]
+    public void NegotiateConversionTarget_IsNullWhenThePrinterReportedNoFormats() =>
+        Assert.Null(IppDocumentFormat.NegotiateConversionTarget(
+            [],
+            new StubConverter(PrinterContentTypes.PwgRaster)));
+
+    [Fact]
+    public void NegotiateConversionTarget_MatchesTheFormatWithoutRegardToCase() =>
+        Assert.Equal(
+            PrinterContentTypes.PwgRaster,
+            IppDocumentFormat.NegotiateConversionTarget(
+                ["IMAGE/PWG-RASTER"],
+                new StubConverter(PrinterContentTypes.PwgRaster)));
+
+    private sealed class StubConverter : IPrintPayloadConverter
+    {
+        private readonly string _target;
+
+        public StubConverter(string target)
+        {
+            _target = target;
+        }
+
+        public bool CanConvert(string contentType) =>
+            String.Equals(contentType, PrinterContentTypes.Pdf, StringComparison.OrdinalIgnoreCase);
+
+        public bool CanEmit(string targetContentType) =>
+            String.Equals(targetContentType, _target, StringComparison.OrdinalIgnoreCase);
+
+        public Task<IReadOnlyList<byte[]>> ConvertAsync(byte[] data, PrintConversionContext context, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("The negotiation must not convert.");
+    }
 }

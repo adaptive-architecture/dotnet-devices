@@ -7,10 +7,9 @@ namespace AdaptArch.Devices.Printing.Spooler;
 // names that path needs. P/Invoke-free on purpose, so the routing is testable on any platform.
 internal static class WindowsSpoolerContent
 {
-    // A document page is converted at this resolution when the job names none. What a
-    // converter can actually do is the business of that converter, so nothing is clamped
-    // here: a limit of one engine must not quietly reduce the request given to another.
-    internal const int DefaultRenderDpi = 300;
+    // Every path that converts a document shares one default, so the spooler and the IPP
+    // channel cannot drift apart.
+    internal const int DefaultRenderDpi = PrintConversionContext.DefaultDpi;
 
     // The registered kind of the format decides the path, so a format an application
     // declared takes the same route as a built-in one of that kind.

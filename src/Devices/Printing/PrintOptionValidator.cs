@@ -151,9 +151,28 @@ internal static class PrintOptionValidator
         && configuration.SupportedOrientations.Count == 0
         && configuration.SupportedScalings.Count == 0;
 
+    // A converter that honoured the page ranges leaves none for the printer to apply a
+    // second time, which would select a subset of the subset.
+    public static PrintOptions WithoutPageRanges(PrintOptions options)
+    {
+        var copy = Copy(options);
+        copy.PageRanges = null;
+        return copy;
+    }
+
     private static PrintOptions Without(PrintOptions options, List<string> unsupported)
     {
-        var copy = new PrintOptions
+        var copy = Copy(options);
+        foreach (var name in unsupported)
+        {
+            ApplyRemoval(copy, name);
+        }
+
+        return copy;
+    }
+
+    private static PrintOptions Copy(PrintOptions options) =>
+        new()
         {
             Copies = options.Copies,
             Duplex = options.Duplex,
@@ -173,58 +192,55 @@ internal static class PrintOptionValidator
             OnUnsupported = options.OnUnsupported,
         };
 
-        foreach (var name in unsupported)
+    private static void ApplyRemoval(PrintOptions copy, string name)
+    {
+        if (name == nameof(PrintOptions.Duplex))
         {
-            if (name == nameof(PrintOptions.Duplex))
-            {
-                copy.Duplex = null;
-            }
-            else if (name == nameof(PrintOptions.ColorMode))
-            {
-                copy.ColorMode = null;
-            }
-            else if (name == nameof(PrintOptions.MediaSize))
-            {
-                copy.MediaSize = null;
-            }
-            else if (name == nameof(PrintOptions.ResolutionDpi))
-            {
-                copy.ResolutionDpi = null;
-            }
-            else if (name == nameof(PrintOptions.MediaSource))
-            {
-                copy.MediaSource = null;
-            }
-            else if (name == nameof(PrintOptions.MediaType))
-            {
-                copy.MediaType = null;
-            }
-            else if (name == nameof(PrintOptions.OutputBin))
-            {
-                copy.OutputBin = null;
-            }
-            else if (name == nameof(PrintOptions.Quality))
-            {
-                copy.Quality = null;
-            }
-            else if (name == nameof(PrintOptions.NumberUp))
-            {
-                copy.NumberUp = null;
-            }
-            else if (name == nameof(PrintOptions.PageRanges))
-            {
-                copy.PageRanges = null;
-            }
-            else if (name == nameof(PrintOptions.Orientation))
-            {
-                copy.Orientation = null;
-            }
-            else if (name == nameof(PrintOptions.Scaling))
-            {
-                copy.Scaling = null;
-            }
+            copy.Duplex = null;
         }
-
-        return copy;
+        else if (name == nameof(PrintOptions.ColorMode))
+        {
+            copy.ColorMode = null;
+        }
+        else if (name == nameof(PrintOptions.MediaSize))
+        {
+            copy.MediaSize = null;
+        }
+        else if (name == nameof(PrintOptions.ResolutionDpi))
+        {
+            copy.ResolutionDpi = null;
+        }
+        else if (name == nameof(PrintOptions.MediaSource))
+        {
+            copy.MediaSource = null;
+        }
+        else if (name == nameof(PrintOptions.MediaType))
+        {
+            copy.MediaType = null;
+        }
+        else if (name == nameof(PrintOptions.OutputBin))
+        {
+            copy.OutputBin = null;
+        }
+        else if (name == nameof(PrintOptions.Quality))
+        {
+            copy.Quality = null;
+        }
+        else if (name == nameof(PrintOptions.NumberUp))
+        {
+            copy.NumberUp = null;
+        }
+        else if (name == nameof(PrintOptions.PageRanges))
+        {
+            copy.PageRanges = null;
+        }
+        else if (name == nameof(PrintOptions.Orientation))
+        {
+            copy.Orientation = null;
+        }
+        else if (name == nameof(PrintOptions.Scaling))
+        {
+            copy.Scaling = null;
+        }
     }
 }

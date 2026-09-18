@@ -74,7 +74,7 @@ public sealed class PrintFormatPolicy
     /// <see cref="PrinterManagerOptions.Converters"/> is the way to register one for a
     /// single manager. This method is for a console application that opens a printer
     /// directly, and it is what
-    /// <c>AdaptArch.Devices.Windows.WindowsPrinting.EnableSpoolerPdfPrinting()</c> calls.
+    /// <c>AdaptArch.Devices.Windows.WindowsPrinting.EnablePdfPrinting()</c> calls.
     /// </remarks>
     public static void AddDefaultConverter(IPrintPayloadConverter converter)
     {

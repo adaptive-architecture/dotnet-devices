@@ -124,6 +124,238 @@ public class IppPrinterDocumentFormatTests
         Assert.Contains("document format", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task PrintAsync_ConvertsADocumentThePrinterCannotRead()
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        var body = await PrintPdfAsync(converter, null, PrinterContentTypes.PwgRaster);
+
+        Assert.Equal(1, converter.Calls);
+        Assert.Contains(PrinterContentTypes.PwgRaster, body, StringComparison.Ordinal);
+        Assert.Contains(FakeConverter.Marker, body, StringComparison.Ordinal);
+        Assert.DoesNotContain("%PDF", body, StringComparison.Ordinal);
+    }
+
+    // The printer reads PDF itself, so the document goes as it is. A raster of a document
+    // is never better than the document.
+    [Fact]
+    public async Task PrintAsync_KeepsTheDocumentWhenThePrinterReadsIt()
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        var body = await PrintPdfAsync(converter, null, PrinterContentTypes.Pdf, PrinterContentTypes.PwgRaster);
+
+        Assert.Equal(0, converter.Calls);
+        Assert.Contains(PrinterContentTypes.Pdf, body, StringComparison.Ordinal);
+        Assert.Contains("%PDF", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PrintAsync_DoesNotConvertWhenThePrinterReadsNothingTheConverterWrites()
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        var body = await PrintPdfAsync(converter, null, PrinterContentTypes.Jpeg);
+
+        Assert.Equal(0, converter.Calls);
+        Assert.Contains(PrinterContentTypes.Pdf, body, StringComparison.Ordinal);
+    }
+
+    // An application that registered no converter must not pay for the format list it
+    // would never have used: one probe by the resolver, and no configuration read.
+    [Fact]
+    public async Task PrintAsync_ReadsNoFormatListWhenNoConverterIsRegistered()
+    {
+        OperationHandler handler = new(AttributesResponse(PrinterContentTypes.PwgRaster), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler));
+
+        _ = await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            null,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, handler.AttributeRequests);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public async Task PrintAsync_FailsWhenTheConverterDoesNotReturnOneDocument(int documents)
+    {
+        FakeConverter converter = new(documents, PrinterContentTypes.PwgRaster);
+        OperationHandler handler = new(AttributesResponse(PrinterContentTypes.PwgRaster), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler)) { Formats = new PrintFormatPolicy(null, [converter]) };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            null,
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains(PrinterContentTypes.PwgRaster, exception.Message, StringComparison.Ordinal);
+
+        // Nothing reached the printer: a converter that broke the contract spools nothing.
+        Assert.Null(handler.PrintJobBody);
+    }
+
+    // The converter selected the pages, so repeating them on the job would select a
+    // subset of the subset.
+    [Fact]
+    public async Task PrintAsync_GivesThePageRangesToTheConverterAndSendsNoneToThePrinter()
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        PrintOptions options = new() { PageRanges = [new PageRange(2, 3)] };
+        var body = await PrintPdfAsync(converter, options, PrinterContentTypes.PwgRaster);
+
+        var range = Assert.Single(converter.LastContext.PageRanges);
+        Assert.Equal(2, range.Lower);
+        Assert.Equal(3, range.Upper);
+        Assert.DoesNotContain("page-ranges", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PrintAsync_ConvertsAtTheDefaultResolutionWhenTheJobNamesNone()
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        _ = await PrintPdfAsync(converter, null, PrinterContentTypes.PwgRaster);
+
+        Assert.Equal(PrintConversionContext.DefaultDpi, converter.LastContext.Dpi);
+    }
+
+    [Fact]
+    public async Task PrintAsync_ConvertsAtTheResolutionTheJobAskedFor()
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        _ = await PrintPdfAsync(converter, new PrintOptions { ResolutionDpi = 600 }, PrinterContentTypes.PwgRaster);
+
+        Assert.Equal(600, converter.LastContext.Dpi);
+    }
+
+    // A raster is only readable at a resolution the printer rasters at, so a request it
+    // cannot meet moves to the nearest one it named instead of being refused.
+    [Theory]
+    [InlineData(null, 300)]
+    [InlineData(300, 300)]
+    [InlineData(400, 300)]
+    [InlineData(500, 600)]
+    [InlineData(2400, 600)]
+    public async Task PrintAsync_ConvertsAtTheNearestResolutionThePrinterRasters(int? asked, int expected)
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        OperationHandler handler = new(RasterAttributes(), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler)) { Formats = new PrintFormatPolicy(null, [converter]) };
+
+        _ = await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            asked is null ? null : new PrintOptions { ResolutionDpi = asked },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(expected, converter.LastContext.Dpi);
+    }
+
+    [Theory]
+    [InlineData(null, "srgb_8")]
+    [InlineData(PrintColorMode.Color, "srgb_8")]
+    [InlineData(PrintColorMode.Monochrome, "sgray_8")]
+    public async Task PrintAsync_ChoosesTheRasterTypeFromTheColorMode(PrintColorMode? mode, string expected)
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        OperationHandler handler = new(RasterAttributes(), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler)) { Formats = new PrintFormatPolicy(null, [converter]) };
+
+        _ = await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            mode is null ? null : new PrintOptions { ColorMode = mode },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(expected, converter.LastContext.RasterType);
+    }
+
+    [Fact]
+    public async Task PrintAsync_PassesTheSheetBackAndTheDuplexModeToTheConverter()
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        OperationHandler handler = new(RasterAttributes(), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler)) { Formats = new PrintFormatPolicy(null, [converter]) };
+
+        _ = await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { Duplex = DuplexMode.LongEdge },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("rotated", converter.LastContext.SheetBack);
+        Assert.Equal(DuplexMode.LongEdge, converter.LastContext.Duplex);
+    }
+
+    // A printer that reads PWG Raster, rasters at 300 and 600, and turns its sheets over.
+    private static byte[] RasterAttributes() =>
+        IppMessages.Response(0x0000,
+            (0x49, "document-format-supported", PrinterContentTypes.PwgRaster),
+            (0x44, "pwg-raster-document-type-supported", "sgray_8"),
+            (0x44, null, "srgb_8"),
+            (0x32, "pwg-raster-document-resolution-supported", Resolution(300)),
+            (0x32, null, Resolution(600)),
+            (0x44, "pwg-raster-document-sheet-back", "rotated"));
+
+    // RFC 8010: width and height as 4-byte integers, then the unit 3 for dots an inch.
+    private static byte[] Resolution(int dpi) =>
+    [
+        (byte)(dpi >> 24), (byte)(dpi >> 16), (byte)(dpi >> 8), (byte)dpi,
+        (byte)(dpi >> 24), (byte)(dpi >> 16), (byte)(dpi >> 8), (byte)dpi,
+        3,
+    ];
+
+    private static async Task<string> PrintPdfAsync(
+        FakeConverter converter,
+        PrintOptions options,
+        params string[] supported)
+    {
+        OperationHandler handler = new(AttributesResponse(supported), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler)) { Formats = new PrintFormatPolicy(null, [converter]) };
+
+        _ = await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            options,
+            TestContext.Current.CancellationToken);
+
+        return Encoding.Latin1.GetString(handler.PrintJobBody);
+    }
+
+    private sealed class FakeConverter : IPrintPayloadConverter
+    {
+        internal const string Marker = "CONVERTED";
+
+        private readonly int _documents;
+        private readonly string[] _targets;
+
+        public FakeConverter(int documents, params string[] targets)
+        {
+            _documents = documents;
+            _targets = targets;
+        }
+
+        public int Calls { get; private set; }
+
+        public PrintConversionContext LastContext { get; private set; }
+
+        public bool CanConvert(string contentType) =>
+            String.Equals(contentType, PrinterContentTypes.Pdf, StringComparison.OrdinalIgnoreCase);
+
+        public bool CanEmit(string targetContentType) =>
+            Array.Exists(_targets, target => String.Equals(target, targetContentType, StringComparison.OrdinalIgnoreCase));
+
+        public Task<IReadOnlyList<byte[]>> ConvertAsync(byte[] data, PrintConversionContext context, CancellationToken cancellationToken)
+        {
+            Calls++;
+            LastContext = context;
+
+            List<byte[]> documents = new(_documents);
+            for (var i = 0; i < _documents; i++)
+            {
+                documents.Add(Encoding.Latin1.GetBytes(Marker));
+            }
+
+            return Task.FromResult<IReadOnlyList<byte[]>>(documents);
+        }
+    }
+
     // Answers by IPP operation, so a test does not depend on the order of the requests.
     private sealed class OperationHandler : HttpMessageHandler
     {

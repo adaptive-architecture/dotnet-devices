@@ -328,7 +328,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         {
             throw new NotSupportedException(
                 $"The Windows spooler cannot print '{contentType}' without a converter for it: add one to PrinterManagerOptions.Converters. " +
-                $"For PDF, reference AdaptArch.Devices.Windows and call WindowsPrinting.EnableSpoolerPdfPrinting(). Queue '{queueName}' spooled nothing.");
+                $"For PDF, reference AdaptArch.Devices.Windows and call WindowsPrinting.EnablePdfPrinting(). Queue '{queueName}' spooled nothing.");
         }
 
         PrintConversionContext context = new(contentType, PrinterContentTypes.Png, dpi, ranges, queueName);

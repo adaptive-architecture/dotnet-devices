@@ -22,8 +22,10 @@
     "opencover",
     "Qube",
     "Roslynator",
+    "Sgray",
     "SNMP",
     "sonarscanner",
+    "Srgb",
     "temurin",
     "Testcontainers"
   ],

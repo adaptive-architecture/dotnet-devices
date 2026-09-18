@@ -45,6 +45,13 @@ one logging implementation.
 
 Read [Troubleshooting](troubleshooting.md) for what the log reports and how to turn it on.
 
+PWG Raster adds no package either. `PwgRasterWriter` in the core package writes PWG 5102.4
+by hand: a 1796-octet page header and a PackBits-like run-length encoding, which is a few
+hundred lines of managed code with no reflection and no platform call. It is public, so an
+application that already has a rasterizer can write a conforming document without one. What
+stays per-platform is turning a document into pixels, and on Windows that is the in-box
+engine the package below already uses.
+
 Windows image printing deliberately adds no package: PNG and JPEG jobs are drawn with
 GDI+ through `gdi32.dll` and `gdiplus.dll`, which are system components, so there is
 nothing to review.
@@ -62,7 +69,7 @@ core package keeps no Windows SDK reference and stays dependency-free; the Windo
 package supplies one public `IPrintPayloadConverter`
 (`WindowsPrinting.PdfConverter`), which an application registers through
 `PrinterManagerOptions.Converters` or, for the whole process, with
-`WindowsPrinting.EnableSpoolerPdfPrinting()`. Without a converter a PDF job fails
+`WindowsPrinting.EnablePdfPrinting()`. Without a converter a PDF job fails
 with `NotSupportedException` before anything spools. The seam is an interface the
 application implements, so both sides stay trim- and AOT-safe with no reflection,
 and the same seam carries any other format (see

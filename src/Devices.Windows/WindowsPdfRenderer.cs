@@ -1,6 +1,7 @@
 ﻿using System.Runtime.InteropServices.WindowsRuntime;
 using System.Runtime.Versioning;
 using AdaptArch.Devices.Printing;
+using AdaptArch.Devices.Printing.Raster;
 using Windows.Data.Pdf;
 using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
@@ -30,12 +31,37 @@ internal static class WindowsPdfRenderer
     private const int MinDpi = 150;
     private const int MaxDpi = 600;
 
+    // One page of raw pixels, packed with no padding between the lines.
+    internal readonly record struct RasterPage(byte[] Pixels, int Width, int Height);
+
     // Renders the selected pages in document order, one PNG per page. PageRanges is
     // the 1-based option the caller set; null prints the whole document.
-    internal static async Task<IReadOnlyList<byte[]>> RenderAsync(
+    internal static Task<IReadOnlyList<byte[]>> RenderAsync(
         byte[] pdf,
         int dpi,
         IReadOnlyList<PageRange>? ranges,
+        CancellationToken cancellationToken) =>
+        RenderAsync(pdf, dpi, ranges, RenderPageAsync, cancellationToken);
+
+    // The same pages as raw pixels, for a caller that encodes them itself.
+    internal static Task<IReadOnlyList<RasterPage>> RenderRasterAsync(
+        byte[] pdf,
+        int dpi,
+        IReadOnlyList<PageRange>? ranges,
+        PwgRasterColorSpace colorSpace,
+        CancellationToken cancellationToken) =>
+        RenderAsync(
+            pdf,
+            dpi,
+            ranges,
+            (page, resolution, index, token) => RenderRasterPageAsync(page, resolution, index, colorSpace, token),
+            cancellationToken);
+
+    private static async Task<IReadOnlyList<TPage>> RenderAsync<TPage>(
+        byte[] pdf,
+        int dpi,
+        IReadOnlyList<PageRange>? ranges,
+        Func<PdfPage, int, int, CancellationToken, Task<TPage>> render,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(pdf);
@@ -72,11 +98,11 @@ internal static class WindowsPdfRenderer
                 throw new InvalidOperationException("The page ranges select no page of this PDF.");
             }
 
-            List<byte[]> rendered = new(selected.Count);
+            List<TPage> rendered = new(selected.Count);
             foreach (var index in selected)
             {
                 using var page = document.GetPage((uint)index);
-                rendered.Add(await RenderPageAsync(page, dpi, index, cancellationToken).ConfigureAwait(false));
+                rendered.Add(await render(page, dpi, index, cancellationToken).ConfigureAwait(false));
             }
 
             return rendered;
@@ -96,26 +122,7 @@ internal static class WindowsPdfRenderer
 
     private static async Task<byte[]> RenderPageAsync(PdfPage page, int dpi, int index, CancellationToken cancellationToken)
     {
-        var size = page.Size;
-        if (size.Width <= 0 || size.Height <= 0)
-        {
-            throw new InvalidOperationException($"The PDF page {index + 1} has no size to render.");
-        }
-
-        var (width, height) = RenderPixels(size.Width, size.Height, dpi);
-        using var output = new InMemoryRandomAccessStream();
-        PdfPageRenderOptions options = new()
-        {
-            BitmapEncoderId = BitmapEncoder.PngEncoderId,
-            DestinationWidth = width,
-            DestinationHeight = height,
-        };
-        await page.RenderToStreamAsync(output, options).AsTask(cancellationToken).ConfigureAwait(false);
-
-        if (output.Size == 0)
-        {
-            throw new InvalidOperationException($"The PDF page {index + 1} rendered to nothing.");
-        }
+        using var output = await RenderToStreamAsync(page, dpi, index, BitmapEncoder.PngEncoderId, cancellationToken).ConfigureAwait(false);
 
         output.Seek(0);
         using var reader = new DataReader(output.GetInputStreamAt(0));
@@ -123,6 +130,92 @@ internal static class WindowsPdfRenderer
         var bytes = new byte[output.Size];
         reader.ReadBytes(bytes);
         return bytes;
+    }
+
+    // The engine only writes encoded bitmaps, so the page is rendered to an uncompressed
+    // BMP and read straight back. GetPixelDataAsync answers with tightly packed pixels,
+    // which is what the raster encoders need and what a locked buffer does not promise.
+    private static async Task<RasterPage> RenderRasterPageAsync(
+        PdfPage page,
+        int dpi,
+        int index,
+        PwgRasterColorSpace colorSpace,
+        CancellationToken cancellationToken)
+    {
+        using var output = await RenderToStreamAsync(page, dpi, index, BitmapEncoder.BmpEncoderId, cancellationToken).ConfigureAwait(false);
+
+        output.Seek(0);
+        var decoder = await BitmapDecoder.CreateAsync(output).AsTask(cancellationToken).ConfigureAwait(false);
+        var pixels = await decoder.GetPixelDataAsync(
+            BitmapPixelFormat.Bgra8,
+            BitmapAlphaMode.Ignore,
+            new BitmapTransform(),
+            ExifOrientationMode.IgnoreExifOrientation,
+            ColorManagementMode.DoNotColorManage).AsTask(cancellationToken).ConfigureAwait(false);
+
+        var width = (int)decoder.PixelWidth;
+        var height = (int)decoder.PixelHeight;
+        return new RasterPage(Repack(pixels.DetachPixelData(), width * height, colorSpace), width, height);
+    }
+
+    // BGRA to the chunky layout PWG Raster wants: three octets a pixel in red, green, blue
+    // order, or one octet of luma. The alpha is ignored, because the page was rendered onto
+    // white and carries none.
+    private static byte[] Repack(byte[] bgra, int pixelCount, PwgRasterColorSpace colorSpace)
+    {
+        if (colorSpace == PwgRasterColorSpace.Grayscale8)
+        {
+            var gray = new byte[pixelCount];
+            for (var i = 0; i < pixelCount; i++)
+            {
+                // Rec. 601 luma, in integer arithmetic.
+                gray[i] = (byte)(((bgra[(i * 4) + 2] * 299) + (bgra[(i * 4) + 1] * 587) + (bgra[i * 4] * 114)) / 1000);
+            }
+
+            return gray;
+        }
+
+        var rgb = new byte[pixelCount * 3];
+        for (var i = 0; i < pixelCount; i++)
+        {
+            rgb[i * 3] = bgra[(i * 4) + 2];
+            rgb[(i * 3) + 1] = bgra[(i * 4) + 1];
+            rgb[(i * 3) + 2] = bgra[i * 4];
+        }
+
+        return rgb;
+    }
+
+    private static async Task<InMemoryRandomAccessStream> RenderToStreamAsync(
+        PdfPage page,
+        int dpi,
+        int index,
+        Guid encoderId,
+        CancellationToken cancellationToken)
+    {
+        var size = page.Size;
+        if (size.Width <= 0 || size.Height <= 0)
+        {
+            throw new InvalidOperationException($"The PDF page {index + 1} has no size to render.");
+        }
+
+        var (width, height) = RenderPixels(size.Width, size.Height, dpi);
+        var output = new InMemoryRandomAccessStream();
+        PdfPageRenderOptions options = new()
+        {
+            BitmapEncoderId = encoderId,
+            DestinationWidth = width,
+            DestinationHeight = height,
+        };
+
+        await page.RenderToStreamAsync(output, options).AsTask(cancellationToken).ConfigureAwait(false);
+        if (output.Size == 0)
+        {
+            output.Dispose();
+            throw new InvalidOperationException($"The PDF page {index + 1} rendered to nothing.");
+        }
+
+        return output;
     }
 
     // The cap belongs to the longer side, and both sides take the same factor. Capping
@@ -134,11 +227,11 @@ internal static class WindowsPdfRenderer
         var height = heightDips * dpi / DipsPerInch;
         var longest = Math.Max(width, height);
         var scale = longest > MaxRenderPixels ? MaxRenderPixels / longest : 1.0;
-        return (Pixels(width * scale), Pixels(height * scale));
+        return (ToPixelCount(width * scale), ToPixelCount(height * scale));
     }
 
     // A page always renders at least one pixel a side, and never more than the cap:
     // the round up above can pass it by one when the scale lands on it exactly.
-    private static uint Pixels(double value) =>
+    private static uint ToPixelCount(double value) =>
         Math.Max(1u, Math.Min((uint)Math.Ceiling(value), MaxRenderPixels));
 }

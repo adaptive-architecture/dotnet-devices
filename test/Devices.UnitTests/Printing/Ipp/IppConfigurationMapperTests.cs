@@ -188,4 +188,68 @@ public class IppConfigurationMapperTests
         Assert.Null(configuration.DefaultOrientation);
         Assert.Null(configuration.DefaultResolutionDpi);
     }
+
+    // SharpIppNext models none of the "pwg-raster-*" attributes, so they come from the raw
+    // response. A converted document is written to what they say.
+    [Fact]
+    public async Task Map_ReadsThePwgRasterAttributesFromTheRawResponse()
+    {
+        var body = IppMessages.Response(0x0000,
+            (0x44, "document-format-supported", PrinterContentTypes.PwgRaster),
+            (0x44, "pwg-raster-document-type-supported", "srgb_8"),
+            (0x44, null, "sgray_8"),
+            (0x32, "pwg-raster-document-resolution-supported", Resolution(300, 300, 3)),
+            (0x32, null, Resolution(600, 600, 3)),
+            (0x44, "pwg-raster-document-sheet-back", "rotated"));
+        (var attributes, var raw) = await IppMessages.DecodeWithRawAsync(body);
+
+        var configuration = IppConfigurationMapper.Map(Id, attributes, raw);
+
+        Assert.Equal<string[]>(["srgb_8", "sgray_8"], [.. configuration.PwgRasterTypes]);
+        Assert.Equal<int[]>([300, 600], [.. configuration.PwgRasterResolutionsDpi]);
+        Assert.Equal("rotated", configuration.PwgRasterSheetBack);
+    }
+
+    // A printer that rasters at different numbers across and down the page is not one this
+    // library can drive, so such a value is left out rather than halved into a lie.
+    [Fact]
+    public async Task Map_SkipsAPwgRasterResolutionThatIsNotSquareOrNotInDotsAnInch()
+    {
+        var body = IppMessages.Response(0x0000,
+            (0x32, "pwg-raster-document-resolution-supported", Resolution(300, 600, 3)),
+            (0x32, null, Resolution(600, 600, 4)),
+            (0x32, null, Resolution(1200, 1200, 3)));
+        (var attributes, var raw) = await IppMessages.DecodeWithRawAsync(body);
+
+        var configuration = IppConfigurationMapper.Map(Id, attributes, raw);
+
+        Assert.Equal<int[]>([1200], [.. configuration.PwgRasterResolutionsDpi]);
+    }
+
+    [Fact]
+    public async Task Map_ReportsNoPwgRasterSupportWhenThePrinterNamesNone()
+    {
+        var body = IppMessages.Response(0x0000, (0x44, "document-format-supported", PrinterContentTypes.Pdf));
+        (var attributes, var raw) = await IppMessages.DecodeWithRawAsync(body);
+
+        var configuration = IppConfigurationMapper.Map(Id, attributes, raw);
+
+        Assert.Empty(configuration.PwgRasterTypes);
+        Assert.Empty(configuration.PwgRasterResolutionsDpi);
+        Assert.Null(configuration.PwgRasterSheetBack);
+    }
+
+    // The raw response is absent on a path that captured none, and that must read as
+    // "not reported" and not as a failure.
+    [Fact]
+    public async Task Map_ReportsNoPwgRasterSupportWithoutARawResponse()
+    {
+        var body = IppMessages.Response(0x0000, (0x44, "document-format-supported", PrinterContentTypes.PwgRaster));
+        var attributes = await IppMessages.DecodePrinterAttributesAsync(body);
+
+        var configuration = IppConfigurationMapper.Map(Id, attributes, null);
+
+        Assert.Empty(configuration.PwgRasterTypes);
+        Assert.Empty(configuration.PwgRasterResolutionsDpi);
+    }
 }

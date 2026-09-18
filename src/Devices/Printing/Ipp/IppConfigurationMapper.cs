@@ -26,6 +26,9 @@ internal static class IppConfigurationMapper
         "print-scaling-supported",
         "printer-resolution-default",
         "document-format-supported",
+        "pwg-raster-document-type-supported",
+        "pwg-raster-document-resolution-supported",
+        "pwg-raster-document-sheet-back",
     ];
 
     public static PrinterConfiguration Map(PrinterId id, PrinterDescriptionAttributes? attributes, IIppResponseMessage? raw)
@@ -60,6 +63,10 @@ internal static class IppConfigurationMapper
             SupportedDocumentFormats = ReadFormats(attributes.DocumentFormatSupported),
             SupportedOrientations = ReadOrientations(attributes.OrientationRequestedSupported),
             SupportedScalings = ReadScalings(attributes.PrintScalingSupported),
+            // SharpIppNext models none of the "pwg-raster-*" attributes, so they are read raw.
+            PwgRasterTypes = IppRawAttributes.ReadKeywords(raw, 0, "pwg-raster-document-type-supported"),
+            PwgRasterResolutionsDpi = IppRawAttributes.ReadResolutions(raw, 0, "pwg-raster-document-resolution-supported"),
+            PwgRasterSheetBack = IppRawAttributes.ReadText(raw, 0, "pwg-raster-document-sheet-back"),
         };
     }
 
