@@ -78,6 +78,49 @@ the result against the checklist; the sample only gathers the evidence to judge.
 Check 3, the print cycle, needs the **Also submit the check 3 test job** box, because it
 submits a real job. The browser asks for confirmation before it sends anything.
 
+## The tests that run themselves on Windows
+
+`test/Devices.InteropTests` is the only set in this repository that calls `winspool.drv`.
+Everything else answers through `IWindowsSpoolerInterop`, and a fake cannot settle whether a
+structure is declared correctly: it writes the structure with the same declaration it reads
+it with, so a declaration wrong against the real header still round-trips. Only bytes the
+spooler itself wrote can tell you.
+
+They are not in CI. They need a paused print queue, and a job that provisioned one would be
+testing the runner image as much as this library.
+
+**Microsoft Print to PDF is enough** — no hardware, no driver to install. It has a real
+driver, so `DeviceCapabilities` answers with real paper names, and pausing it means nothing
+ever renders.
+
+```powershell
+# Pause it first. This is not optional: a live queue prints, and Print to PDF stops on a
+# Save As dialog that no test can answer.
+Get-CimInstance Win32_Printer -Filter "Name='Microsoft Print to PDF'" | Invoke-CimMethod -MethodName Pause
+```
+
+```bash
+sh ./pipeline/unit-test.sh
+```
+
+The script names that queue by default on Windows outside CI. Set `DEVICES_TEST_QUEUE` to use
+another one — a real printer works too, as long as it is paused. Every test checks that it is
+and refuses otherwise, so a wrong name costs a clear failure and nothing else. Each test
+cancels the jobs it sent; leave the queue paused afterwards.
+
+What they settle, which the checklist below used to ask a person for:
+
+| Call | Structure it reads from the spooler | Replaces |
+| --- | --- | --- |
+| `SpoolerPrinterDiscovery.DiscoverAsync` | `PRINTER_INFO_4` | part of test 5 |
+| Three jobs, then `GetJobsAsync` | **`JOB_INFO_2`, several entries** | **test 1** |
+| `GetStatusAsync` | `PRINTER_INFO_2`, paused | part of test 2 |
+| `GetConfigurationAsync` | `DeviceCapabilities` name blocks, `DEVMODEW` | most of test 6 |
+| `CancelJobAsync` | `SetJob`, and that 87 really means a job that left | part of test 5 |
+
+Run these before working through the list below: they take seconds, and what they cover does
+not need a person.
+
 ## The tests to do on Windows
 
 Do these in order. The first is the one that hides the worst kind of error.

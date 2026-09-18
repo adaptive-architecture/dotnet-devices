@@ -67,6 +67,12 @@ forward to them, and the PDF path that calls the in-box Windows engine.
 Windows. **Add a file to that list only when a seam cannot be put in front of it** — the
 answer to a Windows-only file is usually an interface, not an exclusion.
 
+`test/Devices.InteropTests` calls `winspool.drv` and runs only on a Windows machine outside
+CI, against a paused print queue that `pipeline/unit-test.sh` names in `DEVICES_TEST_QUEUE`
+(Microsoft Print to PDF by default). Without that variable every test in it skips.
+[windows-manual-tests.md](windows-manual-tests.md#the-tests-that-run-themselves-on-windows)
+says how to pause the queue and why that matters.
+
 `pipeline/unit-test.sh` fails the build when line coverage over everything else falls below
 `THRESHOLD` (90%). The figure is computed from the merged LCOV reports, because a file is
 instrumented by every test project that references it and only the union says what really

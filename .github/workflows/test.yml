@@ -85,16 +85,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # What this job proves today is that the suite is platform-clean: it builds for a
-  # -windows target, and no test carries a Linux assumption. That is worth having — its
-  # first run found three, one of them a crash in the mDNS browse on any adapter without
-  # IPv6 configured.
+  # That the suite is platform-clean: it builds for a -windows target and no test carries a
+  # Linux assumption. Its first run found three, one of them a crash in the mDNS browse on
+  # any adapter without IPv6 configured.
   #
-  # It does NOT yet prove the marshalling. Every test here answers through the interop
-  # seams, so not one [LibraryImport] is called. Making it earn that claim means a test
-  # that reaches the real winspool.drv: EnumeratePrintersAsync against the runner's own
-  # spooler would exercise EnumPrinters and the PRINTER_INFO_4 layout, since the Windows
-  # image ships with Microsoft Print to PDF installed.
+  # It does not call winspool.drv. test/Devices.InteropTests does, and it is deliberately
+  # not run here: it needs a paused print queue, and a job that provisioned one would be
+  # testing the runner image as much as this library. Those tests are run by hand, through
+  # pipeline/unit-test.sh on a Windows machine. docs/windows-manual-tests.md says how.
   #
   # No Sonar and no coverage here. The Linux job owns the report and the floor; a second
   # one would have to be merged into it for no gain, since these tests are the same tests.
