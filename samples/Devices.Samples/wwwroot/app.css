@@ -70,7 +70,18 @@ aside, .work, .log {
   padding: 12px;
 }
 
-.log { margin: 0 16px 16px; }
+/* The log covers the page: a hardware test is watched, not skimmed beside the form. */
+.log {
+  margin: auto;
+  width: min(1100px, 92vw);
+  height: 86vh;
+  max-width: none;
+  max-height: none;
+  color: var(--ink);
+}
+
+.log[open] { display: flex; flex-direction: column; }
+.log::backdrop { background: rgb(0 0 0 / 45%); }
 
 .printers { list-style: none; margin: 0; padding: 0; }
 
@@ -164,7 +175,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   list-style: none;
   margin: 8px 0 0;
   padding: 0;
-  max-height: 320px;
+  flex: 1;
   overflow: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12.5px;

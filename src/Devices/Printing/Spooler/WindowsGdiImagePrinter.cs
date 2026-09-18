@@ -65,11 +65,18 @@ internal static class WindowsGdiImagePrinter
                 ThrowLastError("CreateDC");
             }
 
+            var printableWidth = WindowsGdiInterop.GetDeviceCaps(deviceContext, WindowsGdiInterop.HorzRes);
+            var printableHeight = WindowsGdiInterop.GetDeviceCaps(deviceContext, WindowsGdiInterop.VertRes);
+            var sheetWidth = WindowsGdiInterop.GetDeviceCaps(deviceContext, WindowsGdiInterop.PhysicalWidth);
+            var sheetHeight = WindowsGdiInterop.GetDeviceCaps(deviceContext, WindowsGdiInterop.PhysicalHeight);
             var page = new PrinterPage(
-                WindowsGdiInterop.GetDeviceCaps(deviceContext, WindowsGdiInterop.HorzRes),
-                WindowsGdiInterop.GetDeviceCaps(deviceContext, WindowsGdiInterop.VertRes),
+                printableWidth,
+                printableHeight,
                 WindowsGdiInterop.GetDeviceCaps(deviceContext, WindowsGdiInterop.LogPixelsX),
-                WindowsGdiInterop.GetDeviceCaps(deviceContext, WindowsGdiInterop.LogPixelsY));
+                WindowsGdiInterop.GetDeviceCaps(deviceContext, WindowsGdiInterop.LogPixelsY),
+                // A driver that reports no sheet keeps its margins, which is the answer
+                // every printer but a borderless one gives anyway.
+                sheetWidth > 0 && sheetHeight > 0 && sheetWidth <= printableWidth && sheetHeight <= printableHeight);
             if (page.Width <= 0 || page.Height <= 0)
             {
                 throw new InvalidOperationException(
@@ -164,7 +171,8 @@ internal static class WindowsGdiImagePrinter
                 page.Width,
                 page.Height,
                 job.Orientation,
-                job.Scaling);
+                job.Scaling,
+                page.Borderless);
             if (layout.IsEmpty)
             {
                 throw new InvalidOperationException(
@@ -292,4 +300,4 @@ internal sealed record WindowsGdiJob(
 // The printable area of one device page: its size in device pixels, and the dots an
 // inch those pixels stand for. Both are read once a job, because a device mode does
 // not change between the pages of one document.
-internal readonly record struct PrinterPage(int Width, int Height, int DpiX, int DpiY);
+internal readonly record struct PrinterPage(int Width, int Height, int DpiX, int DpiY, bool Borderless);

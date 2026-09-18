@@ -40,9 +40,15 @@ internal static class WindowsPdfRenderer
     {
         ArgumentNullException.ThrowIfNull(pdf);
 
-        if (!OperatingSystem.IsWindows())
+        // The version is checked, and not only the platform: .NET 10 still supports Windows
+        // Server 2012 R2, which has no such engine, and a Server Core install may have none
+        // either. Without this the WinRT activation fails inside the render below, where the
+        // catch blames the file.
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240))
         {
-            throw new PlatformNotSupportedException("PDF rendering needs the in-box Windows engine.");
+            throw new PlatformNotSupportedException(
+                "PDF rendering needs the in-box Windows engine, which ships on Windows 10, on Windows 11 " +
+                "and on Windows Server with the Desktop Experience. This machine has none.");
         }
 
         cancellationToken.ThrowIfCancellationRequested();

@@ -45,6 +45,30 @@ public class IppJobMapperTests
         Assert.Equal(10, job.TotalImpressions);
     }
 
+    // "job-impressions" is integer(0:MAX). A printer that answers it out of band on a job
+    // it failed before the first page reaches the mapping as Int32.MinValue, and a page
+    // total of -2147483648 then reads back to the caller.
+    [Theory]
+    [InlineData(Int32.MinValue)]
+    [InlineData(-1)]
+    public void Map_ReadsNoCountFromANegativeImpression(int impressions)
+    {
+        JobDescriptionAttributes attributes = new()
+        {
+            JobId = 49,
+            JobState = JobState.Aborted,
+            JobImpressions = impressions,
+            JobImpressionsCompleted = impressions,
+            JobStateReasons = [],
+        };
+
+        var job = IppJobMapper.Map(PrinterId.ForRaw("printer.local"), attributes);
+
+        Assert.NotNull(job);
+        Assert.Null(job.TotalImpressions);
+        Assert.Null(job.ImpressionsCompleted);
+    }
+
     [Fact]
     public void Map_ReturnsNullForAJobWithoutAnIdentifier()
     {

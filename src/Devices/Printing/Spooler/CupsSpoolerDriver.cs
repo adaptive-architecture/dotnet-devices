@@ -5,8 +5,11 @@ using SharpIpp.Protocol.Models;
 
 namespace AdaptArch.Devices.Printing.Spooler;
 
-// CUPS is an IPP server on localhost:631, so this driver is the same IPP calls pointed
-// at a fixed path. The path never changes, so IppEndpointResolver has nothing to probe.
+// CUPS is an IPP server, so this driver is the same IPP calls pointed at a fixed path.
+// The path never changes, so IppEndpointResolver has nothing to probe. The daemon is on
+// localhost for the spooler of Linux and macOS, and on another host for a CUPS server the
+// application named; _server is what tells the two apart, because a queue of a named
+// server is a cups:// channel and a local one is a spooler:// channel.
 internal sealed class CupsSpoolerDriver : ISpoolerDriver
 {
     private static readonly Uri DefaultBaseUri = new("ipp://localhost:631/");
@@ -19,6 +22,10 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     private readonly Uri _baseUri;
     private readonly PrintFormatPolicy _formats;
 
+    // Null for the local daemon, which the operating system spooler addresses by queue
+    // name alone.
+    private readonly (string Host, int Port)? _server;
+
     public CupsSpoolerDriver(PrintFormatPolicy? formats = null, IppTransportOptions? options = null)
         : this(SharedClient.Value, DefaultBaseUri, formats, options)
     {
@@ -29,7 +36,22 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     {
     }
 
-    internal CupsSpoolerDriver(HttpClient httpClient, Uri baseUri, PrintFormatPolicy? formats = null, IppTransportOptions? options = null)
+    // The one place a remote CUPS server is turned into a driver, so the three types that
+    // reach one build the same thing from the same address.
+    public static CupsSpoolerDriver ForServer(
+        string host,
+        int port,
+        HttpClient httpClient,
+        IppTransportOptions? options,
+        PrintFormatPolicy? formats) =>
+        new(httpClient, CupsPrinterEndpoint.ServerUri(host, port, options), formats, options, (host, port));
+
+    internal CupsSpoolerDriver(
+        HttpClient httpClient,
+        Uri baseUri,
+        PrintFormatPolicy? formats = null,
+        IppTransportOptions? options = null,
+        (string Host, int Port)? server = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(baseUri);
@@ -39,7 +61,20 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         _context = new IppContext(httpClient, options);
         _baseUri = baseUri;
         _formats = formats ?? PrintFormatPolicy.Default;
+        _server = server;
     }
+
+    // Every identifier this driver hands out, so a queue of a named server never reports
+    // itself as a queue of the local spooler.
+    private PrinterId IdFor(string queueName) =>
+        _server is null
+            ? PrinterId.ForSpooler(queueName)
+            : PrinterId.ForCups(_server.Value.Host, queueName, _server.Value.Port);
+
+    private PrinterEndpoint EndpointFor(string queueName) =>
+        _server is null
+            ? new SpoolerPrinterEndpoint(queueName)
+            : new CupsPrinterEndpoint(_server.Value.Host, queueName, _server.Value.Port);
 
     public async Task<IReadOnlyList<DiscoveredPrinter>> EnumeratePrintersAsync(CancellationToken cancellationToken)
     {
@@ -72,18 +107,20 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         return printers;
     }
 
-    private static DiscoveredPrinter MapDiscovered(PrinterDescriptionAttributes attributes, string? deviceUri)
+    // The name is taken and the address is built from the server this driver was pointed
+    // at. printer-uri-supported is deliberately ignored: a CUPS server answers it with the
+    // host name it believes it has, which is often not one the client can reach.
+    private DiscoveredPrinter MapDiscovered(PrinterDescriptionAttributes attributes, string? deviceUri)
     {
         var name = attributes.PrinterName!;
-        var id = PrinterId.ForSpooler(name);
-        SpoolerPrinterEndpoint endpoint = new(name);
+        var id = IdFor(name);
         PrinterInfo info = new(id, attributes.PrinterInfo ?? name)
         {
             Location = attributes.PrinterLocation,
         };
-        return new DiscoveredPrinter(id, endpoint, info)
+        return new DiscoveredPrinter(id, EndpointFor(name), info)
         {
-            Source = DiscoverySource.Spooler,
+            Source = _server is null ? DiscoverySource.Spooler : DiscoverySource.CupsServer,
             Aliases = SpoolerAliases.FromDeviceUri(deviceUri),
         };
     }
@@ -97,7 +134,7 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         return IppRequests.SubmitAsync(
             _context,
             QueueUri(queueName),
-            PrinterId.ForSpooler(queueName),
+            IdFor(queueName),
             new IppSubmission(payload, IppDocumentFormat.ForCups(payload.ContentType, _formats), options, []),
             cancellationToken);
     }
@@ -105,13 +142,13 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     public Task<PrinterStatus> GetStatusAsync(string queueName, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.GetStatusAsync(_context, QueueUri(queueName), PrinterId.ForSpooler(queueName), cancellationToken);
+        return IppRequests.GetStatusAsync(_context, QueueUri(queueName), IdFor(queueName), cancellationToken);
     }
 
     public Task<PrinterConfiguration> GetConfigurationAsync(string queueName, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.GetConfigurationAsync(_context, QueueUri(queueName), PrinterId.ForSpooler(queueName), cancellationToken);
+        return IppRequests.GetConfigurationAsync(_context, QueueUri(queueName), IdFor(queueName), cancellationToken);
     }
 
     public async Task<PrinterIdentity?> GetIdentityAsync(string queueName, CancellationToken cancellationToken)
@@ -124,13 +161,13 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     public Task<IReadOnlyList<PrintJobInfo>> GetJobsAsync(string queueName, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.GetJobsAsync(_context, QueueUri(queueName), PrinterId.ForSpooler(queueName), cancellationToken);
+        return IppRequests.GetJobsAsync(_context, QueueUri(queueName), IdFor(queueName), cancellationToken);
     }
 
     public Task<PrintJobInfo?> GetJobAsync(string queueName, string jobId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.GetJobAsync(_context, QueueUri(queueName), PrinterId.ForSpooler(queueName), jobId, cancellationToken);
+        return IppRequests.GetJobAsync(_context, QueueUri(queueName), IdFor(queueName), jobId, cancellationToken);
     }
 
     public Task<bool> CancelJobAsync(string queueName, string jobId, CancellationToken cancellationToken)

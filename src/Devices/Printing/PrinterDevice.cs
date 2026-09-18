@@ -220,10 +220,10 @@ public sealed class PrinterDevice
     // A fact about the hardware comes from the channel that speaks to the device itself.
     private static int HardwareRank(PrinterScheme scheme) => PrinterSchemes.PreferenceRank(scheme);
 
-    // A fact meant for a person comes from the spooler first: that is the text the
-    // operating system already shows, and a device reports a model number instead.
+    // A fact meant for a person comes from a queue first: that is the text the operating
+    // system or the print server already shows, and a device reports a model number instead.
     private static int HumanRank(PrinterScheme scheme) =>
-        scheme == PrinterScheme.Spooler ? -1 : PrinterSchemes.PreferenceRank(scheme);
+        scheme is PrinterScheme.Spooler or PrinterScheme.Cups ? -1 : PrinterSchemes.PreferenceRank(scheme);
 
     private static PrinterDeviceDetails Merge(List<DiscoveredPrinter> channels, IReadOnlyList<PrinterStatusSource> statusSources)
     {

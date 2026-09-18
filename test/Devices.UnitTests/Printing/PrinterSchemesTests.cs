@@ -93,4 +93,36 @@ public class PrinterSchemesTests
         Assert.True(PrinterSchemes.PreferenceRank(PrinterScheme.Ipp) < PrinterSchemes.PreferenceRank(PrinterScheme.Spooler));
         Assert.True(PrinterSchemes.PreferenceRank(PrinterScheme.Spooler) < PrinterSchemes.PreferenceRank(PrinterScheme.Raw));
     }
+
+    [Fact]
+    public void Cups_IsAQueueChannelThatAddressesAHost()
+    {
+        Assert.Equal("cups", PrinterSchemes.Format(PrinterScheme.Cups));
+        Assert.True(PrinterSchemes.TryParse("cups", out var scheme));
+        Assert.Equal(PrinterScheme.Cups, scheme);
+        Assert.True(PrinterSchemes.HasJobQueue(PrinterScheme.Cups));
+        Assert.True(PrinterSchemes.HasHost(PrinterScheme.Cups));
+        Assert.Equal(631, PrinterSchemes.DefaultPort(PrinterScheme.Cups));
+        Assert.Equal(PrintOptionSupports.All, PrinterSchemes.SupportedOptions(PrinterScheme.Cups, false));
+    }
+
+    // It carries a host and a queue, so NetworkPrinterEndpoint does not describe it.
+    [Fact]
+    public void IsNetwork_LeavesCupsOut() =>
+        Assert.False(PrinterSchemes.IsNetwork(PrinterScheme.Cups));
+
+    // A queue with a driver converts the job whether the daemon is local or not, so CUPS
+    // promises no passthrough on either side.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void GivesPassthrough_IsNeverPromisedByACupsQueue(bool isWindows) =>
+        Assert.False(PrinterSchemes.GivesPassthrough(PrinterScheme.Cups, isWindows));
+
+    [Fact]
+    public void PreferenceRank_PutsACupsQueueAfterTheLocalSpoolerAndBeforeTheRawChannel()
+    {
+        Assert.True(PrinterSchemes.PreferenceRank(PrinterScheme.Spooler) < PrinterSchemes.PreferenceRank(PrinterScheme.Cups));
+        Assert.True(PrinterSchemes.PreferenceRank(PrinterScheme.Cups) < PrinterSchemes.PreferenceRank(PrinterScheme.Raw));
+    }
 }

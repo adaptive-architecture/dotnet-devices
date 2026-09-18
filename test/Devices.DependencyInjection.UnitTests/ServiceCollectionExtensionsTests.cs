@@ -248,4 +248,30 @@ public class ServiceCollectionExtensionsTests
         using var provider = services.BuildServiceProvider();
         _ = Assert.IsType<PrinterManager>(provider.GetRequiredService<IPrinterManager>());
     }
+
+    // Naming a CUPS server puts its queues behind the same IPrinterDiscovery the manager
+    // asks, next to the spooler of this machine.
+    [Fact]
+    public void AddPrinters_AddsADiscoveryForEachNamedCupsServer()
+    {
+        ServiceCollection services = new();
+        _ = services.AddPrinters(configureManager: options =>
+        {
+            options.CupsServers.Add(new CupsServer("printsrv"));
+            options.CupsServers.Add(new CupsServer("other", 8631));
+        });
+        var provider = services.BuildServiceProvider();
+
+        _ = Assert.IsType<CompositePrinterDiscovery>(provider.GetRequiredService<IPrinterDiscovery>());
+    }
+
+    [Fact]
+    public void AddPrinters_LeavesTheSpoolerAloneWhenNoCupsServerIsNamed()
+    {
+        ServiceCollection services = new();
+        _ = services.AddPrinters();
+        var provider = services.BuildServiceProvider();
+
+        _ = Assert.IsType<SpoolerPrinterDiscovery>(provider.GetRequiredService<IPrinterDiscovery>());
+    }
 }

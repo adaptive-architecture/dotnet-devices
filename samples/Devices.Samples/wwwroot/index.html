@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AdaptArch printer manager</title>
-<link rel="icon" href="data:,">
+<link rel="icon" href="favicon.ico" sizes="any">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -13,6 +13,7 @@
   <div class="actions">
     <button id="refresh" type="button">Refresh</button>
     <button id="probe" type="button" title="Probe every local address on TCP port 9100. This takes minutes.">Probe subnet</button>
+    <button id="log-toggle" type="button" title="Open the log. It also opens itself when there is something to read.">Log</button>
     <span id="discovery-state" class="note"></span>
   </div>
 </header>
@@ -105,14 +106,15 @@
   </section>
 </main>
 
-<section class="log">
+<dialog class="log" id="log">
   <div class="log-head">
     <h2>Log</h2>
     <button type="button" id="stop" class="hidden">Stop watching</button>
     <button type="button" id="clear">Clear</button>
+    <button type="button" id="log-close">Close</button>
   </div>
   <ol id="lines"></ol>
-</section>
+</dialog>
 
 <script src="app.js"></script>
 </body>

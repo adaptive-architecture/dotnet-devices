@@ -313,4 +313,80 @@ public class PrinterIdTests
     [InlineData("  ")]
     public void ParseOrRaw_RefusesAnEmptyText(string value) =>
         Assert.ThrowsAny<ArgumentException>(() => PrinterId.ParseOrRaw(value));
+
+    [Theory]
+    [InlineData("cups://printsrv/lobby", "printsrv/lobby", 631, "lobby")]
+    [InlineData("cups://printsrv:8631/lobby", "printsrv:8631/lobby", 8631, "lobby")]
+    [InlineData("cups://printsrv:631/lobby", "printsrv/lobby", 631, "lobby")]
+    [InlineData("cups://[2001:db8::5]/lobby", "[2001:db8::5]/lobby", 631, "lobby")]
+    [InlineData("cups://printsrv/Front%20Desk", "printsrv/Front%20Desk", 631, "Front Desk")]
+    public void TryParse_ReadsACupsQueue(string value, string authority, int port, string queue)
+    {
+        Assert.True(PrinterId.TryParse(value, out var id));
+
+        Assert.Equal(PrinterScheme.Cups, id.Scheme);
+        Assert.Equal(authority, id.Authority);
+        Assert.Equal(port, id.Port);
+        Assert.True(id.TryGetQueueName(out var name));
+        Assert.Equal(queue, name);
+    }
+
+    // The queue is the whole of the path, so a name that escaped to more than one segment
+    // is refused rather than truncated to the part before the second slash.
+    [Theory]
+    [InlineData("cups://printsrv")]
+    [InlineData("cups://printsrv/")]
+    [InlineData("cups:///lobby")]
+    [InlineData("cups://printsrv/a/b")]
+    [InlineData("cups://printsrv/lobby?x")]
+    [InlineData("cups://printsrv:0/lobby")]
+    [InlineData("cups://printsrv:70000/lobby")]
+    public void TryParse_RefusesAMalformedCupsIdentifier(string value) =>
+        Assert.False(PrinterId.TryParse(value, out _));
+
+    [Fact]
+    public void ForCups_WritesTheHostAndTheEscapedQueue()
+    {
+        var id = PrinterId.ForCups("printsrv", "Front Desk");
+
+        Assert.Equal("cups://printsrv/Front%20Desk", id.ToString());
+        Assert.True(id.TryGetHost(out var host));
+        Assert.Equal("printsrv", host);
+    }
+
+    [Fact]
+    public void ForCups_RoundTripsThroughItsEndpoint()
+    {
+        var id = PrinterId.ForCups("printsrv", "lobby", 8631);
+
+        Assert.True(id.TryCreateEndpoint(out var endpoint));
+        var cups = Assert.IsType<CupsPrinterEndpoint>(endpoint);
+        Assert.Equal("printsrv", cups.Host);
+        Assert.Equal("lobby", cups.Name);
+        Assert.Equal(8631, cups.Port);
+        Assert.Equal(id, PrinterId.FromEndpoint(cups));
+    }
+
+    // One server holds many queues, so its host alone would fuse every printer behind it
+    // into one device.
+    [Fact]
+    public void DeviceKey_OfACupsQueueNamesTheServerAndTheQueue()
+    {
+        var lobby = PrinterId.ForCups("printsrv", "lobby").DeviceKey;
+        var desk = PrinterId.ForCups("printsrv", "desk").DeviceKey;
+        var elsewhere = PrinterId.ForCups("other", "lobby").DeviceKey;
+
+        Assert.Equal(PrinterDeviceKeyKind.Queue, lobby.Kind);
+        Assert.NotEqual(lobby, desk);
+        Assert.NotEqual(lobby, elsewhere);
+
+        // The port names the channel and not the device, as for every other scheme.
+        Assert.Equal(lobby, PrinterId.ForCups("printsrv", "lobby", 8631).DeviceKey);
+    }
+
+    // A queue of a server is not a device, so there is nothing a reported UUID could
+    // stand in for.
+    [Fact]
+    public void ForDeviceUuid_RefusesTheCupsScheme() =>
+        Assert.Throws<ArgumentException>(() => PrinterId.ForDeviceUuid(PrinterScheme.Cups, Guid.NewGuid()));
 }

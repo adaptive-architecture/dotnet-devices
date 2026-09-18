@@ -30,6 +30,11 @@ public static class IppHttpClientFactory
             ConnectTimeout = options.ConnectTimeout,
             // A redirect would re-post the document to another host.
             AllowAutoRedirect = false,
+            Credentials = options.Credentials,
+
+            // A document is sent in one request, so waiting for a challenge would mean
+            // sending the whole job twice.
+            PreAuthenticate = options.Credentials is not null,
         };
         handler.SslOptions.RemoteCertificateValidationCallback =
             options.ServerCertificateValidation ?? (static (_, _, _, _) => true);

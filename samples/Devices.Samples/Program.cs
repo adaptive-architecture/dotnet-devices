@@ -39,7 +39,14 @@ builder.Services.AddSingleton<PrintJobRunner>();
 var app = builder.Build();
 
 app.UseDefaultFiles();
-app.UseStaticFiles();
+
+// The page is edited while the sample runs, and a browser that keeps a heuristic copy of
+// app.js shows a button that does nothing. "no-cache" still revalidates, so an unchanged
+// file costs a 304.
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = context => context.Context.Response.Headers.CacheControl = "no-cache",
+});
 
 PrintersApi.Map(app);
 JobsApi.Map(app);

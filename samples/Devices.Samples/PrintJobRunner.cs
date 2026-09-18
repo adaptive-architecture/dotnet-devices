@@ -148,7 +148,7 @@ internal sealed class PrintJobRunner
             yield break;
         }
 
-        await foreach (var line in WatchAsync(printerId, submitted, outcome, cancellationToken).ConfigureAwait(false))
+        await foreach (var line in WatchAsync(submitted, outcome, cancellationToken).ConfigureAwait(false))
         {
             yield return line;
         }
@@ -158,7 +158,6 @@ internal sealed class PrintJobRunner
     // sleep may take minutes over the first page and then print steadily; every page resets
     // the idle timeout, so only a job that has really stopped ends the watch.
     private async IAsyncEnumerable<LogLineDto> WatchAsync(
-        PrinterId printerId,
         PrintJobInfo submitted,
         JobOutcome outcome,
         [EnumeratorCancellation] CancellationToken cancellationToken)
@@ -168,7 +167,10 @@ internal sealed class PrintJobRunner
         outcome.Result = JobOutcome.StillPrinting;
         outcome.Detail = $"last seen {last.State}";
 
-        var readings = _monitor.WatchJobAsync(printerId, submitted.JobId, watch, cancellationToken)
+        // The job carries the identifier of the channel it went to, which names a host. The
+        // identifier the person picked may name a device identity instead, and a job queue
+        // resolves nothing.
+        var readings = _monitor.WatchJobAsync(submitted.PrinterId, submitted.JobId, watch, cancellationToken)
             .GetAsyncEnumerator(cancellationToken);
         try
         {

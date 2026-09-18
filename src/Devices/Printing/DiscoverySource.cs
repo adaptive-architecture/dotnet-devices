@@ -24,4 +24,9 @@ public enum DiscoverySource
     /// The print queues of the operating system.
     /// </summary>
     Spooler,
+
+    /// <summary>
+    /// The print queues of a CUPS server the application named.
+    /// </summary>
+    CupsServer,
 }

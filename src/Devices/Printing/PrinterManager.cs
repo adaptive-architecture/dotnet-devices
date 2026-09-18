@@ -408,7 +408,8 @@ public sealed class PrinterManager : IPrinterManager
             return [PrinterStatusSource.Ipp];
         }
 
-        if (channel.Endpoint.Scheme == PrinterScheme.Spooler)
+        // A queue reports about itself, wherever the queue lives.
+        if (channel.Endpoint.Scheme is PrinterScheme.Spooler or PrinterScheme.Cups)
         {
             return [PrinterStatusSource.Spooler];
         }

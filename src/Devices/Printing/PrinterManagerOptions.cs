@@ -15,10 +15,10 @@ public sealed class PrinterManagerOptions
 {
     /// <summary>
     /// Gets the transports a manager may open when the caller names none: IPPS, IPP, the
-    /// spooler, then the raw channel.
+    /// spooler, a CUPS server, then the raw channel.
     /// </summary>
     public static IReadOnlyList<PrinterScheme> DefaultTransports { get; } =
-        [PrinterScheme.Ipps, PrinterScheme.Ipp, PrinterScheme.Spooler, PrinterScheme.Raw];
+        [PrinterScheme.Ipps, PrinterScheme.Ipp, PrinterScheme.Spooler, PrinterScheme.Cups, PrinterScheme.Raw];
 
     /// <summary>
     /// Gets or sets the factory that makes the log of the printer manager, the routing and
@@ -48,10 +48,32 @@ public sealed class PrinterManagerOptions
     public NetworkPrinterDiscoveryOptions? Probe { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether to include the operating system print
-    /// spooler as a discovery source. Defaults to <c>true</c>.
+    /// Gets or sets a value indicating whether to include the print queues as a discovery
+    /// source: the operating system spooler, and every server in <see cref="CupsServers"/>.
+    /// Defaults to <c>true</c>.
     /// </summary>
+    /// <remarks>
+    /// Both are queue sources and both are gated here, so an application that turns this off
+    /// asks about no queue at all, wherever the queue lives.
+    /// </remarks>
     public bool IncludeSpooler { get; set; } = true;
+
+    /// <summary>
+    /// Gets the CUPS servers whose queues are discovered, beyond the spooler of this
+    /// machine. Empty by default.
+    /// </summary>
+    /// <remarks>
+    /// A CUPS server announces nothing on the local link, so it is found only when it is
+    /// named here. This is what puts a CUPS queue within reach of an operating system that
+    /// runs no CUPS of its own, Windows above all. Discovery reports each queue as a
+    /// <see cref="PrinterScheme.Cups"/> channel, and the device behind it still groups with
+    /// the same printer found over multicast DNS.
+    /// <para>
+    /// A server that does not answer does not fail the discovery: the queues of every other
+    /// source are still reported.
+    /// </para>
+    /// </remarks>
+    public IList<CupsServer> CupsServers { get; } = [];
 
     /// <summary>
     /// Gets or sets a value indicating whether to include the multicast DNS browse as a

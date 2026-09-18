@@ -13,8 +13,10 @@
 public enum PrintScaling
 {
     /// <summary>
-    /// The printer chooses between <see cref="Fill"/> and <see cref="Fit"/>, from the
-    /// document size and the media size.
+    /// A document that already fits keeps its own size, and a larger one is scaled to
+    /// the media: <see cref="Fit"/> on media with margins, <see cref="Fill"/> on
+    /// borderless media. This is the value a printer usually defaults to, and it is
+    /// <see cref="AutoFit"/> apart from the borderless case.
     /// </summary>
     Auto,
 
