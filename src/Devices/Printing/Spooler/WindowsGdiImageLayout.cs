@@ -67,53 +67,12 @@ internal static class WindowsGdiImageLayout
         var sideways = IsSideways(orientation);
         var fittedWidth = sideways ? imageHeight : imageWidth;
         var fittedHeight = sideways ? imageWidth : imageHeight;
+        var fits = fittedWidth <= pageWidth && fittedHeight <= pageHeight;
 
         // An unset option means the printer default, and PWG 5100.16 names Auto as
         // that default.
-        var mode = scaling ?? PrintScaling.Auto;
-        if (mode == PrintScaling.Auto)
-        {
-            // PWG 5100.16: a document smaller than the media keeps its own size, and a
-            // larger one fits inside the margins, or fills a sheet that has none.
-            mode = fittedWidth <= pageWidth && fittedHeight <= pageHeight
-                ? PrintScaling.None
-                : borderless ? PrintScaling.Fill : PrintScaling.Fit;
-        }
-
-        double width = fittedWidth;
-        double height = fittedHeight;
-        if (mode == PrintScaling.None)
-        {
-            // Natural size, centered. A larger image is clipped by the driver.
-            width = fittedWidth;
-            height = fittedHeight;
-        }
-        else if (mode == PrintScaling.AutoFit)
-        {
-            if (fittedWidth <= pageWidth && fittedHeight <= pageHeight)
-            {
-                width = fittedWidth;
-                height = fittedHeight;
-            }
-            else
-            {
-                var fit = Math.Min((double)pageWidth / fittedWidth, (double)pageHeight / fittedHeight);
-                width = fittedWidth * fit;
-                height = fittedHeight * fit;
-            }
-        }
-        else if (mode == PrintScaling.Fit)
-        {
-            var fit = Math.Min((double)pageWidth / fittedWidth, (double)pageHeight / fittedHeight);
-            width = fittedWidth * fit;
-            height = fittedHeight * fit;
-        }
-        else if (mode == PrintScaling.Fill)
-        {
-            var fill = Math.Max((double)pageWidth / fittedWidth, (double)pageHeight / fittedHeight);
-            width = fittedWidth * fill;
-            height = fittedHeight * fill;
-        }
+        var mode = Resolve(scaling ?? PrintScaling.Auto, fits, borderless);
+        (var width, var height) = Size(mode, fits, fittedWidth, fittedHeight, pageWidth, pageHeight);
 
         // The fit above judged the footprint the turned image leaves on the page. The
         // draw happens after the rotation, where the image keeps its own axes, so the
@@ -127,6 +86,50 @@ internal static class WindowsGdiImageLayout
         var x = (pageWidth - drawWidth) / 2.0;
         var y = (pageHeight - drawHeight) / 2.0;
         return new ImageRectangle((int)Math.Round(x), (int)Math.Round(y), (int)Math.Round(drawWidth), (int)Math.Round(drawHeight));
+    }
+
+    // PWG 5100.16: a document smaller than the media keeps its own size, and a larger
+    // one fits inside the margins, or fills a sheet that has none. Every other mode
+    // says what it wants and passes through.
+    private static PrintScaling Resolve(PrintScaling mode, bool fits, bool borderless)
+    {
+        if (mode != PrintScaling.Auto)
+        {
+            return mode;
+        }
+
+        if (fits)
+        {
+            return PrintScaling.None;
+        }
+
+        return borderless ? PrintScaling.Fill : PrintScaling.Fit;
+    }
+
+    // What the image measures on the page, before the rotation puts its axes back.
+    // None is the natural size, centered, and a larger image is clipped by the driver;
+    // AutoFit is None for an image that fits and Fit for one that does not.
+    private static (double Width, double Height) Size(
+        PrintScaling mode,
+        bool fits,
+        int fittedWidth,
+        int fittedHeight,
+        int pageWidth,
+        int pageHeight)
+    {
+        if (mode == PrintScaling.Fill)
+        {
+            var fill = Math.Max((double)pageWidth / fittedWidth, (double)pageHeight / fittedHeight);
+            return (fittedWidth * fill, fittedHeight * fill);
+        }
+
+        if (mode == PrintScaling.Fit || (mode == PrintScaling.AutoFit && !fits))
+        {
+            var fit = Math.Min((double)pageWidth / fittedWidth, (double)pageHeight / fittedHeight);
+            return (fittedWidth * fit, fittedHeight * fit);
+        }
+
+        return (fittedWidth, fittedHeight);
     }
 }
 

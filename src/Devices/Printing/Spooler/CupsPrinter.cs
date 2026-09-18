@@ -51,7 +51,7 @@ public sealed class CupsPrinter : IPrinter
     {
     }
 
-    private static ISpoolerDriver CreateDriver(
+    private static CupsSpoolerDriver CreateDriver(
         CupsPrinterEndpoint endpoint,
         HttpClient httpClient,
         IppTransportOptions options,
