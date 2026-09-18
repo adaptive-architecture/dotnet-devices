@@ -69,7 +69,7 @@ core package keeps no Windows SDK reference and stays dependency-free; the Windo
 package supplies one public `IPrintPayloadConverter`
 (`WindowsPrinting.PdfConverter`), which an application registers through
 `PrinterManagerOptions.Converters` or, for the whole process, with
-`WindowsPrinting.EnableSpoolerPdfPrinting()`. Without a converter a PDF job fails
+`WindowsPrinting.EnablePdfPrinting()`. Without a converter a PDF job fails
 with `NotSupportedException` before anything spools. The seam is an interface the
 application implements, so both sides stay trim- and AOT-safe with no reflection,
 and the same seam carries any other format (see

@@ -24,6 +24,12 @@ testable.
 | Resolutions | `WindowsSpoolerCapabilityParserTests` | `DC_ENUMRESOLUTIONS` gives pairs of integers. The parser reads a list of pairs, one pair, and an empty buffer. |
 | Platform guard | `WindowsSpoolerDriverTests` | All seven `ISpoolerDriver` methods throw `PlatformNotSupportedException` on a machine that is not Windows, before any native call. |
 | Driver selection | `SpoolerDriverFactoryTests` | The factory gives a CUPS driver on Linux and macOS. |
+| PWG Raster encoding | `PwgRasterWriterTests` | The synchronization word, a page header of exactly 1796 octets, the field offsets of PWG 5102.4 Table 1, and the PackBits encoding read back through a decoder written against the specification. The sample bitmap the specification works through in section 4.4.1 is reproduced octet for octet, and all eight sides and sheet-back combinations of Table 9 give the transforms the table names. |
+| Raster keywords | `PwgRasterTests` | A printer's `pwg-raster-document-type-supported` and `pwg-raster-document-sheet-back` keywords read into the writer's options, and a keyword this library does not know falls back to colour and to `Normal`. |
+| Conversion routing | `IppPrinterDocumentFormatTests` | A document is converted only when the printer does not read it, a converter is registered, and that converter writes a format the printer reads. The resolution moves to the nearest one the printer rasters at, the colour space follows the job's colour mode, page ranges reach the converter and not the job template, and a converter that answers with no document or with several fails before anything is sent. |
+
+**What none of them prove** is what happens between the PDF engine and the encoder, because
+no Linux machine can render a PDF with the in-box Windows engine. Test 10 below is that gap.
 
 A code review also compared every structure and every constant against the documented
 Windows headers: `JOB_INFO_2`, `PRINTER_INFO_2`, `PRINTER_INFO_4`, `DOC_INFO_1`,
@@ -218,7 +224,7 @@ level 2 read can fill, match what the Windows printer settings show.
 ### 9. A PDF through the spooler
 
 The `queue-sweep` job set prints `document.pdf` through the spooler queue. It needs the
-`AdaptArch.Devices.Windows` package with `WindowsPrinting.EnableSpoolerPdfPrinting()`
+`AdaptArch.Devices.Windows` package with `WindowsPrinting.EnablePdfPrinting()`
 (the sample calls it on Windows); without that call the job fails with
 `NotSupportedException` before anything spools.
 
@@ -226,5 +232,51 @@ The `queue-sweep` job set prints `document.pdf` through the spooler queue. It ne
 - A multi-page PDF with `PageRanges` must print only the selected pages.
 - A password-protected or corrupt PDF must fail with `InvalidOperationException`
   naming the file, and leave no job in the queue.
-- Compare with the same file sent over IPP: a printer whose `document-format-supported`
-  lists no PDF ejects a blank page there, which is the firmware answering, not this library.
+
+### 10. A PDF rendered to PWG Raster, over IPP
+
+The path no automated test can reach. The encoder is tested on Linux, but nothing there can
+render a PDF, so the pixels that reach the encoder have never been seen.
+
+Run the same `queue-sweep` set against an `ipp://` or `ipps://` printer whose
+`document-format-supported` lists `image/pwg-raster` and **not** `application/pdf`. The four
+`pages.pdf` jobs are the ones that matter, and each page carries the marks that name its own
+fault.
+
+Check the log first. Event 1032 must say the job was converted, and name `image/pwg-raster`.
+If 1034 appears instead nothing was converted and the rest of this section proves nothing;
+the reason it carries says which of the four conditions failed.
+
+**The row stride.** `GetPixelDataAsync` is trusted to answer with tightly packed rows, which
+a locked buffer does not promise — that is why it is not used. If a row carries padding, the
+encoder reads it as picture and every line starts a little further along than the last.
+
+- The vertical grid lines must stay vertical and evenly spaced. A stride fault leans them,
+  and the lean grows down the page.
+- The diagonal must stay straight, corner to corner.
+- Nothing may repeat or smear along one edge.
+- **Both the colour job and the grayscale job must be right.** They are three octets a pixel
+  and one octet a pixel, so a stride fault usually shows in one and not the other. A clean
+  colour page beside a sheared grey one is the signature.
+
+**The duplex back side.** PWG 5102.4 Table 9 gives the transform for the back of a sheet, and
+it depends on the printer's `pwg-raster-document-sheet-back` as well as on the edge the sheet
+turns on. Get it wrong and every second page is upside down or mirrored, with no error.
+
+- On the duplex job, hold a sheet as you would read the front and turn it over on the long
+  edge. Page 2 must read the right way up, `TOP OF PAGE` at the top.
+- The grey corner block must be in the **top right** on both sides. Top left means the page
+  was flipped where it should have been rotated; bottom right means it was rotated twice.
+- The page numbers must run 1, 2, 3, 4 across the two sheets.
+- Write down what the printer reported for `pwg-raster-document-sheet-back`. The transform is
+  only right for that value, so a second printer reporting another one is worth the run.
+
+**The rest.** Quick, and each fails visibly.
+
+- The page must be upright and the right size, not stretched or squashed.
+- Grayscale must be grey and not inverted: the page is mostly white with black lines.
+- The page-range job must print pages 2 and 4 of the document, not pages 2 and 4 of a
+  document already cut to two pages. The converter selects the pages, so the job template
+  must carry no `page-ranges` afterwards; a printer that applied them twice prints page 4
+  alone, or nothing.
+- Four pages must arrive as **one** job in the printer's queue, not four.

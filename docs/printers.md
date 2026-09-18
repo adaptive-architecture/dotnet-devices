@@ -307,7 +307,7 @@ A converter returns pages in `context.TargetContentType`, which is `image/png` t
 `PrinterManagerOptions.Converters` scopes a converter to one manager.
 `PrintFormatPolicy.AddDefaultConverter` registers one for the whole process, which is what
 an application without a manager needs, and what
-`WindowsPrinting.EnableSpoolerPdfPrinting()` calls. A converter on the manager wins over a
+`WindowsPrinting.EnablePdfPrinting()` calls. A converter on the manager wins over a
 process one for the same format, so an application can replace the built-in behaviour.
 
 What the registration changes:
@@ -632,7 +632,7 @@ and no extra NuGet package. PDF pages render to PNG first with the in-box Window
 engine, then print as one GDI document through the same path. That renderer lives in
 the separate `AdaptArch.Devices.Windows` package (a `-windows` target is the only one
 that can see the engine), and the application lights it up with
-`WindowsPrinting.EnableSpoolerPdfPrinting()`; without a converter for PDF a job fails
+`WindowsPrinting.EnablePdfPrinting()`; without a converter for PDF a job fails
 with `NotSupportedException` before anything spools. Any other document format prints
 the same way once the application registers a converter for it.
 

@@ -9,7 +9,7 @@ using AdaptArch.Devices.Samples.Contracts;
 #if WINDOWS10_0_19041_0_OR_GREATER
 if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240, 0))
 {
-    AdaptArch.Devices.Windows.WindowsPrinting.EnableSpoolerPdfPrinting();
+    AdaptArch.Devices.Windows.WindowsPrinting.EnablePdfPrinting();
 }
 #endif
 

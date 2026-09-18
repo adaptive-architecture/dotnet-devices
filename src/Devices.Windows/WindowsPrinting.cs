@@ -17,7 +17,7 @@ public static class WindowsPrinting
     /// which reads that and never PNG.
     /// <para>
     /// Add it to <see cref="PrinterManagerOptions.Converters"/> to enable PDF printing for
-    /// one manager, or call <see cref="EnableSpoolerPdfPrinting"/> to enable it for the
+    /// one manager, or call <see cref="EnablePdfPrinting"/> to enable it for the
     /// whole process.
     /// </para>
     /// </remarks>
@@ -39,11 +39,7 @@ public static class WindowsPrinting
     /// <see cref="PrinterManager"/> can add <see cref="PdfConverter"/> to
     /// <see cref="PrinterManagerOptions.Converters"/> instead, which scopes it to that manager.
     /// </para>
-    /// <para>
-    /// The name predates the IPP path. It is kept because renaming it would break every
-    /// application that calls it.
-    /// </para>
     /// </remarks>
     [SupportedOSPlatform("windows10.0.10240.0")]
-    public static void EnableSpoolerPdfPrinting() => PrintFormatPolicy.AddDefaultConverter(PdfConverter);
+    public static void EnablePdfPrinting() => PrintFormatPolicy.AddDefaultConverter(PdfConverter);
 }
