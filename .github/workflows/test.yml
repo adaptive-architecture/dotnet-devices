@@ -89,10 +89,19 @@ jobs:
   # Linux assumption. Its first run found three, one of them a crash in the mDNS browse on
   # any adapter without IPv6 configured.
   #
-  # It does not call winspool.drv. test/Devices.InteropTests does, and it is deliberately
-  # not run here: it needs a paused print queue, and a job that provisioned one would be
-  # testing the runner image as much as this library. Those tests are run by hand, through
-  # pipeline/unit-test.sh on a Windows machine. docs/windows-manual-tests.md says how.
+  # It also calls winspool.drv, through test/Devices.InteropTests, against a queue this job
+  # creates and pauses. That is the one thing a fake cannot settle: it writes a structure
+  # with the same declaration it reads it with, so a declaration wrong against the real
+  # header still round-trips. Only bytes the spooler wrote can say.
+  #
+  # The queue is created rather than assumed. A runner with a stopped spooler or no printers
+  # would let those tests pass while reaching no structure at all — EnumPrinters answers
+  # nothing and the driver returns before it marshals anything. So provisioning is a step
+  # that fails the job, it checks that the pause really took, and the tests skip themselves
+  # unless DEVICES_TEST_QUEUE names a queue.
+  #
+  # The same tests run by hand on a developer's machine through pipeline/unit-test.sh;
+  # docs/windows-manual-tests.md says how.
   #
   # No Sonar and no coverage here. The Linux job owns the report and the floor; a second
   # one would have to be merged into it for no gain, since these tests are the same tests.
@@ -123,6 +132,41 @@ jobs:
       - name: Build
         run: dotnet build --no-incremental
 
+      # The queue must be paused. A live one prints, and Microsoft Print To PDF stops on a
+      # Save As dialog nothing can answer. Paused, every job stays in the queue where a test
+      # reads it back, which is the whole point.
+      #
+      # There is no Suspend-PrintQueue cmdlet. Pausing a queue is a method on Win32_Printer.
+      - name: Provision a paused print queue
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = 'adaptarch-ci'
+
+          Set-Service -Name Spooler -StartupType Automatic
+          Start-Service -Name Spooler
+
+          $preferred = @('Microsoft Print To PDF', 'Generic / Text Only', 'Microsoft XPS Document Writer v4')
+          $drivers = Get-PrinterDriver
+          $drivers | Format-Table Name
+          $driver = $drivers | Where-Object { $preferred -contains $_.Name } | Select-Object -First 1
+          if (-not $driver) { $driver = $drivers | Select-Object -First 1 }
+          if (-not $driver) { throw 'No printer driver is installed on this runner.' }
+
+          Add-Printer -Name $name -DriverName $driver.Name -PortName 'PORTPROMPT:'
+          Get-CimInstance Win32_Printer -Filter "Name='$name'" | Invoke-CimMethod -MethodName Pause | Out-Null
+
+          # Fail here rather than let the tests refuse one at a time. A queue that did not
+          # pause would print, and on Print To PDF it would wait on a dialog forever.
+          $printer = Get-CimInstance Win32_Printer -Filter "Name='$name'"
+          if (-not $printer) { throw "The queue '$name' was not created." }
+          # PRINTER_STATUS_PAUSED is bit 0 of PrinterState. Parenthesised because -not
+          # binds tighter than -band, which would test the wrong thing entirely.
+          if (($printer.PrinterState -band 1) -ne 1) { throw "The queue '$name' did not pause; PrinterState is $($printer.PrinterState)." }
+          Get-Printer -Name $name | Format-List Name, DriverName, PortName, PrinterStatus
+
+          "DEVICES_TEST_QUEUE=$name" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       # bash, not the pwsh default: PowerShell does not stop a script on a native command
       # that failed, and the step takes the exit code of the last one. A failing project
       # followed by a passing one reported the job green.
@@ -132,3 +176,4 @@ jobs:
           dotnet test test/Devices.UnitTests/Devices.UnitTests.csproj --no-build
           dotnet test test/Devices.DependencyInjection.UnitTests/Devices.DependencyInjection.UnitTests.csproj --no-build
           dotnet test test/Devices.Windows.UnitTests/Devices.Windows.UnitTests.csproj --no-build
+          dotnet test test/Devices.InteropTests/Devices.InteropTests.csproj --no-build
