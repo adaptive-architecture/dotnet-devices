@@ -245,8 +245,16 @@ The `queue-sweep` job set prints `document.pdf` through the spooler queue. It ne
   and re-checks this across four pages.
 - A multi-page PDF with `PageRanges` must print only the selected pages. `pages.pdf` with
   `2,4` is in the set.
-- A password-protected or corrupt PDF must fail with `InvalidOperationException`
-  naming the file, and leave no job in the queue. No such file is in `PrintFiles`; make one.
+- A corrupt PDF must fail with `InvalidOperationException` naming the file, and leave no job
+  in the queue. `corrupt.pdf` is in `PrintFiles` for this: it is `pages.pdf` truncated, so it
+  keeps a valid `%PDF-1.7` header and has no xref and no trailer. The header matters — a file
+  that did not look like a PDF at all would be refused earlier, by something other than the
+  engine, and would prove nothing about this path.
+
+  It is **not** in any job set, because a job that always fails would make every sweep report
+  a failure. Send it by itself from the sample. The conversion happens before anything is
+  spooled, so the queue window must stay empty: a job that appears and then disappears is a
+  different bug from no job at all, and only the queue window tells them apart.
 
 ### 10. A PDF rendered to PWG Raster, over IPP
 
@@ -295,3 +303,7 @@ turns on. Get it wrong and every second page is upside down or mirrored, with no
   must carry no `page-ranges` afterwards; a printer that applied them twice prints page 4
   alone, or nothing.
 - Four pages must arrive as **one** job in the printer's queue, not four.
+- `corrupt.pdf` must fail here too, and no job may reach the printer. The renderer runs
+  before the IPP request is built, so the failure is the same `InvalidOperationException`
+  as on the spooler — but it is worth confirming on this path as well, because it is the
+  path where a half-written document would be sent rather than dropped.
