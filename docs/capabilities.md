@@ -18,6 +18,13 @@
 [Printers](printers.md) describes each one, and the reasons behind them.
 [Troubleshooting](troubleshooting.md) tells you how to find why a job did not print.
 
+**The IPP and CUPS channels are tested against real servers.**
+`test/Devices.IntegrationTests` runs a CUPS daemon and `ippeveprinter`, the CUPS project's own
+IPP Everywhere server, in containers, and prints to them: capabilities, job submission, the
+job list, the job state, cancellation, a watch that ends on a cancelled job, and the choice
+between sending a PDF and converting it, taken from what the printer itself advertises.
+[Development](development.md#integration-tests) says how to run them.
+
 **The Windows spooler has printed on a real Windows machine**: the five-job `queue-sweep` set
 through a spooler queue — a PDF, two PNG jobs and two JPEG jobs, covering the colour mode,
 the orientation and the scaling — printed correctly. Everything else on Windows still rests

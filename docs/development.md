@@ -1,4 +1,4 @@
-# Development
+﻿# Development
 
 ## Toolchain
 
@@ -40,7 +40,7 @@ Test projects use `xunit.v3` (MTP v2 runner via
 with coverage from the `coverlet.MTP` extension.
 
 ```bash
-sh ./pipeline/unit-test.sh    # Preferred: unit tests with coverage
+sh ./pipeline/unit-test.sh    # Preferred: every test with coverage
 dotnetup dotnet test          # Run all tests
 dotnetup dotnet test --filter-class MyClass   # xUnit MTP filter example
 ```
@@ -68,7 +68,41 @@ count it in the coverage: `sonar.exclusions` and `sonar.coverage.exclusions` in
 `.github/workflows/test.yml` both list `**/samples/**/*`, and
 `samples/Directory.Build.props` sets `SonarQubeExclude` to `true`.
 
-Integration tests (when added later) require Docker. Set `TESTCONTAINERS_RYUK_DISABLED=true` in CI environments.
+## Integration tests
+
+`test/Devices.IntegrationTests` prints to virtual printers in containers, so the library is
+read by something it did not write. Every other test in this repository answers IPP with
+bytes we wrote ourselves, which proves the parser agrees with the fixture; these answer with
+CUPS, which proves it agrees with IPP.
+
+Two images, built from the Dockerfiles in `test/Devices.IntegrationTests/docker/`:
+
+| Image | What it is | What it covers |
+| :--- | :--- | :--- |
+| `cups` | A CUPS daemon with three queues: one that prints, one stopped so a job stays where a test can look at it, and a second live one so the enumeration has more than one answer. | `cups://` end to end, and `spooler://`, which on Linux and macOS *is* a local CUPS daemon. |
+| `ippeve` | `ippeveprinter`, the CUPS project's own IPP Everywhere test server. The formats it advertises come from an environment variable. | Capabilities, job lifecycle, and the choice between sending a PDF and converting it, taken from the printer's own answer. |
+
+```bash
+dotnetup dotnet test test/Devices.IntegrationTests/Devices.IntegrationTests.csproj
+```
+
+- **A Docker daemon is required.** These tests run in the ordinary CI job and their coverage
+  counts, so there is no separate opt-in: a machine without Docker fails them. The rest of
+  the suite is unaffected, and the tests in `RawPrintingTests` need no container at all.
+- `TESTCONTAINERS_RYUK_DISABLED=true` is exported by `pipeline/unit-test.sh` when `CI` is set.
+- **An image that is already present is reused**, so a run costs no package install. After
+  editing a Dockerfile, remove the tag to get the new one:
+  `docker rmi adaptarch-devices-cups:integration-tests adaptarch-devices-ippeve:integration-tests`.
+- A Docker daemon whose containers cannot resolve DNS on the default bridge network cannot
+  build these images. Build them once by hand with `docker build --network host -t
+  adaptarch-devices-cups:integration-tests test/Devices.IntegrationTests/docker/cups` (and
+  the same for `ippeve`); the tests then reuse them.
+
+`CupsSpoolerDriver` fixes the local daemon at `ipp://localhost:631/`, and binding a container
+to port 631 of the developer's machine would fight the `cupsd` already there. The
+`spooler://` tests therefore build that one driver on its internal constructor with the
+container's address; everything above it is the shipped code. `Directory.Build.props` grants
+the integration assembly the same `InternalsVisibleTo` the unit tests have.
 
 ## Trim and native AOT
 

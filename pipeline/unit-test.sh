@@ -10,7 +10,8 @@ dotnet_cmd() {
   fi
 }
 
-# in case the CI environment variable has a non-empty value ignore the "WindowOnly" tests
+# Ryuk is the container that cleans up after Testcontainers. A CI runner is thrown away
+# after the job, so it has nothing to clean and the extra container only costs time.
 if [ -n "$CI" ]; then
   echo "Disabling TESTCONTAINERS RUYK"
   export TESTCONTAINERS_RYUK_DISABLED=true

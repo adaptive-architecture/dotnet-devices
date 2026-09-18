@@ -135,6 +135,19 @@ rules** (the negative supply-level values of RFC 3805, the `hrPrinterDetectedErr
 bits, the colorant join) and the **DNS-SD rules** (de-duplication by service name, and the
 order that prefers the raw print channel).
 
+## Test-Only Dependencies
+
+A package referenced only from `test/` is reviewed on a shorter list than a runtime dependency:
+no consumer inherits it, and it never reaches a shipped `AdaptArch.*` package. It still has to
+be maintained, licence-compatible and free of surprises in the build.
+
+| Package | Licence | Where | Why it was approved |
+| :--- | :--- | :--- | :--- |
+| `Testcontainers` | MIT | `test/Devices.IntegrationTests` | Starts the virtual printers the integration tests print to: a CUPS daemon and an IPP Everywhere printer, both built from the Dockerfiles in that project. The alternative is a hand-written `docker run` lifecycle with its own readiness polling and its own cleanup, which is the part that goes wrong. The sibling `common-utilities` repository already drives Postgres and Redis this way. |
+
+`xunit.v3`, `coverlet.MTP`, `NSubstitute` and `Roslynator.Analyzers` are the other test-side
+packages; they are pinned in `Directory.Packages.props` with everything else.
+
 ## Intra-Repository References
 
 Projects reference each other conditionally by configuration (same convention as the

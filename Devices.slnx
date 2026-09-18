@@ -10,5 +10,6 @@
   <Folder Name="/test/">
     <Project Path="test/Devices.UnitTests/Devices.UnitTests.csproj" />
     <Project Path="test/Devices.DependencyInjection.UnitTests/Devices.DependencyInjection.UnitTests.csproj" />
+    <Project Path="test/Devices.IntegrationTests/Devices.IntegrationTests.csproj" />
   </Folder>
 </Solution>
