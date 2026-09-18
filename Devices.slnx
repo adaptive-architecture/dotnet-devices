@@ -12,5 +12,6 @@
     <Project Path="test/Devices.DependencyInjection.UnitTests/Devices.DependencyInjection.UnitTests.csproj" />
     <Project Path="test/Devices.IntegrationTests/Devices.IntegrationTests.csproj" />
     <Project Path="test/Devices.Windows.UnitTests/Devices.Windows.UnitTests.csproj" />
+    <Project Path="test/Devices.InteropTests/Devices.InteropTests.csproj" />
   </Folder>
 </Solution>
