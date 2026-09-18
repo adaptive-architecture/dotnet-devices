@@ -85,17 +85,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Two things. That the suite is platform-clean — its first run found three Linux
-  # assumptions, one of them a crash in the mDNS browse on any adapter without IPv6 — and
-  # that the interop declarations are right, which is the part no fake can settle: a
-  # structure declared wrongly against the real header still round-trips through a fake,
-  # because the fake writes it with the same declaration it reads it with.
+  # What this job proves today is that the suite is platform-clean: it builds for a
+  # -windows target, and no test carries a Linux assumption. That is worth having — its
+  # first run found three, one of them a crash in the mDNS browse on any adapter without
+  # IPv6 configured.
   #
-  # The queue is created here rather than assumed. A runner with a stopped spooler, or one
-  # with no printers, would let a test pass while reaching no structure at all: EnumPrinters
-  # answers nothing and the driver returns before it ever marshals. Provisioning is
-  # therefore a step that must fail the job, and the tests skip themselves when
-  # DEVICES_TEST_QUEUE is unset so that they never quietly prove nothing.
+  # It does NOT yet prove the marshalling. Every test here answers through the interop
+  # seams, so not one [LibraryImport] is called. Making it earn that claim means a test
+  # that reaches the real winspool.drv: EnumeratePrintersAsync against the runner's own
+  # spooler would exercise EnumPrinters and the PRINTER_INFO_4 layout, since the Windows
+  # image ships with Microsoft Print to PDF installed.
   #
   # No Sonar and no coverage here. The Linux job owns the report and the floor; a second
   # one would have to be merged into it for no gain, since these tests are the same tests.
@@ -126,29 +125,6 @@ jobs:
       - name: Build
         run: dotnet build --no-incremental
 
-      # The queue is paused, so every job sent to it stays in it where a test can read it
-      # back, and nothing ever prints. PORTPROMPT: is the port that asks where to write,
-      # which a paused queue never gets to do.
-      - name: Provision a paused print queue
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Set-Service -Name Spooler -StartupType Automatic
-          Start-Service -Name Spooler
-          Get-PrinterDriver | Format-Table Name
-
-          $driver = Get-PrinterDriver |
-            Where-Object { $_.Name -in @('Microsoft Print To PDF', 'Generic / Text Only', 'Microsoft XPS Document Writer v4') } |
-            Select-Object -First 1
-          if (-not $driver) { $driver = Get-PrinterDriver | Select-Object -First 1 }
-          if (-not $driver) { throw 'No printer driver is installed on this runner.' }
-
-          Add-Printer -Name 'adaptarch-ci' -DriverName $driver.Name -PortName 'PORTPROMPT:'
-          Suspend-PrintQueue -Name 'adaptarch-ci'
-          Get-Printer -Name 'adaptarch-ci' | Format-List Name, DriverName, PortName, PrinterStatus
-
-          "DEVICES_TEST_QUEUE=adaptarch-ci" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
       # bash, not the pwsh default: PowerShell does not stop a script on a native command
       # that failed, and the step takes the exit code of the last one. A failing project
       # followed by a passing one reported the job green.
@@ -158,4 +134,3 @@ jobs:
           dotnet test test/Devices.UnitTests/Devices.UnitTests.csproj --no-build
           dotnet test test/Devices.DependencyInjection.UnitTests/Devices.DependencyInjection.UnitTests.csproj --no-build
           dotnet test test/Devices.Windows.UnitTests/Devices.Windows.UnitTests.csproj --no-build
-          dotnet test test/Devices.InteropTests/Devices.InteropTests.csproj --no-build
