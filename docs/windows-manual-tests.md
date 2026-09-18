@@ -1,15 +1,18 @@
 ﻿# Windows Manual Tests
 
-The Windows spooler driver speaks to `winspool.drv` through native interop. No automated
-test executes a single `winspool.drv` call: the repository is developed on Linux and the CI
-workflow uses `ubuntu-latest` only.
+The Windows spooler driver speaks to `winspool.drv` through native interop. Most of what
+sits around those calls is tested on Linux: every one goes through `IWindowsSpoolerInterop`
+or `IWindowsGdiInterop`, and a fake spooler answers with real `PRINTER_INFO_4`,
+`PRINTER_INFO_2`, `JOB_INFO_2` and `DEVMODEW` bytes, so the buffer protocol, the structure
+layouts, the page loop and the error paths all run there.
 
-What that leaves is smaller than it used to be. Every native call now goes through
-`IWindowsSpoolerInterop` or `IWindowsGdiInterop`, and a fake spooler answers them with real
-`PRINTER_INFO_4`, `PRINTER_INFO_2`, `JOB_INFO_2` and `DEVMODEW` bytes, so the buffer
-protocol, the structure layouts, the page loop and the error paths all run under test on
-Linux. What is left for a person is what only a real driver and real paper can settle: that
-the bytes we send make the right marks, and that the calls themselves marshal correctly.
+The calls themselves run on the `windows` CI job, against a print queue it creates and
+pauses. That is what settles whether a structure is declared as the real header declares it,
+which a fake cannot: it writes the structure with the same declaration it reads it with.
+
+What is left for a person is what only real paper and a real driver can settle — that the
+bytes we send make the right marks, that a second driver answers for its own media, and that
+the marshalling holds under a native AOT publish.
 
 This page lists what a person must test on a real Windows machine, and what the automated
 tests already prove.
@@ -86,8 +89,20 @@ structure is declared correctly: it writes the structure with the same declarati
 it with, so a declaration wrong against the real header still round-trips. Only bytes the
 spooler itself wrote can tell you.
 
-They are not in CI. They need a paused print queue, and a job that provisioned one would be
-testing the runner image as much as this library.
+**They run in CI**, on the `windows` job, against a queue that job creates and pauses. That
+settled what nothing else could: `EnumPrinters` returns a queue added in the same session, a
+RAW job to a paused Microsoft Print To PDF queue lands in `EnumJobs` with its document name
+intact, and reading three of them back confirms `JOB_INFO_2` is declared as the real header
+declares it.
+
+The provisioning step throws rather than skips when it cannot make that queue, and the tests
+skip themselves unless `DEVICES_TEST_QUEUE` names one. A runner image that stops allowing a
+print queue therefore turns the job red instead of quietly proving nothing — which is the
+failure this whole arrangement is built around.
+
+Run them by hand as well when you have a real printer. CI proves the declarations against one
+runner image and one driver; a driver of your own is the only thing that answers for its own
+paper names and its own device mode.
 
 **Microsoft Print to PDF is enough** — no hardware, no driver to install. It has a real
 driver, so `DeviceCapabilities` answers with real paper names, and pausing it means nothing
@@ -110,7 +125,7 @@ cancels the jobs it sent; leave the queue paused afterwards.
 
 What they settle, which the checklist below used to ask a person for:
 
-| Call | Structure it reads from the spooler | Replaces |
+| Call | Structure it reads from the spooler | Retires |
 | --- | --- | --- |
 | `SpoolerPrinterDiscovery.DiscoverAsync` | `PRINTER_INFO_4` | part of test 5 |
 | Three jobs, then `GetJobsAsync` | **`JOB_INFO_2`, several entries** | **test 1** |
@@ -118,17 +133,20 @@ What they settle, which the checklist below used to ask a person for:
 | `GetConfigurationAsync` | `DeviceCapabilities` name blocks, `DEVMODEW` | most of test 6 |
 | `CancelJobAsync` | `SetJob`, and that 87 really means a job that left | part of test 5 |
 
-Run these before working through the list below: they take seconds, and what they cover does
-not need a person.
+None of that needs a person any more. What is left below needs one, and each entry says why.
 
 ## The tests to do on Windows
 
 Do these in order. The first is the one that hides the worst kind of error.
 
-### 1. The job list, across more than one job
+### 1. The job list, across more than one job — **done automatically**
 
-An error in the `JOB_INFO_2` layout does not show on the first job. It shows on the ones
-after it, because each wrong field size moves every later field.
+~~An error in the `JOB_INFO_2` layout does not show on the first job. It shows on the ones
+after it, because each wrong field size moves every later field.~~
+
+`WindowsSpoolerInteropTests.SubmitAndRead_ReadsBackEveryJobTheSpoolerWrote` sends three jobs
+with distinct names and reads all three back, on every Windows CI run. Keep the steps below
+only if you want a second driver's answer; the layout question itself is settled.
 
 1. Pause a print queue, so the jobs stay in it.
 2. Send **three** jobs with different names and different page counts.
@@ -247,12 +265,13 @@ read the status, and to cancel a job with `SetJob`. If your work needs it, also 
 a user can cancel a job that another user sent. The checks cannot cover this: they
 prove what the level allows, not what a different level would forbid.
 
-### 8. Cleanup after a failed open
+### 8. Cleanup after a failed open — **done automatically**
 
-Windows does not promise a value for the printer handle when `OpenPrinter` fails. Confirm
-that a failed open, such as a queue name that does not exist, does not cause a problem in
-the cleanup that follows. The checks exercise this path in check 5, when they open
-a queue name that cannot exist; confirm the process itself stays healthy afterwards.
+~~Windows does not promise a value for the printer handle when `OpenPrinter` fails.~~
+`WindowsSpoolerDriverSeamTests.SubmitAsync_AQueueThatCannotBeOpened_ThrowsAndClosesNothing`
+hands the driver a handle it must not keep and asserts `ClosePrinter` is never called, and
+`WindowsSpoolerInteropTests.Operations_AQueueThatDoesNotExist_FailWithTheWindowsErrorText`
+takes the same path against the real spooler.
 
 ## What the driver does not do yet
 
@@ -277,7 +296,12 @@ remote connection over RPC, so one unreachable print server would stall the whol
 discovery until the call times out. The port name is therefore read one queue at a time,
 and only when the caller sets `PrinterManagerOptions.ReadIdentity`.
 
-Check on a real Windows machine:
+The seven port forms below are covered by `SpoolerAliasesTests`, which reads each one —
+`IP_<address>`, a renamed port, `USB001`, `WSD-…`, `\\server\queue`, and the first port of
+a pool. What is left for a person is only whether Windows produces those spellings, and
+whether `IsDefault` and `IsShared` agree with the printer settings.
+
+~~Check on a real Windows machine:~~
 
 1. A queue on a standard TCP/IP port. `ReadIdentity` should put the queue and the
    `raw://<address>` channel of the same printer on **one** `PrinterDevice`.

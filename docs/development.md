@@ -67,9 +67,11 @@ forward to them, and the PDF path that calls the in-box Windows engine.
 Windows. **Add a file to that list only when a seam cannot be put in front of it** — the
 answer to a Windows-only file is usually an interface, not an exclusion.
 
-`test/Devices.InteropTests` calls `winspool.drv` and runs only on a Windows machine outside
-CI, against a paused print queue that `pipeline/unit-test.sh` names in `DEVICES_TEST_QUEUE`
-(Microsoft Print to PDF by default). Without that variable every test in it skips.
+`test/Devices.InteropTests` calls `winspool.drv`. It runs on the `windows` CI job against a
+queue that job creates and pauses, and on a Windows machine through `pipeline/unit-test.sh`,
+which names Microsoft Print to PDF by default. Either way the queue comes from
+`DEVICES_TEST_QUEUE`, and without that variable every test in it skips — which is what keeps
+Linux unaffected.
 [windows-manual-tests.md](windows-manual-tests.md#the-tests-that-run-themselves-on-windows)
 says how to pause the queue and why that matters.
 
