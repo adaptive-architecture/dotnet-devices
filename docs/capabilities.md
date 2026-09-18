@@ -18,9 +18,12 @@
 [Printers](printers.md) describes each one, and the reasons behind them.
 [Troubleshooting](troubleshooting.md) tells you how to find why a job did not print.
 
-**The Windows spooler code has not run on a real Windows machine yet.** It has passed code
-review and a Linux-only test suite only. [Windows manual tests](windows-manual-tests.md)
-lists the checks still needed.
+**The Windows spooler has printed on a real Windows machine**: the five-job `queue-sweep` set
+through a spooler queue — a PDF, two PNG jobs and two JPEG jobs, covering the colour mode,
+the orientation and the scaling — printed correctly. Everything else on Windows still rests
+on code review and a Linux-only test suite: the status bits against hardware, the error
+paths, a native AOT publish, and the PDF-to-PWG-Raster path over IPP, which no spooler job
+reaches. [Windows manual tests](windows-manual-tests.md) lists what is done and what is not.
 
 ## Planned
 

@@ -8,6 +8,18 @@ and the CI workflow uses `ubuntu-latest` only. No automated test executes a sing
 This page lists what a person must test on a real Windows machine, and what the automated
 tests already prove.
 
+## What has been run
+
+The five-job `queue-sweep` set — `document.pdf` with the printer defaults, two PNG jobs and
+two JPEG jobs varying the colour mode, the orientation and the scaling — printed correctly
+through a spooler queue on real Windows hardware. That covers the submission path end to
+end: the device mode built from the options, the GDI page, the PDF rendered to PNG and drawn,
+and a job that reaches `Completed`.
+
+It does **not** cover the rest of this page. In particular it cannot cover test 10: a
+`spooler://` queue never converts to PWG Raster, so that path has still never run anywhere.
+Each test below says what it needs.
+
 ## What the automated tests already prove
 
 These tests run in the usual suite, on Linux, and they need no Windows machine. The driver
@@ -228,10 +240,13 @@ The `queue-sweep` job set prints `document.pdf` through the spooler queue. It ne
 (the sample calls it on Windows); without that call the job fails with
 `NotSupportedException` before anything spools.
 
-- Every page of the PDF must print, in order, as one job in the queue window.
-- A multi-page PDF with `PageRanges` must print only the selected pages.
+- ~~Every page of the PDF must print, in order, as one job in the queue window.~~ **Done**:
+  the single-page `document.pdf` printed in the five-job sweep. `pages.pdf` is in the set now
+  and re-checks this across four pages.
+- A multi-page PDF with `PageRanges` must print only the selected pages. `pages.pdf` with
+  `2,4` is in the set.
 - A password-protected or corrupt PDF must fail with `InvalidOperationException`
-  naming the file, and leave no job in the queue.
+  naming the file, and leave no job in the queue. No such file is in `PrintFiles`; make one.
 
 ### 10. A PDF rendered to PWG Raster, over IPP
 
