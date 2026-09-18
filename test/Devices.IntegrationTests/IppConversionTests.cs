@@ -84,8 +84,8 @@ public class IppConversionTests
 
         await using MemoryStream buffer = new();
         PwgRasterWriter writer = new(buffer, new PwgRasterOptions { ResolutionDpi = 300, TotalPageCount = 1 });
-        var width = 64;
-        var height = 8;
+        const int width = 64;
+        const int height = 8;
         writer.WritePage(new byte[writer.BytesPerLine(width) * height], width, height);
         var raster = buffer.ToArray();
 

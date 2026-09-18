@@ -29,7 +29,7 @@ public class SmallGapsTests
 
         // It is caught as one, because the retry path handles it and every other SNMP
         // error status stays a plain InvalidOperationException.
-        Assert.IsAssignableFrom<InvalidOperationException>(fromNothing);
+        _ = Assert.IsType<InvalidOperationException>(fromNothing, exactMatch: false);
     }
 
     [Fact]

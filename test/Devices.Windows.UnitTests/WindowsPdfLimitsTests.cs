@@ -49,7 +49,7 @@ public class WindowsPdfLimitsTests
         Assert.True(height <= WindowsPdfLimits.MaxRenderPixels);
         Assert.Equal(WindowsPdfLimits.MaxRenderPixels, height);
 
-        var askedRatio = 2384d / 3370d;
+        const double askedRatio = 2384d / 3370d;
         var gotRatio = (double)width / height;
         Assert.True(Math.Abs(askedRatio - gotRatio) < 0.01, $"{askedRatio} against {gotRatio}");
     }
@@ -78,7 +78,7 @@ public class WindowsPdfLimitsTests
     public void RenderPixels_AtTheCapExactly_DoesNotPassIt()
     {
         // The round up can pass the cap by one when the scale lands on it exactly.
-        var sideDips = WindowsPdfLimits.MaxRenderPixels * WindowsPdfLimits.DipsPerInch / WindowsPdfLimits.MaxDpi;
+        const double sideDips = WindowsPdfLimits.MaxRenderPixels * WindowsPdfLimits.DipsPerInch / WindowsPdfLimits.MaxDpi;
 
         var (width, height) = WindowsPdfLimits.RenderPixels(sideDips, sideDips, WindowsPdfLimits.MaxDpi);
 

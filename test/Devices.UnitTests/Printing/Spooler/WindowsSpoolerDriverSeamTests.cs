@@ -218,7 +218,7 @@ public class WindowsSpoolerDriverSeamTests
         // WritePrinter is allowed to take fewer bytes than it was offered. A driver that
         // ignored the count would spool a truncated label and report success.
         FakeWindowsSpoolerInterop interop = new() { WriteChunk = 2 };
-        var payload = "^XA^FDhello^FS^XZ";
+        const string payload = "^XA^FDhello^FS^XZ";
 
         _ = await DriverFor(interop).SubmitAsync(
             "lobby",
