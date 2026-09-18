@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Matches the package under test. Linux and macOS restore the Windows reference
+      packs from NuGet, so these tests build and run on every platform; what needs the
+      render engine itself is skipped on the ones that have none. -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <SupportedOSPlatformVersion>10.0.10240.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(CONFIGURATION)' == 'Debug' Or '$(BuildDocFx)' == 'true'">
+    <ProjectReference Include="..\..\src\Devices\Devices.csproj" />
+    <ProjectReference Include="..\..\src\Devices.Windows\Devices.Windows.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(CONFIGURATION)' == 'Release' And '$(BuildDocFx)' != 'true'">
+    <PackageReference Include="AdaptArch.Devices" />
+    <PackageReference Include="AdaptArch.Devices.Windows" />
+  </ItemGroup>
+
+</Project>

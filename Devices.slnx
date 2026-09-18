@@ -1,4 +1,4 @@
-<Solution>
+﻿<Solution>
   <Folder Name="/samples/">
     <Project Path="samples/Devices.Samples/Devices.Samples.csproj" />
   </Folder>
@@ -11,5 +11,6 @@
     <Project Path="test/Devices.UnitTests/Devices.UnitTests.csproj" />
     <Project Path="test/Devices.DependencyInjection.UnitTests/Devices.DependencyInjection.UnitTests.csproj" />
     <Project Path="test/Devices.IntegrationTests/Devices.IntegrationTests.csproj" />
+    <Project Path="test/Devices.Windows.UnitTests/Devices.Windows.UnitTests.csproj" />
   </Folder>
 </Solution>
