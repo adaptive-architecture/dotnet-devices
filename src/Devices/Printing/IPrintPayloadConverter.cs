@@ -19,6 +19,22 @@ public interface IPrintPayloadConverter
     bool CanConvert(string contentType);
 
     /// <summary>
+    /// Tells whether this converter can produce the target content type.
+    /// </summary>
+    /// <param name="targetContentType">The media type asked for in <see cref="PrintConversionContext.TargetContentType"/>.</param>
+    /// <returns><c>true</c> when <see cref="ConvertAsync"/> may be asked for it.</returns>
+    /// <remarks>
+    /// The default answers for <see cref="PrinterContentTypes.Png"/> only, which is what the
+    /// Windows spooler asks for and what every converter written before this member existed
+    /// produces. Override it to reach a channel that reads something else: an IPP printer
+    /// reads <see cref="PrinterContentTypes.PwgRaster"/> and never PNG. A converter that
+    /// answers for more than one target must honour
+    /// <see cref="PrintConversionContext.TargetContentType"/> rather than picking for itself.
+    /// </remarks>
+    bool CanEmit(string targetContentType) =>
+        String.Equals(targetContentType, PrinterContentTypes.Png, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Converts the payload into one image per page, in document order.
     /// </summary>
     /// <param name="data">The payload bytes.</param>

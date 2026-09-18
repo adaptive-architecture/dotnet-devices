@@ -46,6 +46,12 @@ public static class PrinterContentTypes
     public const string Pdf = "application/pdf";
 
     /// <summary>
+    /// PWG Raster, the format IPP Everywhere requires of every printer. One stream carries
+    /// every page, so a converted document is one document and not one job a page.
+    /// </summary>
+    public const string PwgRaster = "image/pwg-raster";
+
+    /// <summary>
     /// Opaque binary data for printers that accept vendor-specific streams.
     /// </summary>
     public const string OctetStream = "application/octet-stream";

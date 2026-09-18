@@ -13,4 +13,14 @@ public sealed record PrintConversionContext(
     string TargetContentType,
     int Dpi,
     IReadOnlyList<PageRange>? PageRanges,
-    string QueueName);
+    string QueueName)
+{
+    /// <summary>
+    /// The resolution a document is converted at when the job names none.
+    /// </summary>
+    /// <remarks>
+    /// Nothing clamps this: a limit of one engine must not quietly reduce the request given
+    /// to another, so each converter clamps to what it renders well.
+    /// </remarks>
+    public const int DefaultDpi = 300;
+}

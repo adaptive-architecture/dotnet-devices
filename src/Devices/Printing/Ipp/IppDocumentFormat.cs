@@ -13,6 +13,12 @@ internal static class IppDocumentFormat
     // The CUPS format that means "apply no filter".
     public const string CupsRaw = "application/vnd.cups-raw";
 
+    // What a converter may be asked to produce, best first. PWG Raster is required of every
+    // IPP Everywhere printer, it is lossless, and one stream carries every page, so a
+    // converted document stays one document. image/png is deliberately absent: no IPP
+    // printer reads it, whatever a converter can write.
+    private static readonly string[] ConversionTargets = [PrinterContentTypes.PwgRaster];
+
     // True for a payload that carries printer commands, which no IPP server may rewrite.
     // The formats an application registered decide it, so a vendor language the library
     // does not know counts as one as soon as it is declared.
@@ -22,6 +28,26 @@ internal static class IppDocumentFormat
     // The CUPS daemon is known to be CUPS, so it needs no negotiation.
     public static string ForCups(string contentType, PrintFormatPolicy? formats = null) =>
         IsRawLanguage(contentType, formats) ? CupsRaw : contentType;
+
+    // The format a converted job is sent as, or null when the printer reads none this
+    // converter writes. A printer that reported no list at all reaches this with an empty
+    // one and converts nothing, which is right: a converted job is a worse job than the
+    // original whenever the original would have been read.
+    public static string? NegotiateConversionTarget(IReadOnlyList<string> supported, IPrintPayloadConverter converter)
+    {
+        ArgumentNullException.ThrowIfNull(supported);
+        ArgumentNullException.ThrowIfNull(converter);
+
+        foreach (var target in ConversionTargets)
+        {
+            if (supported.Contains(target, StringComparer.OrdinalIgnoreCase) && converter.CanEmit(target))
+            {
+                return target;
+            }
+        }
+
+        return null;
+    }
 
     // Chooses against what the printer reported in `document-format-supported`.
     public static string Negotiate(string contentType, IReadOnlyList<string> supported, PrintFormatPolicy? formats = null)

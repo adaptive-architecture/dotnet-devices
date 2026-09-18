@@ -141,9 +141,78 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
             }
         }
 
+        var submission = await ConvertIfNeededAsync(payload, format, effectiveOptions, cancellationToken).ConfigureAwait(false);
+
         return await _resolver.RunAsync(
-            (uri, token) => IppRequests.SubmitAsync(_context, uri, Id, new IppSubmission(payload, format, effectiveOptions, dropped), token),
+            (uri, token) => IppRequests.SubmitAsync(_context, uri, Id, new IppSubmission(submission.Payload, submission.Format, submission.Options, dropped), token),
             cancellationToken).ConfigureAwait(false);
+    }
+
+    // A document the printer cannot read is rendered to a format it can, when a converter
+    // is registered for it. Everything else passes through: a printer that lists the format
+    // reads the document itself, which is always better than a raster of it.
+    private async Task<(PrinterPayload Payload, string Format, PrintOptions? Options)> ConvertIfNeededAsync(
+        PrinterPayload payload,
+        string format,
+        PrintOptions? options,
+        CancellationToken cancellationToken)
+    {
+        if (Formats.KindOf(payload.ContentType) != PrinterFormatKind.Document)
+        {
+            return (payload, format, options);
+        }
+
+        // The converter is looked for before the format list is read, because an application
+        // that registered none converts nothing whatever the printer answers, and this path
+        // must not cost it a request it never needed.
+        var converter = Formats.ConverterFor(payload.ContentType);
+        if (converter is null)
+        {
+            return (payload, format, options);
+        }
+
+        var configuration = await GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
+        var supported = configuration.SupportedDocumentFormats;
+        if (supported.Contains(payload.ContentType, StringComparer.OrdinalIgnoreCase))
+        {
+            return (payload, format, options);
+        }
+
+        var target = IppDocumentFormat.NegotiateConversionTarget(supported, converter);
+        if (target is null)
+        {
+            var unreachable = _resolver.Resolved ?? await _resolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
+            IppLog.DocumentNotConverted(_context.Logger, payload.ContentType, unreachable, "the printer reads no format the converter writes");
+            return (payload, format, options);
+        }
+
+        var endpoint = _resolver.Resolved ?? await _resolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
+
+        PrintConversionContext context = new(
+            payload.ContentType,
+            target,
+            options?.ResolutionDpi ?? PrintConversionContext.DefaultDpi,
+            options?.PageRanges,
+            Id.ToString());
+
+        var documents = await converter.ConvertAsync(payload.Data.ToArray(), context, cancellationToken).ConfigureAwait(false);
+
+        // Every target this negotiates carries each page in one stream, so one document is
+        // the only valid answer. A converter that returned one page each would otherwise
+        // have all but the first silently dropped.
+        if (documents is not { Count: 1 })
+        {
+            throw new InvalidOperationException(
+                $"The converter of '{payload.ContentType}' returned {documents?.Count ?? 0} documents for '{target}', " +
+                $"which carries every page in one. Printer '{Id}' was sent nothing.");
+        }
+
+        IppLog.DocumentConverted(_context.Logger, payload.ContentType, endpoint, target);
+        IppLog.DocumentConversionSize(_context.Logger, payload.ContentType, endpoint, documents[0].Length, target);
+
+        // The converter selected the pages, so the printer must not select them again.
+        var converted = options is null ? null : PrintOptionValidator.WithoutPageRanges(options);
+        return (PrinterPayload.FromBytes(documents[0], target), target, converted);
     }
 
     /// <inheritdoc />
