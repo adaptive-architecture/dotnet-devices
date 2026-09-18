@@ -1,9 +1,15 @@
 ﻿# Windows Manual Tests
 
-The Windows spooler driver speaks to `winspool.drv` through native interop. This code
-**cannot run** in the usual development environment: the repository is developed on Linux
-and the CI workflow uses `ubuntu-latest` only. No automated test executes a single
-`winspool.drv` call.
+The Windows spooler driver speaks to `winspool.drv` through native interop. No automated
+test executes a single `winspool.drv` call: the repository is developed on Linux and the CI
+workflow uses `ubuntu-latest` only.
+
+What that leaves is smaller than it used to be. Every native call now goes through
+`IWindowsSpoolerInterop` or `IWindowsGdiInterop`, and a fake spooler answers them with real
+`PRINTER_INFO_4`, `PRINTER_INFO_2`, `JOB_INFO_2` and `DEVMODEW` bytes, so the buffer
+protocol, the structure layouts, the page loop and the error paths all run under test on
+Linux. What is left for a person is what only a real driver and real paper can settle: that
+the bytes we send make the right marks, and that the calls themselves marshal correctly.
 
 This page lists what a person must test on a real Windows machine, and what the automated
 tests already prove.
@@ -23,8 +29,7 @@ Each test below says what it needs.
 ## What the automated tests already prove
 
 These tests run in the usual suite, on Linux, and they need no Windows machine. The driver
-keeps the native calls apart from the logic that reads their results, so the logic is
-testable.
+keeps the native calls behind a seam, so everything around them is testable.
 
 | Area | Test class | What it proves |
 | --- | --- | --- |
@@ -35,6 +40,12 @@ testable.
 | Paper names | `WindowsSpoolerCapabilityParserTests` | `DC_PAPERNAMES` gives fixed 64-character blocks. The parser reads a short name with null padding, a name that fills all 64 characters with no terminator, an empty block, and several blocks in sequence. |
 | Resolutions | `WindowsSpoolerCapabilityParserTests` | `DC_ENUMRESOLUTIONS` gives pairs of integers. The parser reads a list of pairs, one pair, and an empty buffer. |
 | Platform guard | `WindowsSpoolerDriverTests` | All seven `ISpoolerDriver` methods throw `PlatformNotSupportedException` on a machine that is not Windows, before any native call. |
+| Spooler buffer protocol | `WindowsSpoolerDriverSeamTests` | `EnumPrinters`, `GetPrinter` and `EnumJobs` are asked for the size and then for the data; an array of `JOB_INFO_2` is read back without misalignment, which is the check the structure layout only gets here; a queue with no driver reports no media rather than a guess. |
+| Spooler error paths | `WindowsSpoolerDriverSeamTests` | A short `WritePrinter` keeps writing until the document is whole and a failed one deletes the job with `JOB_CONTROL_DELETE`, so no truncated label commits; a write that makes no progress fails instead of looping; `ERROR_INVALID_PARAMETER` from `SetJob` is a `false` and any other code is an exception; a failed `OpenPrinter` closes nothing, because it leaves the handle undefined; a device mode shorter than `DEVMODEW` is refused rather than written over. |
+| Spooler job routing | `WindowsSpoolerDriverSeamTests` | A printer language goes out raw, an image and a document go through GDI, a copy count loops on the raw path and rides the device mode on the GDI path, and a page range reaches the converter on the document path only. |
+| GDI page loop | `WindowsGdiImagePrinterTests` | Every page of a job is in one document; each page is written to its own temporary file, which is read back intact and deleted afterwards; a page that fails aborts the document rather than ending it and leaves no graphics, image or device context open; the resolution arithmetic reaches GDI+ as the rectangle it drew, and a page from a converter uses the resolution it was rendered at rather than the 96 the encoder left behind. |
+| Windows PDF limits | `WindowsPdfLimitsTests` | The resolution is clamped to what the in-box engine renders well, and a page over the pixel cap keeps its shape because the cap belongs to the longer side. |
+| Windows package surface | `WindowsPrintingTests` | `PdfConverter` reads PDF only and writes both PNG and PWG Raster, and adding it to `PrinterManagerOptions.Converters` enables PDF for one manager without touching the process. |
 | Driver selection | `SpoolerDriverFactoryTests` | The factory gives a CUPS driver on Linux and macOS. |
 | PWG Raster encoding | `PwgRasterWriterTests` | The synchronization word, a page header of exactly 1796 octets, the field offsets of PWG 5102.4 Table 1, and the PackBits encoding read back through a decoder written against the specification. The sample bitmap the specification works through in section 4.4.1 is reproduced octet for octet, and all eight sides and sheet-back combinations of Table 9 give the transforms the table names. |
 | Raster keywords | `PwgRasterTests` | A printer's `pwg-raster-document-type-supported` and `pwg-raster-document-sheet-back` keywords read into the writer's options, and a keyword this library does not know falls back to colour and to `Normal`. |

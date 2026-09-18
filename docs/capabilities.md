@@ -27,10 +27,13 @@ between sending a PDF and converting it, taken from what the printer itself adve
 
 **The Windows spooler has printed on a real Windows machine**: the five-job `queue-sweep` set
 through a spooler queue — a PDF, two PNG jobs and two JPEG jobs, covering the colour mode,
-the orientation and the scaling — printed correctly. Everything else on Windows still rests
-on code review and a Linux-only test suite: the status bits against hardware, the error
-paths, a native AOT publish, and the PDF-to-PWG-Raster path over IPP, which no spooler job
-reaches. [Windows manual tests](windows-manual-tests.md) lists what is done and what is not.
+the orientation and the scaling — printed correctly. Everything around the native calls is
+tested on Linux: `WindowsSpoolerDriver` and `WindowsGdiImagePrinter` reach the spooler and
+GDI through seams, and a fake answers them with the structures the real ones write, so the
+buffer protocol, the page loop and the error paths run in the ordinary suite. What still
+rests on hardware is the marshalling itself, a native AOT publish, and the PDF-to-PWG-Raster
+path over IPP, which no spooler job reaches.
+[Windows manual tests](windows-manual-tests.md) lists what is done and what is not.
 
 ## Planned
 

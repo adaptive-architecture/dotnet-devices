@@ -53,15 +53,25 @@ The `pipeline/unit-test.sh` script:
 - Emits coverage in JSON, LCOV, and OpenCover formats under `coverage/`
   (one timestamped report per test project via `--results-directory ./coverage`)
 
-The CI runner is Linux, so no test there executes the Windows P/Invoke paths
-(`WindowsSpoolerDriver`, `WindowsSpoolerInterop`, `WindowsGdiImagePrinter`,
-`WindowsGdiInterop`) or the `AdaptArch.Devices.Windows` package. Those are listed in
-`sonar.coverage.exclusions` in `.github/workflows/test.yml`, so they do not count as
-uncovered. The exclusion is for coverage only: Sonar still inspects the files, and
-[windows-manual-tests.md](windows-manual-tests.md) states the checks a person runs on
-Windows. The Windows code that is pure logic — the layout, the parsers and the mappers —
-stays in the coverage, and the tests cover it. Add a new Windows-only file to that list
-only when a test on Linux cannot reach it.
+The CI runner is Linux, so no test there executes a native call. It does execute almost
+everything around one: `WindowsSpoolerDriver` and `WindowsGdiImagePrinter` reach
+`winspool.drv`, `gdi32` and `gdiplus` through `IWindowsSpoolerInterop`,
+`IWindowsGdiInterop` and `IWindowsGdiImagePrinter`, and the suite answers those with fakes
+that write real `PRINTER_INFO_2`, `JOB_INFO_2` and `DEVMODEW` bytes. Both files are in the
+coverage and are expected to stay above 80%.
+
+What `sonar.coverage.exclusions` in `.github/workflows/test.yml` still holds is the thin
+layer that has no logic to test: the `[LibraryImport]` declarations, the adapters that
+forward to them, and the PDF path that calls the in-box Windows engine.
+[windows-manual-tests.md](windows-manual-tests.md) states what a person still runs on
+Windows. **Add a file to that list only when a seam cannot be put in front of it** — the
+answer to a Windows-only file is usually an interface, not an exclusion.
+
+`pipeline/unit-test.sh` fails the build when line coverage over everything else falls below
+`THRESHOLD` (90%). The figure is computed from the merged LCOV reports, because a file is
+instrumented by every test project that references it and only the union says what really
+ran. `--coverlet-include "[AdaptArch.*]*"` keeps the report to this repository: without it
+the integration tests pull Testcontainers and Docker.DotNet into the numbers.
 
 The `samples/` directory is demonstration code. Sonar does not analyze it and does not
 count it in the coverage: `sonar.exclusions` and `sonar.coverage.exclusions` in
