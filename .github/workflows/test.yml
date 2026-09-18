@@ -85,10 +85,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # The only place the native calls actually run. Everything above them is covered on the
-  # Linux job through the interop seams, so this job proves what a seam cannot: that the
-  # [LibraryImport] declarations marshal correctly against the real winspool.drv, gdi32 and
-  # gdiplus, and that the in-box PDF engine is reachable.
+  # What this job proves today is that the suite is platform-clean: it builds for a
+  # -windows target, and no test carries a Linux assumption. That is worth having — its
+  # first run found three, one of them a crash in the mDNS browse on any adapter without
+  # IPv6 configured.
+  #
+  # It does NOT yet prove the marshalling. Every test here answers through the interop
+  # seams, so not one [LibraryImport] is called. Making it earn that claim means a test
+  # that reaches the real winspool.drv: EnumeratePrintersAsync against the runner's own
+  # spooler would exercise EnumPrinters and the PRINTER_INFO_4 layout, since the Windows
+  # image ships with Microsoft Print to PDF installed.
   #
   # No Sonar and no coverage here. The Linux job owns the report and the floor; a second
   # one would have to be merged into it for no gain, since these tests are the same tests.
@@ -119,7 +125,11 @@ jobs:
       - name: Build
         run: dotnet build --no-incremental
 
+      # bash, not the pwsh default: PowerShell does not stop a script on a native command
+      # that failed, and the step takes the exit code of the last one. A failing project
+      # followed by a passing one reported the job green.
       - name: Run tests that do not need a container
+        shell: bash
         run: |
           dotnet test test/Devices.UnitTests/Devices.UnitTests.csproj --no-build
           dotnet test test/Devices.DependencyInjection.UnitTests/Devices.DependencyInjection.UnitTests.csproj --no-build

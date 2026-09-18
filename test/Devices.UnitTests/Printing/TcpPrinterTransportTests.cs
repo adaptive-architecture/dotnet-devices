@@ -8,6 +8,8 @@ namespace AdaptArch.Devices.UnitTests.Printing;
 
 public class TcpPrinterTransportTests
 {
+    public static bool OnWindows => OperatingSystem.IsWindows();
+
     [Fact]
     public async Task WriteAsync_TransmitsPayloadToListener()
     {
@@ -59,7 +61,13 @@ public class TcpPrinterTransportTests
     }
 
     // The listener never reads, and the payload is larger than both socket buffers.
-    [Fact]
+    //
+    // Skipped on Windows, where it proves nothing: the loopback stack buffers all 32 MB, so
+    // the write completes and there is no wait to time out. Against a real printer the
+    // buffers fill and the timeout does its work, on every operating system. Picking a size
+    // that defeats Windows send-buffer autotuning would be a guess, and a test that passes
+    // because the guess held is worse than one that says it does not apply here.
+    [Fact(SkipWhen = nameof(OnWindows), Skip = "The Windows loopback stack buffers the whole payload, so the write never waits.")]
     public async Task WriteAsync_PrinterStopsReading_ThrowsTimeout()
     {
         using TcpListener listener = new(IPAddress.Loopback, 0);

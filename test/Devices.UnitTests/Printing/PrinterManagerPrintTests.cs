@@ -317,6 +317,11 @@ public class PrinterManagerPrintTests
     {
         // The queue vouched for the host through its device URI, so the two are one
         // device and a printer language can take the channel that keeps its bytes.
+        //
+        // Which channel that is depends on the operating system, and this is the test that
+        // shows it: the Windows spooler sends a RAW job through untouched, so the queue the
+        // caller named already keeps the bytes and there is nothing to cross to. A CUPS
+        // queue re-types the job, so there the label has to leave for the raw channel.
         var raw = FakePrinters.Raw("192.168.1.50", DiscoverySource.NetworkProbe);
         var queue = FakePrinters.Queue("EPSON_L6270", PrinterDeviceKey.ForHost("192.168.1.50"));
         FakePrinterFactory factory = new();
@@ -326,7 +331,8 @@ public class PrinterManagerPrintTests
         _ = await manager.DiscoverAsync(new PrinterManagerOptions { Probe = new() { Hosts = ["192.168.1.50"] } }, TestContext.Current.CancellationToken);
         _ = await manager.PrintAsync(queue.Id, Zpl(), null, TestContext.Current.CancellationToken);
 
-        Assert.Equal(PrinterScheme.Raw, Assert.Single(factory.Opened).Endpoint.Scheme);
+        var expected = OperatingSystem.IsWindows() ? PrinterScheme.Spooler : PrinterScheme.Raw;
+        Assert.Equal(expected, Assert.Single(factory.Opened).Endpoint.Scheme);
     }
 
     [Fact]
@@ -426,10 +432,14 @@ public class PrinterManagerPrintTests
     [Fact]
     public async Task PrintAsync_LetsThePayloadRuleWinOverTheAllowListOrder()
     {
-        // The allow-list names the spooler first, but only the raw channel keeps the bytes
-        // of a label. The payload rule decides which channels fit; the list then orders
-        // the ones that do. Were it the other way round, the default order would send
-        // every label over IPP.
+        // The allow-list names the spooler first, but off Windows only the raw channel
+        // keeps the bytes of a label. The payload rule decides which channels fit; the list
+        // then orders the ones that do. Were it the other way round, the default order
+        // would send every label over IPP.
+        //
+        // On Windows the spooler keeps them too, so both channels fit and the list gets to
+        // decide after all. That is the same rule reaching the other answer, not an
+        // exception to it.
         var raw = FakePrinters.Raw("192.168.1.50", DiscoverySource.NetworkProbe);
         var queue = FakePrinters.Queue("EPSON_L6270", PrinterDeviceKey.ForHost("192.168.1.50"));
         FakePrinterFactory factory = new();
@@ -440,7 +450,8 @@ public class PrinterManagerPrintTests
         var found = await manager.DiscoverAsync(new PrinterManagerOptions { Probe = new() { Hosts = ["192.168.1.50"] } }, TestContext.Current.CancellationToken);
         _ = await manager.PrintAsync(found[0].Id, Zpl(), null, TestContext.Current.CancellationToken);
 
-        Assert.Equal(PrinterScheme.Raw, Assert.Single(factory.Opened).Endpoint.Scheme);
+        var expected = OperatingSystem.IsWindows() ? PrinterScheme.Spooler : PrinterScheme.Raw;
+        Assert.Equal(expected, Assert.Single(factory.Opened).Endpoint.Scheme);
     }
 
     [Fact]
