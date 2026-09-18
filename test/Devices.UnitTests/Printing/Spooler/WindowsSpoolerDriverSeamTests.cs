@@ -393,6 +393,144 @@ public class WindowsSpoolerDriverSeamTests
     }
 
     [Fact]
+    public async Task SubmitAsync_ADocument_ConvertsItToPagesAndPrintsOneGdiJob()
+    {
+        FakeWindowsSpoolerInterop interop = new();
+        FakeWindowsGdiImagePrinter images = new() { JobId = 55 };
+        RecordingPdfConverter converter = new(pages: 3);
+        WindowsSpoolerDriver driver = new(
+            interop,
+            images,
+            isWindows: true,
+            new PrintFormatPolicy(null, [converter]));
+
+        var job = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromBytes(new byte[] { 1, 2, 3 }, PrinterContentTypes.Pdf),
+            new PrintOptions { JobName = "report", ResolutionDpi = 600 },
+            TestContext.Current.CancellationToken);
+
+        // A document is rendered before any job exists, so a file that cannot be read
+        // fails without leaving half of it in the queue. All of it prints as one job.
+        Assert.Equal("55", job.JobId);
+        Assert.Empty(interop.Written);
+        var pages = Assert.Single(images.Pages);
+        Assert.Equal(3, pages.Count);
+
+        // The pages carry the resolution they were rendered at: the PNG encoder writes
+        // none, and GDI+ would otherwise read them as 96 dpi and print them oversized.
+        var drawn = Assert.Single(images.Jobs);
+        Assert.Equal(600, drawn.SourceDpi);
+        Assert.Equal(PrinterContentTypes.Png, converter.LastTarget);
+        Assert.Equal(600, converter.LastDpi);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_ADocumentPageRange_IsGivenToTheConverterAndNotToTheDriver()
+    {
+        FakeWindowsSpoolerInterop interop = new();
+        RecordingPdfConverter converter = new(pages: 2);
+        WindowsSpoolerDriver driver = new(
+            interop,
+            new FakeWindowsGdiImagePrinter(),
+            isWindows: true,
+            new PrintFormatPolicy(null, [converter]));
+
+        var job = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromBytes(new byte[] { 1 }, PrinterContentTypes.Pdf),
+            new PrintOptions { PageRanges = [new PageRange(2, 3)] },
+            TestContext.Current.CancellationToken);
+
+        // The converter selects the pages, so this is the one Windows path that honours a
+        // page range: a device mode has no field for one.
+        Assert.NotNull(converter.LastRanges);
+        Assert.Equal(2, converter.LastRanges[0].Lower);
+        Assert.DoesNotContain(nameof(PrintOptions.PageRanges), job.DroppedOptions);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_ADocumentWithNoConverter_FailsBeforeAnythingSpools()
+    {
+        FakeWindowsSpoolerInterop interop = new();
+        FakeWindowsGdiImagePrinter images = new();
+        WindowsSpoolerDriver driver = new(interop, images, isWindows: true);
+
+        _ = await Assert.ThrowsAsync<NotSupportedException>(() => driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromBytes(new byte[] { 1, 2, 3 }, PrinterContentTypes.Pdf),
+            null,
+            TestContext.Current.CancellationToken));
+
+        Assert.Empty(images.Jobs);
+        Assert.Empty(interop.Written);
+    }
+
+    [Fact]
+    public async Task GetConfigurationAsync_ReadsTheDefaultsOutOfTheQueueDeviceMode()
+    {
+        var deviceMode = Marshal.AllocHGlobal(Marshal.SizeOf<WindowsSpoolerInterop.DevMode>());
+        try
+        {
+            // DM_ORIENTATION | DM_PAPERSIZE, with landscape and A4.
+            Marshal.StructureToPtr(
+                new WindowsSpoolerInterop.DevMode
+                {
+                    DeviceName = "lobby",
+                    FormName = "A4",
+                    Fields = 0x00000001 | 0x00000002,
+                    Orientation = 2,
+                    PaperSize = 9,
+                },
+                deviceMode,
+                false);
+
+            FakeWindowsSpoolerInterop interop = new()
+            {
+                PrinterInfo = new WindowsSpoolerInterop.PrinterInfo2 { PrinterName = "lobby", DevMode = deviceMode },
+            };
+            interop.Capabilities[WindowsSpoolerInterop.DcPaperNames] = new FakeWindowsSpoolerInterop.NameList(["Letter", "A4"], 64);
+            interop.Capabilities[WindowsSpoolerInterop.DcPapers] = new short[] { 1, 9 };
+
+            var configuration = await DriverFor(interop).GetConfigurationAsync("lobby", TestContext.Current.CancellationToken);
+
+            // Paper 9 is A4, and the name comes from the queue's own list rather than a
+            // table of our own: a driver may name its sizes whatever it likes.
+            Assert.Equal("A4", configuration.DefaultMediaSize);
+            Assert.Equal(PrintOrientation.Landscape, configuration.DefaultOrientation);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(deviceMode);
+        }
+    }
+
+    [Fact]
+    public async Task GetConfigurationAsync_AQueueWithNoDeviceMode_ReportsNoDefaults()
+    {
+        FakeWindowsSpoolerInterop interop = new()
+        {
+            PrinterInfo = new WindowsSpoolerInterop.PrinterInfo2 { PrinterName = "lobby", DevMode = IntPtr.Zero },
+        };
+
+        var configuration = await DriverFor(interop).GetConfigurationAsync("lobby", TestContext.Current.CancellationToken);
+
+        Assert.Null(configuration.DefaultMediaSize);
+        Assert.Null(configuration.DefaultOrientation);
+    }
+
+    [Fact]
+    public async Task GetIdentityAsync_AQueueThatWillNotAnswer_IsNullAndNotAFailure()
+    {
+        // Discovery reads identities for every queue it found. One dead print server must
+        // not take the whole enumeration down with it.
+        FakeWindowsSpoolerInterop interop = new() { FailingCall = nameof(IWindowsSpoolerInterop.GetPrinter), FailureError = 1722 };
+
+        Assert.Null(await DriverFor(interop).GetIdentityAsync("lobby", TestContext.Current.CancellationToken));
+        Assert.Equal(0, interop.OpenHandleCount);
+    }
+
+    [Fact]
     public void Constructor_RejectsAMissingCollaborator()
     {
         _ = Assert.Throws<ArgumentNullException>(() => new WindowsSpoolerDriver(null!, new FakeWindowsGdiImagePrinter(), true));
