@@ -23,6 +23,8 @@ public sealed class PrinterConfiguration
         SupportedDocumentFormats = [];
         SupportedOrientations = [];
         SupportedScalings = [];
+        PwgRasterTypes = [];
+        PwgRasterResolutionsDpi = [];
     }
 
     /// <summary>
@@ -137,4 +139,36 @@ public sealed class PrinterConfiguration
     /// means the printer did not report them, which is not the same as "accepts none".
     /// </summary>
     public IReadOnlyList<string> SupportedDocumentFormats { get; init; }
+
+    /// <summary>
+    /// Gets the PWG Raster colour spaces the printer reads, such as <c>srgb_8</c> and
+    /// <c>sgray_8</c>. An empty list means the printer did not report them.
+    /// </summary>
+    /// <remarks>
+    /// Only a printer that lists <c>image/pwg-raster</c> in
+    /// <see cref="SupportedDocumentFormats"/> reports these.
+    /// </remarks>
+    public IReadOnlyList<string> PwgRasterTypes { get; init; }
+
+    /// <summary>
+    /// Gets the resolutions in dots per inch the printer reads PWG Raster at. An empty
+    /// list means the printer did not report them.
+    /// </summary>
+    /// <remarks>
+    /// These are the resolutions a PWG Raster document must be written at, and they are not
+    /// always the same as <see cref="SupportedResolutionsDpi"/>.
+    /// </remarks>
+    public IReadOnlyList<int> PwgRasterResolutionsDpi { get; init; }
+
+    /// <summary>
+    /// Gets how the printer reads the back of a duplex sheet — <c>normal</c>,
+    /// <c>flipped</c>, <c>rotated</c> or <c>manual-tumble</c> — or <c>null</c> when the
+    /// printer did not report it.
+    /// </summary>
+    /// <remarks>
+    /// A one-sided document does not need this. A duplex one does: the back of each sheet
+    /// is written with the transform this value names, and a document that ignores it
+    /// prints every second page upside down or mirrored.
+    /// </remarks>
+    public string? PwgRasterSheetBack { get; init; }
 }
