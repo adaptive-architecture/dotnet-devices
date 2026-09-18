@@ -40,6 +40,58 @@ public class WindowsGdiImageLayoutTests
         Assert.Equal(300, layout.Y);
     }
 
+    // PWG 5100.16: Auto leaves a document that fits the media at its own size. A 4x6
+    // label on A4 is the case the sample job set prints.
+    [Fact]
+    public void Compute_AutoKeepsSmallImagesAtNaturalSize()
+    {
+        var layout = WindowsGdiImageLayout.Compute(400, 200, 1000, 800, PrintOrientation.Portrait, PrintScaling.Auto);
+
+        Assert.Equal(400, layout.Width);
+        Assert.Equal(200, layout.Height);
+        Assert.Equal(300, layout.X);
+        Assert.Equal(300, layout.Y);
+    }
+
+    [Fact]
+    public void Compute_AutoFitsLargeImagesInsideTheMargins()
+    {
+        var layout = WindowsGdiImageLayout.Compute(2000, 1600, 1000, 800, PrintOrientation.Portrait, PrintScaling.Auto);
+
+        Assert.Equal(1000, layout.Width);
+        Assert.Equal(800, layout.Height);
+    }
+
+    // The one case Auto and AutoFit part ways: a sheet with no margin is filled.
+    [Fact]
+    public void Compute_AutoFillsBorderlessMediaWithLargeImages()
+    {
+        var layout = WindowsGdiImageLayout.Compute(2000, 1000, 1000, 800, PrintOrientation.Portrait, PrintScaling.Auto, borderless: true);
+
+        Assert.Equal(1600, layout.Width);
+        Assert.Equal(800, layout.Height);
+    }
+
+    // Borderless says nothing about a document that already fits.
+    [Fact]
+    public void Compute_AutoKeepsSmallImagesAtNaturalSizeOnBorderlessMedia()
+    {
+        var layout = WindowsGdiImageLayout.Compute(400, 200, 1000, 800, PrintOrientation.Portrait, PrintScaling.Auto, borderless: true);
+
+        Assert.Equal(400, layout.Width);
+        Assert.Equal(200, layout.Height);
+    }
+
+    // An unset option is the printer default, which PWG 5100.16 names as Auto.
+    [Fact]
+    public void Compute_UnsetScalingIsAuto()
+    {
+        var unset = WindowsGdiImageLayout.Compute(400, 200, 1000, 800, PrintOrientation.Portrait, null);
+        var auto = WindowsGdiImageLayout.Compute(400, 200, 1000, 800, PrintOrientation.Portrait, PrintScaling.Auto);
+
+        Assert.Equal(auto, unset);
+    }
+
     [Fact]
     public void Compute_AutoFitKeepsSmallImagesAtNaturalSize()
     {

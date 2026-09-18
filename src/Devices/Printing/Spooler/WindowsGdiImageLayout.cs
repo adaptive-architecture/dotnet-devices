@@ -32,9 +32,9 @@ internal static class WindowsGdiImageLayout
 
     // How many device pixels one side of the image covers when it prints at its own
     // size: its pixels read at the resolution the source declares, and written at the
-    // resolution of the device. Fit, Fill and AutoFit take this size too, because the
-    // shape it gives is the shape the source really has, which a pixel count alone
-    // does not carry.
+    // resolution of the device. Every mode takes this size, because the shape it gives
+    // is the shape the source really has, which a pixel count alone does not carry,
+    // and because Auto and AutoFit decide on whether that size fits the page.
     //
     // CUPS does the same on the Linux side, but it assumes 200 dots an inch for a file
     // that declares nothing, while GDI+ answers 96 for such a file and cannot tell it
@@ -47,14 +47,17 @@ internal static class WindowsGdiImageLayout
     // The destination rectangle of the image, centered, in the frame the caller draws
     // in: that is, after the rotation, where the image keeps its own axes. The page is
     // the printable area from GetDeviceCaps(HORZRES, VERTRES), so no margin math
-    // lives here. Returns empty when either side has no size to fit.
+    // lives here; borderless says whether that area is the whole sheet, which is the
+    // one thing Auto needs of the margins. Returns empty when either side has no size
+    // to fit.
     internal static ImageRectangle Compute(
         int imageWidth,
         int imageHeight,
         int pageWidth,
         int pageHeight,
         PrintOrientation? orientation,
-        PrintScaling? scaling)
+        PrintScaling? scaling,
+        bool borderless = false)
     {
         if (imageWidth <= 0 || imageHeight <= 0 || pageWidth <= 0 || pageHeight <= 0)
         {
@@ -65,10 +68,16 @@ internal static class WindowsGdiImageLayout
         var fittedWidth = sideways ? imageHeight : imageWidth;
         var fittedHeight = sideways ? imageWidth : imageHeight;
 
-        var mode = scaling ?? PrintScaling.Fit;
+        // An unset option means the printer default, and PWG 5100.16 names Auto as
+        // that default.
+        var mode = scaling ?? PrintScaling.Auto;
         if (mode == PrintScaling.Auto)
         {
-            mode = PrintScaling.Fit;
+            // PWG 5100.16: a document smaller than the media keeps its own size, and a
+            // larger one fits inside the margins, or fills a sheet that has none.
+            mode = fittedWidth <= pageWidth && fittedHeight <= pageHeight
+                ? PrintScaling.None
+                : borderless ? PrintScaling.Fill : PrintScaling.Fit;
         }
 
         double width = fittedWidth;

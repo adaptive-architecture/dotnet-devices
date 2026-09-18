@@ -367,3 +367,6 @@ specs
 # Subagent-driven-development scratch workspace.
 .superpowers/
 docs/superpowers
+
+# Copied from assets/logo.ico by the sample build.
+samples/Devices.Samples/wwwroot/favicon.ico

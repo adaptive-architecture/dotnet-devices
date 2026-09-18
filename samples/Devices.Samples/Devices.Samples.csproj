@@ -27,4 +27,12 @@
     <None Include="PrintJobs\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- The project icon lives once, at the repository root. A Content item that links it
+    into wwwroot is copied to bin, but the development server reads wwwroot itself, so the
+    file is placed there instead and kept out of source control. -->
+  <Target Name="CopyProjectIcon" BeforeTargets="BeforeBuild"
+          Inputs="..\..\assets\logo.ico" Outputs="wwwroot\favicon.ico">
+    <Copy SourceFiles="..\..\assets\logo.ico" DestinationFiles="wwwroot\favicon.ico" />
+  </Target>
+
 </Project>

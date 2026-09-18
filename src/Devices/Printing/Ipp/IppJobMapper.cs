@@ -24,6 +24,11 @@ internal static class IppJobMapper
         "date-time-at-completed",
     ];
 
+    // "job-impressions" is integer(0:MAX), so a negative count is not one. A printer that
+    // answers the attribute out of band — 'unknown' on a job it failed before the first
+    // page — reaches this mapping as Int32.MinValue, which then reads as a page total.
+    private static int? Impressions(int? value) => value >= 0 ? value : null;
+
     // Returns null for a job without job-id: it can be neither tracked nor cancelled.
     public static PrintJobInfo? Map(
         PrinterId id,
@@ -41,8 +46,8 @@ internal static class IppJobMapper
         PrintJobInfo job = new(numericId.ToString(CultureInfo.InvariantCulture), id, IppJobStateMapper.Map(attributes.JobState))
         {
             JobName = attributes.JobName,
-            ImpressionsCompleted = attributes.JobImpressionsCompleted,
-            TotalImpressions = attributes.JobImpressions,
+            ImpressionsCompleted = Impressions(attributes.JobImpressionsCompleted),
+            TotalImpressions = Impressions(attributes.JobImpressions),
             Detail = StateReasons.Join(reasons),
             StateReasons = reasons,
             StateMessage = IppStatusMapper.Trim(attributes.JobStateMessage),

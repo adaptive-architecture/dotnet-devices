@@ -160,6 +160,13 @@ reads the `document-format` attribute and may convert the job. The four printer 
 languages — `Zpl`, `Epl`, `Cpcl` and `EscPos` — are not formats an IPP server knows, so the
 library chooses the format it sends for them. Every other content type is sent unchanged.
 
+**A format a printer lists is not a file it can read.** IPP defines `image/jpeg` as JFIF,
+and printer firmware carries the baseline decoder that JFIF describes and no other. A
+progressive JPEG is accepted, because the media type matches, and then fails with
+`document-unprintable-error` once the decoder reaches it. The sample photo is baseline for
+that reason. The same holds for a PDF version a printer predates, and for an `image/png`
+with an interlace or a bit depth the firmware skipped.
+
 Two wrong choices are possible, and the library avoids both:
 
 - **The language itself.** CUPS answers `client-error-document-format-not-supported` and
@@ -425,6 +432,14 @@ await foreach (var reading in monitor.WatchJobAsync(job.PrinterId, job.JobId, wa
 }
 ```
 
+**Watch `job.PrinterId`, and not the identifier you printed with.** The example above is not
+being tidy: a job queue resolves nothing, so it needs an identifier that names a host. An
+identifier that names a device identity — which is what mDNS discovery gives every printer
+that advertises a UUID, and a CUPS queue does — prints through `IPrinterManager`, because the
+manager resolves it to a channel, and then fails the watch with `NotSupportedException`.
+`PrintJobInfo.PrinterId` is the identifier of the channel the job really went to, so it always
+names a host.
+
 #### When a watch ends
 
 **Only the `CancellationToken` throws. Every limit ends the watch quietly.** The watch stops
@@ -561,10 +576,22 @@ the separate `AdaptArch.Devices.Windows` package (a `-windows` target is the onl
 that can see the engine), and the application lights it up with
 `WindowsPrinting.EnableSpoolerPdfPrinting()`; without a converter for PDF a job fails
 with `NotSupportedException` before anything spools. Any other document format prints
-the same way once the application registers a converter for it. It runs on Windows 10 version 1607
-and later, including Windows 11, which is the floor .NET 10 itself requires; the
-`gdi32`/`gdiplus` entry points it calls ship in-box on all of them. Two rules decide
-what a device mode field can hold:
+the same way once the application registers a converter for it.
+
+Where each of these runs:
+
+| What prints | Where it runs |
+| --- | --- |
+| IPP, raw TCP, SNMP and discovery | Every platform .NET 10 supports, Windows, Linux and macOS alike. |
+| The spooler: printer languages, PNG and JPEG | Every Windows .NET 10 supports, Server Core included, because `winspool.drv`, `gdi32` and `gdiplus` ship in-box on all of them. Not Nano Server, which has neither GDI nor a spooler. |
+| The spooler: PDF | Windows 10, Windows 11, and Windows Server with the Desktop Experience. The engine is WinRT, so Windows Server 2012 R2 has none and Server Core is untested. A machine without it gets `PlatformNotSupportedException` and not a complaint about the file. |
+
+Windows Protected Print Mode, which an administrator can turn on from Windows 11 24H2 and
+Windows Server 2025, blocks third-party drivers and leaves only the Microsoft IPP class
+driver. A queue behind it takes no printer language through a vendor driver; the IPP
+transport of this library is untouched.
+
+Two rules decide what a device mode field can hold:
 
 - `MediaSize` and `MediaSource` are names, and a `DEVMODE` field holds a number, so the name
   is looked up in the media and tray lists the queue reports. A name that the queue did not
@@ -588,6 +615,15 @@ and `Auto`, `AutoFit`, `Fill` and `Fit` are dropped. `dmOrientation` holds
 `ReverseLandscape` or `ReversePortrait` is dropped as well. Image jobs lay out with GDI
 instead and honour every orientation and every scaling mode, so neither is dropped there.
 IPP and CUPS carry all of them.
+
+A GDI image job reads `Scaling` as PWG 5100.16 writes it, so the same option gives the
+same page as an IPP printer gives. `Auto` is the value an unset `Scaling` takes, because
+that is the printer default the IPP side falls back to: a document that already fits the
+printable area keeps its own size and is centered, and a larger one is scaled down to
+`Fit`, or to `Fill` on a borderless medium — one where `PHYSICALWIDTH` and
+`PHYSICALHEIGHT` report no more than the printable area. This matters for a label: a 4
+by 6 inch PDF on A4 prints at 4 by 6 inches in the middle of the sheet, and not blown up
+to the whole page.
 
 A GDI image job sizes the image from the resolution its file declares — the PNG `pHYs`
 chunk, the JPEG JFIF density, or an EXIF tag — and writes it at the resolution of the
@@ -1049,8 +1085,10 @@ The page has a printer list on the left and four tabs on the right:
   of [windows-manual-tests.md](windows-manual-tests.md).
 
 A job reports its progress over minutes, so every flow that prints answers with a stream of
-server-sent events. The browser shows each line as it arrives, and closing the page stops
-the watch. The printer keeps the job.
+server-sent events. The browser shows each line as it arrives in a log that covers the
+page, which opens itself when a run starts and is opened again by the **Log** button beside
+**Probe subnet**. Closing it says "not now": the next run opens it again. Closing the page
+stops the watch. The printer keeps the job.
 
 ### The job set format
 

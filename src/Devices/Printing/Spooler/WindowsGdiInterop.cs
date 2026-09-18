@@ -42,6 +42,11 @@ internal static partial class WindowsGdiInterop
     internal const int HorzRes = 8;
     internal const int VertRes = 10;
 
+    // PHYSICALWIDTH and PHYSICALHEIGHT: the whole sheet in pixels. Equal to the
+    // printable area only on a borderless medium, which is what Auto asks about.
+    internal const int PhysicalWidth = 110;
+    internal const int PhysicalHeight = 111;
+
     // LOGPIXELSX and LOGPIXELSY: the dots an inch of the device holds. A job that
     // asks for its own size needs them, because a device pixel is not a length.
     internal const int LogPixelsX = 88;

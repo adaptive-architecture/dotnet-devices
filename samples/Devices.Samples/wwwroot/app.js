@@ -8,6 +8,7 @@ const state = {
   sets: [],
   uploadedSet: null,
   running: null,
+  logMuted: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -23,7 +24,30 @@ function log(text, level) {
   const lines = $('lines');
   lines.appendChild(line);
   lines.scrollTop = lines.scrollHeight;
+  openLog();
 }
+
+// The log opens itself when there is something to read, which is what the panel beside
+// the form used to do by always being there. Closing it says "not now", and only the
+// next run, or the button, brings it back.
+function openLog() {
+  if (!state.logMuted && !$('log').open) {
+    $('log').showModal();
+  }
+}
+
+$('log').addEventListener('close', () => { state.logMuted = true; });
+$('log-close').addEventListener('click', () => { $('log').close(); });
+
+$('log-toggle').addEventListener('click', () => {
+  if ($('log').open) {
+    $('log').close();
+    return;
+  }
+
+  state.logMuted = false;
+  openLog();
+});
 
 $('clear').addEventListener('click', () => { $('lines').textContent = ''; });
 
@@ -38,6 +62,8 @@ async function stream(url, init) {
   const controller = new AbortController();
   state.running = controller;
   $('stop').classList.remove('hidden');
+  state.logMuted = false;
+  openLog();
   try {
     const response = await fetch(url, Object.assign({ signal: controller.signal }, init));
     if (!response.ok) {
