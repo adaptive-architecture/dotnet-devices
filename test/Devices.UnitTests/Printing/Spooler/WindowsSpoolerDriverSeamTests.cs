@@ -531,6 +531,53 @@ public class WindowsSpoolerDriverSeamTests
     }
 
     [Fact]
+    public async Task GetConfigurationAsync_ADriverThatRefusesTheQuery_ThrowsRatherThanReportNothing()
+    {
+        // DeviceCapabilities answers -1 for a queue that does not exist, and 0 for a real
+        // queue that lists nothing. The two must not read the same: an empty configuration
+        // says the printer has no trays, and a caller acts on that.
+        FakeWindowsSpoolerInterop interop = new()
+        {
+            FailingCall = nameof(IWindowsSpoolerInterop.DeviceCapabilities),
+            FailureError = 1801,
+        };
+
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => DriverFor(interop).GetConfigurationAsync("nowhere", TestContext.Current.CancellationToken));
+
+        Assert.Contains(nameof(IWindowsSpoolerInterop.DeviceCapabilities), failure.Message, StringComparison.Ordinal);
+        Assert.Contains("1801", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EveryEntryPoint_ACancelledToken_ThrowsBeforeItReachesTheSpooler()
+    {
+        FakeWindowsSpoolerInterop interop = new();
+        var driver = DriverFor(interop);
+        using CancellationTokenSource source = new();
+        await source.CancelAsync();
+        var cancelled = source.Token;
+
+        // The spooler RPC runs on the caller thread and cannot be interrupted, so the token
+        // is read on entry and nowhere else. That makes the entry check the whole of the
+        // contract: a call that got past it will finish whatever the caller does next.
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => driver.EnumeratePrintersAsync(cancelled));
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => driver.GetIdentityAsync("lobby", cancelled));
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => driver.GetStatusAsync("lobby", cancelled));
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => driver.GetConfigurationAsync("lobby", cancelled));
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => driver.GetJobsAsync("lobby", cancelled));
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => driver.GetJobAsync("lobby", "1", cancelled));
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => driver.CancelJobAsync("lobby", "1", cancelled));
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
+            null,
+            cancelled));
+
+        Assert.Empty(interop.Calls);
+    }
+
+    [Fact]
     public void Constructor_RejectsAMissingCollaborator()
     {
         _ = Assert.Throws<ArgumentNullException>(() => new WindowsSpoolerDriver(null!, new FakeWindowsGdiImagePrinter(), true));

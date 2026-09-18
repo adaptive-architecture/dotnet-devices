@@ -161,15 +161,21 @@ The checks run both of these for you.
 2. Cancel a job that already finished, or an id that never existed, on the real queue.
    `CancelJobAsync` must return `false`, not throw. The driver gives
    `ERROR_INVALID_PARAMETER` (87) this special treatment.
-3. Call `GetConfigurationAsync` with a queue name that does not exist. `DeviceCapabilities`
+3. ~~Call `GetConfigurationAsync` with a queue name that does not exist. `DeviceCapabilities`
    returns `-1`, and the driver must throw `InvalidOperationException`, not return an empty
-   configuration.
+   configuration.~~ **Covered** by
+   `WindowsSpoolerDriverSeamTests.GetConfigurationAsync_ADriverThatRefusesTheQuery_ThrowsRatherThanReportNothing`.
+   What is left here is only whether real Windows answers `-1` for a missing queue rather
+   than `0`; the two must not read the same, and the test holds that apart.
 4. Stop the **Print Spooler** service, then call `EnumeratePrintersAsync` and `GetJobsAsync`.
    Both must throw `InvalidOperationException` with error 1722 (`RPC_S_SERVER_UNAVAILABLE`)
    or a similar code. Neither call may return an empty list. Start the service again.
-5. Pass a cancelled `CancellationToken` to any method. The call must throw
-   `OperationCanceledException` before it reaches the spooler. The token is checked on
-   entry only: a call that already runs inside `winspool.drv` completes on its own.
+5. ~~Pass a cancelled `CancellationToken` to any method. The call must throw
+   `OperationCanceledException` before it reaches the spooler.~~ **Covered** by
+   `WindowsSpoolerDriverSeamTests.EveryEntryPoint_ACancelledToken_ThrowsBeforeItReachesTheSpooler`,
+   which asserts it for all eight and that the spooler saw nothing. The token is still
+   checked on entry only: a call that already runs inside `winspool.drv` completes on its
+   own, and no test on any platform can change that.
 
 ### 6. The configuration, against a real driver
 
