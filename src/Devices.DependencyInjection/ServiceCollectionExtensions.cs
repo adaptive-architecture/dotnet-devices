@@ -1,4 +1,5 @@
-﻿using AdaptArch.Devices.Printing;
+﻿using System.Linq;
+using AdaptArch.Devices.Printing;
 using AdaptArch.Devices.Printing.Ipp;
 using AdaptArch.Devices.Printing.Spooler;
 using Microsoft.Extensions.DependencyInjection;
@@ -109,11 +110,7 @@ public static class ServiceCollectionExtensions
             Formats = provider.GetRequiredService<PrinterManagerOptions>().BuildFormatPolicy(),
             LoggerFactory = Log(provider),
         });
-        services.TryAddSingleton<IPrinterDiscovery>(provider => new SpoolerPrinterDiscovery
-        {
-            IppTransport = provider.GetRequiredService<IppTransportOptions>(),
-            LoggerFactory = Log(provider),
-        });
+        services.TryAddSingleton(BuildDiscovery);
         services.TryAddSingleton(provider => new SpoolerPrintJobQueue
         {
             IppTransport = provider.GetRequiredService<IppTransportOptions>(),
@@ -131,6 +128,30 @@ public static class ServiceCollectionExtensions
         });
         services.TryAddSingleton<IPrinterManager, PrinterManager>();
         return services;
+    }
+
+    // The spooler of this machine, and one discovery for each CUPS server the application
+    // named. They are one registration because PrinterManager asks one IPrinterDiscovery,
+    // and they are one source because both of them find queues.
+    private static IPrinterDiscovery BuildDiscovery(IServiceProvider provider)
+    {
+        var transport = provider.GetRequiredService<IppTransportOptions>();
+        SpoolerPrinterDiscovery spooler = new()
+        {
+            IppTransport = transport,
+            LoggerFactory = Log(provider),
+        };
+
+        var servers = provider.GetRequiredService<PrinterManagerOptions>().CupsServers;
+        if (servers.Count == 0)
+        {
+            return spooler;
+        }
+
+        var client = provider.GetRequiredService<IppHttpClientHolder>().Client;
+        List<IPrinterDiscovery> sources = [spooler];
+        sources.AddRange(servers.Select(server => new CupsPrinterDiscovery(server.Host, server.Port, client, transport)));
+        return new CompositePrinterDiscovery([.. sources]);
     }
 
     // The log factory the manager options settled on, so every registration reads one answer.

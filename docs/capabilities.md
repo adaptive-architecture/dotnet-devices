@@ -4,7 +4,7 @@
 
 | Area | State |
 | :--- | :--- |
-| Printing | Raw payloads with a content type, IPP and raw TCP transports, the operating system spooler on Windows (native interop) and on Linux and macOS (local CUPS over IPP), job queues and job progress. |
+| Printing | Raw payloads with a content type, IPP and raw TCP transports, the operating system spooler on Windows (native interop) and on Linux and macOS (local CUPS over IPP), a CUPS server over the network from any operating system, job queues and job progress. |
 | Printer discovery | mDNS/DNS-SD browse, which needs no host list; a TCP probe of explicit hosts, with a helper that lists the local subnet; the operating system spooler. |
 | Printer manager | One entry point that runs every source, groups the channels into one device per physical printer, and prints, reads a status or watches a job by identifier. It can also prove that two IPP channels reach one queue by comparing the jobs each reports: opt-in, and opt-in again before it writes anything. |
 | Printer capabilities | Media sizes, trays, media types, output bins, qualities, pages per sheet, and the defaults the printer applies when a job asks for nothing. |

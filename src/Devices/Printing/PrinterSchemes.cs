@@ -9,6 +9,7 @@ internal static class PrinterSchemes
     private const string IppText = "ipp";
     private const string IppsText = "ipps";
     private const string SpoolerText = "spooler";
+    private const string CupsText = "cups";
 
     // A scheme with no network port reports zero.
     public const int NoPort = 0;
@@ -33,6 +34,11 @@ internal static class PrinterSchemes
         if (scheme == PrinterScheme.Spooler)
         {
             return SpoolerText;
+        }
+
+        if (scheme == PrinterScheme.Cups)
+        {
+            return CupsText;
         }
 
         throw new ArgumentOutOfRangeException(nameof(scheme), scheme, "Unknown printer scheme.");
@@ -65,6 +71,12 @@ internal static class PrinterSchemes
             return true;
         }
 
+        if (text.Equals(CupsText, StringComparison.OrdinalIgnoreCase))
+        {
+            scheme = PrinterScheme.Cups;
+            return true;
+        }
+
         scheme = default;
         return false;
     }
@@ -80,7 +92,7 @@ internal static class PrinterSchemes
             return NetworkPrinterEndpoint.DefaultPort;
         }
 
-        if (scheme is PrinterScheme.Ipp or PrinterScheme.Ipps)
+        if (scheme is PrinterScheme.Ipp or PrinterScheme.Ipps or PrinterScheme.Cups)
         {
             return IppPrinterStatusClient.DefaultPort;
         }
@@ -89,17 +101,26 @@ internal static class PrinterSchemes
     }
 
     /// <summary>
-    /// Whether the scheme addresses a host and a port.
+    /// Whether the scheme is one <see cref="NetworkPrinterEndpoint"/> describes: a host
+    /// and a port, and nothing else. <see cref="PrinterScheme.Cups"/> also carries a host,
+    /// but it names a queue on it as well, so it is not one of these. Ask
+    /// <see cref="HasHost"/> to learn only whether a host is addressed.
     /// </summary>
     public static bool IsNetwork(PrinterScheme scheme) =>
         scheme is PrinterScheme.Raw or PrinterScheme.Ipp or PrinterScheme.Ipps;
+
+    /// <summary>
+    /// Whether the scheme addresses a host at all.
+    /// </summary>
+    public static bool HasHost(PrinterScheme scheme) =>
+        IsNetwork(scheme) || scheme == PrinterScheme.Cups;
 
     /// <summary>
     /// Whether a job sent over this scheme can be found again and watched. A raw channel
     /// gives back no job identifier, so it cannot.
     /// </summary>
     public static bool HasJobQueue(PrinterScheme scheme) =>
-        scheme is PrinterScheme.Ipp or PrinterScheme.Ipps or PrinterScheme.Spooler;
+        scheme is PrinterScheme.Ipp or PrinterScheme.Ipps or PrinterScheme.Spooler or PrinterScheme.Cups;
 
     /// <summary>
     /// Whether the scheme sends the payload bytes to the device unchanged.
@@ -186,6 +207,11 @@ internal static class PrinterSchemes
         if (scheme == PrinterScheme.Spooler)
         {
             return 2;
+        }
+
+        if (scheme == PrinterScheme.Cups)
+        {
+            return 3;
         }
 
         return Int32.MaxValue;

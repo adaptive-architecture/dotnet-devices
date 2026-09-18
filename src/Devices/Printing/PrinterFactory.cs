@@ -7,8 +7,8 @@ namespace AdaptArch.Devices.Printing;
 /// <summary>
 /// Default <see cref="IPrinterFactory"/>. Picks <see cref="IppPrinter"/> for network
 /// printers that answer on the IPP port, <see cref="RawPrinter"/> for every other
-/// network port, and <see cref="SpoolerPrinter"/> for printers installed in the
-/// operating system print spooler.
+/// network port, <see cref="SpoolerPrinter"/> for printers installed in the operating
+/// system print spooler, and <see cref="CupsPrinter"/> for a queue of a CUPS server.
 /// </summary>
 /// <remarks>
 /// Every <see cref="IppPrinter"/> and every <see cref="RawPrinter"/> this factory creates
@@ -117,6 +117,11 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
         if (printer.Endpoint is SpoolerPrinterEndpoint spooler)
         {
             return new SpoolerPrinter(spooler) { Formats = Formats, IppTransport = _options };
+        }
+
+        if (printer.Endpoint is CupsPrinterEndpoint cups)
+        {
+            return new CupsPrinter(cups, _httpClient, _options, Formats);
         }
 
         throw new NotSupportedException($"Endpoint type '{printer.Endpoint.GetType().Name}' is not supported.");

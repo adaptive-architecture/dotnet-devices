@@ -6,8 +6,9 @@ namespace AdaptArch.Devices.Printing;
 
 /// <summary>
 /// Routes job-queue operations to the transport the scheme of the identifier names: the
-/// operating system spooler for <see cref="PrinterScheme.Spooler"/>, and IPP (Internet
-/// Printing Protocol) for <see cref="PrinterScheme.Ipp"/> and <see cref="PrinterScheme.Ipps"/>.
+/// operating system spooler for <see cref="PrinterScheme.Spooler"/>, a CUPS server for
+/// <see cref="PrinterScheme.Cups"/>, and IPP (Internet Printing Protocol) for
+/// <see cref="PrinterScheme.Ipp"/> and <see cref="PrinterScheme.Ipps"/>.
 /// </summary>
 /// <remarks>
 /// <see cref="PrinterScheme.Raw"/> has no job queue to inspect, so every operation throws
@@ -25,6 +26,10 @@ public sealed class CompositePrintJobQueue : IPrintJobQueue
     private readonly HttpClient _httpClient;
     private readonly IppTransportOptions _options;
     private readonly ConcurrentDictionary<string, IppPrintJobQueue> _networkQueues = new(StringComparer.OrdinalIgnoreCase);
+
+    // One per CUPS server, not per queue: the driver behind it is bound to the server and
+    // takes the queue name from each call.
+    private readonly ConcurrentDictionary<string, CupsPrintJobQueue> _cupsQueues = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CompositePrintJobQueue"/> class.
@@ -78,6 +83,19 @@ public sealed class CompositePrintJobQueue : IPrintJobQueue
         if (printerId.Scheme == PrinterScheme.Spooler)
         {
             return _spoolerQueue;
+        }
+
+        if (printerId.Scheme == PrinterScheme.Cups)
+        {
+            if (!printerId.TryGetHost(out var server))
+            {
+                throw new NotSupportedException(
+                    $"'{printerId}' names no CUPS server. Resolve it through IPrinterManager first.");
+            }
+
+            return _cupsQueues.GetOrAdd(
+                $"{server}:{printerId.Port}",
+                _ => new CupsPrintJobQueue(server, printerId.Port, _httpClient, _options));
         }
 
         if (printerId.Scheme is PrinterScheme.Ipp or PrinterScheme.Ipps)

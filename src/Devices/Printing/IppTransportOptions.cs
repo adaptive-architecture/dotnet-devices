@@ -1,4 +1,5 @@
-﻿using System.Net.Security;
+﻿using System.Net;
+using System.Net.Security;
 using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.Printing;
@@ -32,6 +33,18 @@ public sealed class IppTransportOptions
     /// this callback asks for.
     /// </summary>
     public RemoteCertificateValidationCallback? ServerCertificateValidation { get; set; }
+
+    /// <summary>
+    /// Gets or sets the credentials sent to the IPP server. Defaults to <c>null</c>, which
+    /// sends none.
+    /// </summary>
+    /// <remarks>
+    /// A printer and the local CUPS daemon both accept an unauthenticated client, so this
+    /// stays empty for them. A CUPS server reached over the network normally does not:
+    /// point a <see cref="NetworkCredential"/> at it, and send it over IPPS, because the
+    /// Basic scheme CUPS asks for carries the password in clear text over plain IPP.
+    /// </remarks>
+    public ICredentials? Credentials { get; set; }
 
     /// <summary>
     /// Gets or sets the time allowed to open the TCP connection to a printer. Defaults to

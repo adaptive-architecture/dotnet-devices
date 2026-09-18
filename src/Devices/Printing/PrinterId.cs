@@ -6,8 +6,8 @@
 /// <remarks>
 /// <para>
 /// The scheme names the transport channel, so the identifier itself says how the bytes
-/// travel: <c>raw</c>, <c>ipp</c>, <c>ipps</c> or <c>spooler</c>. Nothing has to guess a
-/// channel from a port number.
+/// travel: <c>raw</c>, <c>ipp</c>, <c>ipps</c>, <c>spooler</c> or <c>cups</c>. Nothing has
+/// to guess a channel from a port number.
 /// </para>
 /// <para>
 /// The authority is the identity the device reported about itself when there is one, and
@@ -15,6 +15,11 @@
 /// with no discovery, because the scheme gives the endpoint type and the default port. An
 /// <b>identity form</b> names no address, so it is resolved through
 /// <see cref="IPrinterManager"/>, which knows where the device was found.
+/// </para>
+/// <para>
+/// The <c>cups</c> scheme is the one authority that carries a path: a CUPS server holds
+/// many queues, so the host alone does not name a channel. It has no identity form, because
+/// what it names is a queue of a server and not a device that could report a UUID.
 /// </para>
 /// <para>
 /// Only a UUID is written as an identity authority. A serial number reads exactly like a
@@ -38,6 +43,8 @@
 /// ipps://e3b0c442-98fc-1c14-9afb-4c8996fb9242:443  an identity on a port that is not the default
 /// spooler://EPSON_L6270                          a print queue of the operating system
 /// spooler://%5C%5Cserver%5Cqueue                 a Windows connection name, escaped
+/// cups://printsrv/EPSON_L6270                   a queue of a CUPS server, port 631 implied
+/// cups://printsrv:8631/Front%20Desk             a port that is not the default, and an escaped name
 /// </code>
 /// </example>
 /// </remarks>
@@ -54,13 +61,18 @@ public readonly struct PrinterId : IEquatable<PrinterId>
     private readonly string? _value;
     private readonly string? _authority;
 
-    private PrinterId(PrinterScheme scheme, string authority, string value, int port, bool isDeviceIdentity)
+    // Set for the cups scheme alone, whose authority names a host and a queue on it. Every
+    // other scheme names one thing, which _value holds.
+    private readonly string? _queue;
+
+    private PrinterId(PrinterScheme scheme, string authority, string value, int port, bool isDeviceIdentity, string? queue = null)
     {
         Scheme = scheme;
         _authority = authority;
         _value = value;
         Port = port;
         IsDeviceIdentity = isDeviceIdentity;
+        _queue = queue;
     }
 
     /// <summary>
@@ -111,6 +123,14 @@ public readonly struct PrinterId : IEquatable<PrinterId>
             if (Scheme == PrinterScheme.Spooler)
             {
                 return PrinterDeviceKey.ForQueue(value);
+            }
+
+            // The server is part of the key: one CUPS server holds many queues, so its host
+            // alone would fuse the whole fleet behind it into one device. The port is left
+            // out by the same rule as everywhere else, because it names the channel.
+            if (Scheme == PrinterScheme.Cups)
+            {
+                return PrinterDeviceKey.ForQueue($"{value}/{_queue}");
             }
 
             return PrinterDeviceKey.ForHost(value);
@@ -174,6 +194,24 @@ public readonly struct PrinterId : IEquatable<PrinterId>
     }
 
     /// <summary>
+    /// Creates an identifier for a print queue of a CUPS server.
+    /// </summary>
+    /// <param name="host">The host name or IP address of the CUPS server.</param>
+    /// <param name="queueName">The queue name on that server.</param>
+    /// <param name="port">The TCP port. Defaults to 631.</param>
+    /// <exception cref="ArgumentException">Thrown when the host is not a host, or the name is not a valid queue name.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the port is outside 1 to 65535.</exception>
+    public static PrinterId ForCups(string host, string queueName, int port = IppPrinterStatusClient.DefaultPort)
+    {
+        NetworkPrinterEndpoint.ThrowIfNotAHost(host);
+        SpoolerPrinterEndpoint.ThrowIfNotAQueueName(queueName, nameof(queueName));
+        ArgumentOutOfRangeException.ThrowIfLessThan(port, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(port, 65535);
+        var authority = $"{FormatNetworkAuthority(PrinterScheme.Cups, host, port)}/{PrinterIdSyntax.Encode(queueName)}";
+        return new PrinterId(PrinterScheme.Cups, authority, host, port, false, queueName);
+    }
+
+    /// <summary>
     /// Creates an identifier from an identity the device reported about itself, on the
     /// default port of the scheme.
     /// </summary>
@@ -204,6 +242,13 @@ public readonly struct PrinterId : IEquatable<PrinterId>
             throw new ArgumentException("An empty UUID identifies no device.", nameof(uuid));
         }
 
+        // A cups identifier names a queue of a server, and a device reports no queue, so
+        // there is nothing an identity could stand in for.
+        if (scheme == PrinterScheme.Cups)
+        {
+            throw new ArgumentException("The cups scheme names a queue of a server and has no identity form.", nameof(scheme));
+        }
+
         if (PrinterSchemes.IsNetwork(scheme))
         {
             ArgumentOutOfRangeException.ThrowIfLessThan(port, 1);
@@ -229,6 +274,11 @@ public readonly struct PrinterId : IEquatable<PrinterId>
         if (endpoint is SpoolerPrinterEndpoint spooler)
         {
             return ForSpooler(spooler.Name);
+        }
+
+        if (endpoint is CupsPrinterEndpoint cups)
+        {
+            return ForCups(cups.Host, cups.Name, cups.Port);
         }
 
         throw new ArgumentException($"Endpoint type '{endpoint.GetType().Name}' has no identifier.", nameof(endpoint));
@@ -289,10 +339,21 @@ public readonly struct PrinterId : IEquatable<PrinterId>
         }
 
         var authority = value.AsSpan()[(separator + SchemeSeparator.Length)..];
+        if (authority.IsEmpty)
+        {
+            return false;
+        }
+
+        // Read before the rule below, because the cups authority is the one that carries a
+        // path: the queue name that the host alone does not give.
+        if (scheme == PrinterScheme.Cups)
+        {
+            return TryParseCups(authority, out id);
+        }
 
         // A delimiter here would mean the value carries a path, a query or a fragment,
-        // none of which an identifier has.
-        if (authority.IsEmpty || PrinterIdSyntax.ContainsReservedDelimiter(authority))
+        // none of which any other identifier has.
+        if (PrinterIdSyntax.ContainsReservedDelimiter(authority))
         {
             return false;
         }
@@ -362,6 +423,40 @@ public readonly struct PrinterId : IEquatable<PrinterId>
         Refused,
     }
 
+    // "host[:port]/queue". The queue is the whole of the rest, so a name that escaped to
+    // more than one segment is refused rather than silently truncated to the first.
+    private static bool TryParseCups(ReadOnlySpan<char> authority, out PrinterId id)
+    {
+        id = default;
+        var separator = authority.IndexOf('/');
+        if (separator <= 0)
+        {
+            return false;
+        }
+
+        var server = authority[..separator];
+        var queue = authority[(separator + 1)..];
+        if (queue.IsEmpty || PrinterIdSyntax.ContainsReservedDelimiter(queue))
+        {
+            return false;
+        }
+
+        if (!PrinterIdSyntax.TrySplitHostPort(server, out var host, out var port))
+        {
+            return false;
+        }
+
+        if (!PrinterIdSyntax.TryDecode(queue, out var name) || !SpoolerPrinterEndpoint.IsValidName(name))
+        {
+            return false;
+        }
+
+        var effective = port == 0 ? PrinterSchemes.DefaultPort(PrinterScheme.Cups) : port;
+        var canonical = $"{FormatNetworkAuthority(PrinterScheme.Cups, host, effective)}/{PrinterIdSyntax.Encode(name)}";
+        id = new PrinterId(PrinterScheme.Cups, canonical, host, effective, false, name);
+        return true;
+    }
+
     private static bool TryParseSpooler(ReadOnlySpan<char> authority, out PrinterId id)
     {
         id = default;
@@ -385,9 +480,10 @@ public readonly struct PrinterId : IEquatable<PrinterId>
     /// </summary>
     /// <param name="host">The host name or IP address.</param>
     /// <returns><c>false</c> for an identity form, and for a scheme that addresses no host.</returns>
+    /// <remarks>A <see cref="PrinterScheme.Cups"/> identifier answers the host of the server, and <see cref="TryGetQueueName"/> answers the queue on it.</remarks>
     public bool TryGetHost(out string host)
     {
-        if (!IsDeviceIdentity && PrinterSchemes.IsNetwork(Scheme) && _value is not null)
+        if (!IsDeviceIdentity && PrinterSchemes.HasHost(Scheme) && _value is not null)
         {
             host = _value;
             return true;
@@ -402,11 +498,24 @@ public readonly struct PrinterId : IEquatable<PrinterId>
     /// </summary>
     /// <param name="name">The queue name.</param>
     /// <returns><c>false</c> for an identity form, and for any other scheme.</returns>
+    /// <remarks>Both the spooler and the CUPS channel name a queue, so both answer here.</remarks>
     public bool TryGetQueueName(out string name)
     {
-        if (!IsDeviceIdentity && Scheme == PrinterScheme.Spooler && _value is not null)
+        if (IsDeviceIdentity)
+        {
+            name = String.Empty;
+            return false;
+        }
+
+        if (Scheme == PrinterScheme.Spooler && _value is not null)
         {
             name = _value;
+            return true;
+        }
+
+        if (Scheme == PrinterScheme.Cups && _queue is not null)
+        {
+            name = _queue;
             return true;
         }
 
@@ -459,6 +568,12 @@ public readonly struct PrinterId : IEquatable<PrinterId>
         if (Scheme == PrinterScheme.Spooler)
         {
             endpoint = new SpoolerPrinterEndpoint(_value);
+            return true;
+        }
+
+        if (Scheme == PrinterScheme.Cups && _queue is not null)
+        {
+            endpoint = new CupsPrinterEndpoint(_value, _queue, Port);
             return true;
         }
 

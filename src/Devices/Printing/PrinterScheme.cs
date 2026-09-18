@@ -31,4 +31,11 @@ public enum PrinterScheme
     /// A print queue of the operating system spooler.
     /// </summary>
     Spooler,
+
+    /// <summary>
+    /// A print queue of a CUPS server, addressed by host and queue name. This is the same
+    /// daemon <see cref="Spooler"/> reaches on Linux and macOS, named over the network
+    /// instead of on the loopback, so it is reachable from every operating system.
+    /// </summary>
+    Cups,
 }

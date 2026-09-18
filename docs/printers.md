@@ -24,6 +24,7 @@ so nothing has to guess a channel from a port number.
 | `ipp` | The Internet Printing Protocol. | 631 |
 | `ipps` | IPP over TLS. Advertised separately by DNS-SD, so a caller can demand it. | 631 |
 | `spooler` | A print queue of the operating system. | none |
+| `cups` | A print queue of a CUPS server, reached over the network. | 631 |
 
 The authority is the identity the device reported about itself when there is one, and
 otherwise the address that opens the channel:
@@ -37,6 +38,8 @@ ipp://e3b0c442-98fc-1c14-9afb-4c8996fb9242     the identity form, port 631 impli
 ipps://e3b0c442-98fc-1c14-9afb-4c8996fb9242:443  an identity on a port that is not the default
 spooler://EPSON_L6270                          a print queue
 spooler://%5C%5Cserver%5Cqueue                 a Windows connection name, escaped
+cups://printsrv/EPSON_L6270                   a queue of a CUPS server, port 631 implied
+cups://printsrv:8631/Front%20Desk             a port that is not the default, and an escaped name
 ```
 
 - **An address form can be opened with no discovery.** The scheme gives the endpoint type
@@ -45,7 +48,11 @@ spooler://%5C%5Cserver%5Cqueue                 a Windows connection name, escape
   of the two it is, and takes no part in equality.
 - **`DeviceKey` is the authority with any `:port` stripped.** The port belongs to the
   channel, not to the device, which is why `raw://192.168.1.5` and `ipp://192.168.1.5`
-  are one device.
+  are one device. A `cups` key keeps the server *and* the queue, because one server holds
+  many queues and its host alone would fuse the whole fleet behind it into one device.
+- **`cups` is the one authority that carries a path.** A CUPS server holds many queues, so
+  the host alone names no channel. It has no identity form either: what it names is a queue
+  of a server, and a device reports no queue.
 - **An identity form carries the port too**, by the same rule: written when it is not the
   default of the scheme, left out when it is. Once a device has named itself, the port is
   all that tells two of its channels apart, and without it a printer that answers one
@@ -71,6 +78,9 @@ than letting the port imply it:
   `.Ipp` or `.Ipps`. There is no port-only constructor: reading the channel back out of the
   port number is how a raw channel and an IPP channel came to be confused with each other.
 - `SpoolerPrinterEndpoint { Name }` — a print queue of the operating system.
+- `CupsPrinterEndpoint { Host, Name, Port }` — a print queue of a CUPS server. It carries a
+  host, so it is not a `NetworkPrinterEndpoint`: that one addresses a device, and this one
+  addresses one queue of a server that may hold hundreds.
 
 There is no USB endpoint and no `usb` scheme; see [USB printers](#usb-printers).
 
@@ -477,7 +487,8 @@ sized for.
   is opt-in, and a host listed more than one time is probed one time. Use it for printers
   that do not advertise themselves.
 - `IPrinterDiscovery` — enumerates the printers installed in the operating system spooler
-  (Win32 print queues, CUPS destinations).
+  (Win32 print queues, CUPS destinations), and the queues of every CUPS server the
+  application named in `PrinterManagerOptions.CupsServers`.
 
 ```csharp
 INetworkPrinterDiscovery discovery = new TcpNetworkPrinterDiscovery();
@@ -562,7 +573,7 @@ system spooler through one of two drivers, chosen at run time:
 
 - `CupsSpoolerDriver` — Linux and macOS. CUPS runs its own IPP server on `localhost:631`,
   so this driver sends the same IPP requests, aimed at the local daemon. It needs no native
-  interop.
+  interop, which is also what makes it the driver behind the `cups` scheme below.
 - `WindowsSpoolerDriver` — Windows, through `winspool.drv`. Windows has no local IPP
   server, so this driver is the one part of the library that calls native code.
 
@@ -646,6 +657,50 @@ names are equal without regard to case, as Windows and CUPS compare them.
 Native Windows calls cannot run in this repository's test suite or CI, which both run on
 Linux. [Windows manual tests](windows-manual-tests.md) lists what a person must check by
 hand.
+
+## A CUPS server, from any operating system
+
+`SpoolerPrinter` reaches the daemon on `localhost`, so it finds queues only where CUPS runs:
+Linux and macOS. The daemon is an IPP server and nothing about talking to it is
+platform-specific, so the same calls reach a CUPS server over the network, from Windows,
+from a container, and from a machine with no spooler of its own. That is the `cups` scheme.
+
+A CUPS server announces nothing on the local link, so it is found only when it is named:
+
+```csharp
+services.AddPrinters(
+    configure: transport =>
+    {
+        // CUPS asks for Basic, which is clear text over plain IPP.
+        transport.AllowPlainIpp = false;
+        transport.Credentials = new NetworkCredential("print", "…");
+    },
+    configureManager: options => options.CupsServers.Add(new CupsServer("printsrv")));
+```
+
+Discovery then reports every queue of that server as a `cups://printsrv/{queue}` channel,
+next to the queues of this machine. Everything downstream is unchanged: `IPrinterManager`
+routes to it, `CompositePrintJobQueue` reads its jobs, and the device behind each queue
+still reaches `DiscoveredPrinter.Aliases`, so a queue found here and the same printer found
+over multicast DNS group into one `PrinterDevice`.
+
+Four things are worth knowing:
+
+- **`IncludeSpooler` gates both.** The local spooler and the named servers are one
+  discovery source, because both of them find queues. An application that turns it off asks
+  about no queue at all, wherever the queue lives.
+- **A server that does not answer does not fail the discovery.** The queues of every other
+  source are still reported, by the same rule the manager applies to its own sources.
+- **The transport policy chooses IPPS or plain IPP**, by the same `AllowPlainIpp` switch
+  every other IPP channel reads. The identifier names the queue and not the security of the
+  channel, and unlike a printer, a CUPS server serves both on one port, so nothing is
+  probed.
+- **Credentials live on `IppTransportOptions`**, with the rest of the transport policy. Set
+  `Credentials` to a `CredentialCache` to give two servers two passwords.
+
+Windows has no local IPP server of its own, so this is what a CUPS queue looks like from
+there. It is not a port of the daemon: the queue stays on the server, and the client speaks
+to it.
 
 ## Printer status over SNMP
 
