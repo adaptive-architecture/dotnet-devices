@@ -37,7 +37,7 @@ public class PwgRasterWriterTests
     {
         MemoryStream stream = new();
         PwgRasterWriter writer = new(stream, new PwgRasterOptions { ColorSpace = space });
-        var width = 2;
+        const int width = 2;
         writer.WritePage(new byte[writer.BytesPerLine(width)], width, 1);
 
         var header = Header(stream.ToArray());

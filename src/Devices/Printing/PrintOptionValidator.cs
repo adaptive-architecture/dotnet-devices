@@ -194,55 +194,53 @@ internal static class PrintOptionValidator
 
     private static void ApplyRemoval(PrintOptions copy, string name)
     {
+        if (name == nameof(PrintOptions.Duplex))
         {
-            if (name == nameof(PrintOptions.Duplex))
-            {
-                copy.Duplex = null;
-            }
-            else if (name == nameof(PrintOptions.ColorMode))
-            {
-                copy.ColorMode = null;
-            }
-            else if (name == nameof(PrintOptions.MediaSize))
-            {
-                copy.MediaSize = null;
-            }
-            else if (name == nameof(PrintOptions.ResolutionDpi))
-            {
-                copy.ResolutionDpi = null;
-            }
-            else if (name == nameof(PrintOptions.MediaSource))
-            {
-                copy.MediaSource = null;
-            }
-            else if (name == nameof(PrintOptions.MediaType))
-            {
-                copy.MediaType = null;
-            }
-            else if (name == nameof(PrintOptions.OutputBin))
-            {
-                copy.OutputBin = null;
-            }
-            else if (name == nameof(PrintOptions.Quality))
-            {
-                copy.Quality = null;
-            }
-            else if (name == nameof(PrintOptions.NumberUp))
-            {
-                copy.NumberUp = null;
-            }
-            else if (name == nameof(PrintOptions.PageRanges))
-            {
-                copy.PageRanges = null;
-            }
-            else if (name == nameof(PrintOptions.Orientation))
-            {
-                copy.Orientation = null;
-            }
-            else if (name == nameof(PrintOptions.Scaling))
-            {
-                copy.Scaling = null;
-            }
+            copy.Duplex = null;
+        }
+        else if (name == nameof(PrintOptions.ColorMode))
+        {
+            copy.ColorMode = null;
+        }
+        else if (name == nameof(PrintOptions.MediaSize))
+        {
+            copy.MediaSize = null;
+        }
+        else if (name == nameof(PrintOptions.ResolutionDpi))
+        {
+            copy.ResolutionDpi = null;
+        }
+        else if (name == nameof(PrintOptions.MediaSource))
+        {
+            copy.MediaSource = null;
+        }
+        else if (name == nameof(PrintOptions.MediaType))
+        {
+            copy.MediaType = null;
+        }
+        else if (name == nameof(PrintOptions.OutputBin))
+        {
+            copy.OutputBin = null;
+        }
+        else if (name == nameof(PrintOptions.Quality))
+        {
+            copy.Quality = null;
+        }
+        else if (name == nameof(PrintOptions.NumberUp))
+        {
+            copy.NumberUp = null;
+        }
+        else if (name == nameof(PrintOptions.PageRanges))
+        {
+            copy.PageRanges = null;
+        }
+        else if (name == nameof(PrintOptions.Orientation))
+        {
+            copy.Orientation = null;
+        }
+        else if (name == nameof(PrintOptions.Scaling))
+        {
+            copy.Scaling = null;
         }
     }
 }

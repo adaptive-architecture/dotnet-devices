@@ -227,11 +227,11 @@ internal static class WindowsPdfRenderer
         var height = heightDips * dpi / DipsPerInch;
         var longest = Math.Max(width, height);
         var scale = longest > MaxRenderPixels ? MaxRenderPixels / longest : 1.0;
-        return (Pixels(width * scale), Pixels(height * scale));
+        return (ToPixelCount(width * scale), ToPixelCount(height * scale));
     }
 
     // A page always renders at least one pixel a side, and never more than the cap:
     // the round up above can pass it by one when the scale lands on it exactly.
-    private static uint Pixels(double value) =>
+    private static uint ToPixelCount(double value) =>
         Math.Max(1u, Math.Min((uint)Math.Ceiling(value), MaxRenderPixels));
 }

@@ -42,7 +42,7 @@ internal sealed class WindowsPdfConverter : IPrintPayloadConverter
             .RenderRasterAsync(data, context.Dpi, context.PageRanges, colorSpace, cancellationToken)
             .ConfigureAwait(false);
 
-        using MemoryStream document = new();
+        await using MemoryStream document = new();
         PwgRasterWriter writer = new(document, new PwgRasterOptions
         {
             ResolutionDpi = context.Dpi,

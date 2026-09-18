@@ -20,7 +20,7 @@ public static class PwgRaster
     /// a colour page in grey, where the other way round loses the colour for good.
     /// </returns>
     public static PwgRasterColorSpace ColorSpaceFor(string? type) =>
-        type is not null && type.StartsWith("sgray", StringComparison.OrdinalIgnoreCase)
+        type?.StartsWith("sgray", StringComparison.OrdinalIgnoreCase) == true
             ? PwgRasterColorSpace.Grayscale8
             : PwgRasterColorSpace.Srgb8;
 

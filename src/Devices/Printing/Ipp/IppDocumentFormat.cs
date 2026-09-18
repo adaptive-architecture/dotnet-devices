@@ -38,15 +38,9 @@ internal static class IppDocumentFormat
         ArgumentNullException.ThrowIfNull(supported);
         ArgumentNullException.ThrowIfNull(converter);
 
-        foreach (var target in ConversionTargets)
-        {
-            if (supported.Contains(target, StringComparer.OrdinalIgnoreCase) && converter.CanEmit(target))
-            {
-                return target;
-            }
-        }
-
-        return null;
+        return Array.Find(
+            ConversionTargets,
+            target => supported.Contains(target, StringComparer.OrdinalIgnoreCase) && converter.CanEmit(target));
     }
 
     // Chooses against what the printer reported in `document-format-supported`.

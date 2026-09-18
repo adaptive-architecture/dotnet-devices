@@ -154,21 +154,9 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
     private static int ResolveDpi(int? requested, IReadOnlyList<int> supported)
     {
         var dpi = requested ?? PrintConversionContext.DefaultDpi;
-        if (supported.Count == 0 || supported.Contains(dpi))
-        {
-            return dpi;
-        }
-
-        var nearest = supported[0];
-        foreach (var candidate in supported)
-        {
-            if (Math.Abs(candidate - dpi) < Math.Abs(nearest - dpi))
-            {
-                nearest = candidate;
-            }
-        }
-
-        return nearest;
+        return supported.Count == 0 || supported.Contains(dpi)
+            ? dpi
+            : supported.MinBy(candidate => Math.Abs(candidate - dpi));
     }
 
     // Grayscale for a job that asked for it and a printer that offers it, and colour
