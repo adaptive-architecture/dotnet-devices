@@ -196,12 +196,58 @@ offers it. So the choice depends on the peer:
 | A network peer that offers `application/vnd.cups-raw` (a CUPS server) | `application/vnd.cups-raw` |
 | Any other network printer | `application/octet-stream` |
 
-`IppPrinter` reads `document-format-supported` **only** for a printer-language payload, from
-the cached `GetConfigurationAsync` result, so a PDF or a PNG job costs no extra request and
-repeated raw jobs share one read. `CupsSpoolerDriver` needs no negotiation, because its peer
+`IppPrinter` reads `document-format-supported` for a printer-language payload, and for a
+document payload when a converter is registered for it (see below), from the cached
+`GetConfigurationAsync` result. An application that registered no converter pays for no
+extra request, and repeated raw jobs share one read. `CupsSpoolerDriver` needs no negotiation, because its peer
 is CUPS by construction, and the Windows spooler submits with the `RAW` datatype, which
 already passes the bytes through unchanged. When a printer still rejects the format, the
 error names it.
+
+## A document the printer cannot read
+
+A PDF prints on most channels without being touched: CUPS renders it, and so does an IPP
+printer that lists `application/pdf`. The case that needs work is an IPP printer that lists
+neither. There the library converts, and sends the result as the format the printer named.
+
+| Channel | A PDF job |
+| --- | --- |
+| `spooler://` on Linux and macOS, and `cups://` anywhere | Passed through. The CUPS filter chain renders it with driver knowledge no converter here has |
+| `ipp://` and `ipps://`, printer lists `application/pdf` | Passed through. The document itself is always better than a raster of it |
+| `ipp://` and `ipps://`, printer lists `image/pwg-raster` | Converted, and sent as one job |
+| `ipp://` and `ipps://`, printer lists neither | Sent unchanged, for the printer to refuse. Event 1034 says why |
+| `spooler://` on Windows | Converted to one PNG a page and drawn through GDI |
+| `raw://` | Sent unchanged. Port 9100 has no stage that puts a raster on a page |
+
+The target is `image/pwg-raster` and nothing else. IPP Everywhere requires it of every
+printer, it is lossless, and one stream carries every page, so a converted document stays
+one document and needs no multi-document job. `image/png` is never offered to a printer: no
+IPP printer reads it, whatever a converter can write. That is why a converter states what it
+writes as well as what it reads:
+
+```csharp
+public bool CanConvert(string contentType) => contentType == PrinterContentTypes.Pdf;
+
+// The default answers for image/png only, which is what the Windows spooler asks for.
+public bool CanEmit(string target) => target is PrinterContentTypes.Png or PrinterContentTypes.PwgRaster;
+```
+
+Conversion happens only when all four hold: the payload is a `Document`, the printer does
+not list its content type, a converter is registered for it, and that converter writes a
+format the printer reads. Anything else passes through unchanged, so a caller that
+registered nothing sees exactly the behaviour it saw before.
+
+The converter is given what the printer asked for in `PrintConversionContext`: the colour
+space from `pwg-raster-document-type-supported` (narrowed by `PrintOptions.ColorMode`), the
+nearest resolution in `pwg-raster-document-resolution-supported`, and the
+`pwg-raster-document-sheet-back` value that says how the back of a duplex sheet is read.
+Page ranges are applied by the converter and then **not** sent to the printer, which would
+otherwise select a subset of the subset.
+
+`PwgRasterWriter` writes the format, and it is public: an application with a rasterizer of
+its own gets a conforming encoder without writing one. `AdaptArch.Devices.Windows` uses it
+behind `WindowsPrinting.PdfConverter`, which writes PNG for the spooler and PWG Raster for
+an IPP printer from the same in-box engine.
 
 ## Add a format the library does not know
 
@@ -213,7 +259,7 @@ does with the bytes:
 | --- | --- | --- |
 | `RawLanguage` | Commands the printer firmware reads | A channel that sends the bytes unchanged. CUPS is told to apply no filter |
 | `Image` | A raster the driver draws | The GDI page on Windows, the queue elsewhere |
-| `Document` | Pages a converter turns into images | The converter first, then the image path |
+| `Document` | Pages a converter turns into a raster | The converter first, then the image path |
 | `Opaque` | Anything else, and the kind of every unregistered type | A channel that sends the bytes unchanged |
 
 A content type that is registered nowhere still prints. It is `Opaque`, so it travels
@@ -226,7 +272,8 @@ services.AddPrinters(configureManager: options =>
     // reports in its IEEE 1284 command set.
     options.Formats.Add(new PrinterFormat("application/vnd.star-line", PrinterFormatKind.RawLanguage, "STAR"));
 
-    // A document format, with the converter that prints it.
+    // A document format, with the converter that prints it. Override CanEmit on the
+    // converter to reach an IPP printer as well as the Windows spooler.
     options.Formats.Add(new PrinterFormat("image/tiff", PrinterFormatKind.Document));
     options.Converters.Add(new TiffConverter());
 });

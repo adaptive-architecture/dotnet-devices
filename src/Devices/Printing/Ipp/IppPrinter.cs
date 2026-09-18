@@ -148,6 +148,50 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
             cancellationToken).ConfigureAwait(false);
     }
 
+    // A raster is only readable at a resolution the printer rasters at, so the request is
+    // moved to the nearest one it named rather than sent as asked and refused. A printer
+    // that named none takes what the job asked for.
+    private static int ResolveDpi(int? requested, IReadOnlyList<int> supported)
+    {
+        var dpi = requested ?? PrintConversionContext.DefaultDpi;
+        if (supported.Count == 0 || supported.Contains(dpi))
+        {
+            return dpi;
+        }
+
+        var nearest = supported[0];
+        foreach (var candidate in supported)
+        {
+            if (Math.Abs(candidate - dpi) < Math.Abs(nearest - dpi))
+            {
+                nearest = candidate;
+            }
+        }
+
+        return nearest;
+    }
+
+    // Grayscale for a job that asked for it and a printer that offers it, and colour
+    // otherwise. A printer that named no type leaves the choice to the converter.
+    private static string? ResolveRasterType(IReadOnlyList<string> types, PrintColorMode? colorMode)
+    {
+        if (types.Count == 0)
+        {
+            return null;
+        }
+
+        if (colorMode == PrintColorMode.Monochrome)
+        {
+            var gray = types.FirstOrDefault(static type => type.StartsWith("sgray", StringComparison.OrdinalIgnoreCase));
+            if (gray is not null)
+            {
+                return gray;
+            }
+        }
+
+        return types.FirstOrDefault(static type => type.StartsWith("srgb", StringComparison.OrdinalIgnoreCase)) ?? types[0];
+    }
+
     // A document the printer cannot read is rendered to a format it can, when a converter
     // is registered for it. Everything else passes through: a printer that lists the format
     // reads the document itself, which is always better than a raster of it.
@@ -191,9 +235,14 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
         PrintConversionContext context = new(
             payload.ContentType,
             target,
-            options?.ResolutionDpi ?? PrintConversionContext.DefaultDpi,
+            ResolveDpi(options?.ResolutionDpi, configuration.PwgRasterResolutionsDpi),
             options?.PageRanges,
-            Id.ToString());
+            Id.ToString())
+        {
+            RasterType = ResolveRasterType(configuration.PwgRasterTypes, options?.ColorMode),
+            SheetBack = configuration.PwgRasterSheetBack,
+            Duplex = options?.Duplex,
+        };
 
         var documents = await converter.ConvertAsync(payload.Data.ToArray(), context, cancellationToken).ConfigureAwait(false);
 

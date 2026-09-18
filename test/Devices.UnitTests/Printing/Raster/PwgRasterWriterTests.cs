@@ -96,6 +96,59 @@ public class PwgRasterWriterTests
         Assert.Equal(expectedTumble, ReadUInt32(header, 368));
     }
 
+    // PWG 5102.4 Table 9. A front side is always 1 and 1; only a duplex back side changes.
+    [Theory]
+    [InlineData(DuplexMode.LongEdge, PwgRasterSheetBack.Normal, 1, 1)]
+    [InlineData(DuplexMode.LongEdge, PwgRasterSheetBack.ManualTumble, 1, 1)]
+    [InlineData(DuplexMode.LongEdge, PwgRasterSheetBack.Flipped, 1, -1)]
+    [InlineData(DuplexMode.LongEdge, PwgRasterSheetBack.Rotated, -1, -1)]
+    [InlineData(DuplexMode.ShortEdge, PwgRasterSheetBack.Normal, 1, 1)]
+    [InlineData(DuplexMode.ShortEdge, PwgRasterSheetBack.ManualTumble, -1, -1)]
+    [InlineData(DuplexMode.ShortEdge, PwgRasterSheetBack.Flipped, -1, 1)]
+    [InlineData(DuplexMode.ShortEdge, PwgRasterSheetBack.Rotated, 1, 1)]
+    public void WritePage_TransformsTheBackOfADuplexSheet(DuplexMode duplex, PwgRasterSheetBack sheetBack, int crossFeed, int feed)
+    {
+        MemoryStream stream = new();
+        PwgRasterWriter writer = new(stream, new PwgRasterOptions
+        {
+            ColorSpace = PwgRasterColorSpace.Grayscale8,
+            Duplex = duplex,
+            SheetBack = sheetBack,
+        });
+
+        writer.WritePage([0x00], 1, 1);
+        writer.WritePage([0x00], 1, 1);
+
+        var document = stream.ToArray();
+        var front = document[SyncLength..(SyncLength + HeaderLength)];
+        var back = document[(SyncLength + HeaderLength + 3)..(SyncLength + (2 * HeaderLength) + 3)];
+
+        Assert.Equal(1, ReadInt32(front, 456));
+        Assert.Equal(1, ReadInt32(front, 460));
+        Assert.Equal(crossFeed, ReadInt32(back, 456));
+        Assert.Equal(feed, ReadInt32(back, 460));
+    }
+
+    [Fact]
+    public void WritePage_LeavesEveryPageUntransformedWhenTheJobIsOneSided()
+    {
+        MemoryStream stream = new();
+        PwgRasterWriter writer = new(stream, new PwgRasterOptions
+        {
+            ColorSpace = PwgRasterColorSpace.Grayscale8,
+            Duplex = DuplexMode.Simplex,
+            SheetBack = PwgRasterSheetBack.Rotated,
+        });
+
+        writer.WritePage([0x00], 1, 1);
+        writer.WritePage([0x00], 1, 1);
+
+        var back = stream.ToArray()[(SyncLength + HeaderLength + 3)..(SyncLength + (2 * HeaderLength) + 3)];
+
+        Assert.Equal(1, ReadInt32(back, 456));
+        Assert.Equal(1, ReadInt32(back, 460));
+    }
+
     [Fact]
     public void WritePage_NamesTheMediaWhenTheOptionsDo()
     {

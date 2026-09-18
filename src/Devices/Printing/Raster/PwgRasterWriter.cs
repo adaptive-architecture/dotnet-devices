@@ -47,6 +47,7 @@ public sealed class PwgRasterWriter
     private readonly Stream _destination;
     private readonly PwgRasterOptions _options;
     private readonly int _bytesPerPixel;
+    private int _pagesWritten;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PwgRasterWriter"/> class and writes the
@@ -103,6 +104,37 @@ public sealed class PwgRasterWriter
 
         WriteHeader(width, height, stride);
         WriteBitmap(pixels, stride);
+        _pagesWritten++;
+    }
+
+    // PWG 5102.4 Table 9. A front side always uses 1 and 1; only the back of a duplex sheet
+    // is written in another coordinate system, and which one depends on the edge the sheet
+    // turns on as well as on what the printer said.
+    private (int CrossFeed, int Feed) BackSideTransforms()
+    {
+        // Pages are counted from the first, so an odd index is a back side.
+        var isBackSide = _pagesWritten % 2 == 1;
+        if (!isBackSide || _options.Duplex is not (DuplexMode.LongEdge or DuplexMode.ShortEdge))
+        {
+            return (1, 1);
+        }
+
+        if (_options.Duplex == DuplexMode.LongEdge)
+        {
+            return _options.SheetBack switch
+            {
+                PwgRasterSheetBack.Flipped => (1, -1),
+                PwgRasterSheetBack.Rotated => (-1, -1),
+                _ => (1, 1),
+            };
+        }
+
+        return _options.SheetBack switch
+        {
+            PwgRasterSheetBack.Flipped => (-1, 1),
+            PwgRasterSheetBack.ManualTumble => (-1, -1),
+            _ => (1, 1),
+        };
     }
 
     private void WriteHeader(int width, int height, int stride)
@@ -137,11 +169,9 @@ public sealed class PwgRasterWriter
         WriteUInt32(header, 420, (uint)_bytesPerPixel);                     // NumColors
         WriteUInt32(header, 452, (uint)_options.TotalPageCount);
 
-        // Section 4.3.2.9: the two transforms are 1 for a page the printer reads as it is.
-        // The back of a duplex sheet is what changes them, and that needs the printer's
-        // pwg-raster-document-sheet-back value, which nothing reads yet.
-        WriteInt32(header, 456, 1);                                         // CrossFeedTransform
-        WriteInt32(header, 460, 1);                                         // FeedTransform
+        (var crossFeed, var feed) = BackSideTransforms();
+        WriteInt32(header, 456, crossFeed);
+        WriteInt32(header, 460, feed);
 
         // Section 4.3.2.9: the ImageBox fields are zero when the content area is unknown,
         // which it is: the caller handed us pixels and said nothing about their margins.

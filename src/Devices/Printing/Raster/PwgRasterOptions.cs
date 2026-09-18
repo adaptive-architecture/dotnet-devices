@@ -45,4 +45,16 @@ public sealed record PwgRasterOptions
     /// to leave the page size unnamed.
     /// </summary>
     public string? MediaName { get; init; }
+
+    /// <summary>
+    /// Gets the coordinate system the printer reads the back of a duplex sheet in, from its
+    /// <c>pwg-raster-document-sheet-back</c> attribute. Defaults to
+    /// <see cref="PwgRasterSheetBack.Normal"/>.
+    /// </summary>
+    /// <remarks>
+    /// Read by <see cref="Duplex"/> pages only, and by the back sides of them alone. A
+    /// document that ignores it prints every second page upside down or mirrored, which no
+    /// error reports.
+    /// </remarks>
+    public PwgRasterSheetBack SheetBack { get; init; } = PwgRasterSheetBack.Normal;
 }

@@ -23,4 +23,35 @@ public sealed record PrintConversionContext(
     /// to another, so each converter clamps to what it renders well.
     /// </remarks>
     public const int DefaultDpi = 300;
+
+    /// <summary>
+    /// Gets the raster colour space the printer asked for, such as <c>srgb_8</c>, or
+    /// <c>null</c> when it named none or the target is not a raster.
+    /// </summary>
+    /// <remarks>
+    /// Chosen from <see cref="PrinterConfiguration.PwgRasterTypes"/> and the colour mode of
+    /// the job. A converter that cannot produce it should produce what it can rather than
+    /// fail: the printer is the one that judges the result.
+    /// </remarks>
+    public string? RasterType { get; init; }
+
+    /// <summary>
+    /// Gets how the printer reads the back of a duplex sheet, or <c>null</c> when it named
+    /// nothing or the job is one-sided.
+    /// </summary>
+    /// <remarks>
+    /// Carries <see cref="PrinterConfiguration.PwgRasterSheetBack"/> unchanged. A converter
+    /// that ignores it on a duplex job writes every second page upside down or mirrored,
+    /// and nothing reports that as an error.
+    /// </remarks>
+    public string? SheetBack { get; init; }
+
+    /// <summary>
+    /// Gets the duplex mode of the job, or <c>null</c> when it named none.
+    /// </summary>
+    /// <remarks>
+    /// A raster carries the duplex mode in each page header, so the converter needs it even
+    /// though the job template carries it too.
+    /// </remarks>
+    public DuplexMode? Duplex { get; init; }
 }

@@ -228,6 +228,80 @@ public class IppPrinterDocumentFormatTests
         Assert.Equal(600, converter.LastContext.Dpi);
     }
 
+    // A raster is only readable at a resolution the printer rasters at, so a request it
+    // cannot meet moves to the nearest one it named instead of being refused.
+    [Theory]
+    [InlineData(null, 300)]
+    [InlineData(300, 300)]
+    [InlineData(400, 300)]
+    [InlineData(500, 600)]
+    [InlineData(2400, 600)]
+    public async Task PrintAsync_ConvertsAtTheNearestResolutionThePrinterRasters(int? asked, int expected)
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        OperationHandler handler = new(RasterAttributes(), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler)) { Formats = new PrintFormatPolicy(null, [converter]) };
+
+        _ = await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            asked is null ? null : new PrintOptions { ResolutionDpi = asked },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(expected, converter.LastContext.Dpi);
+    }
+
+    [Theory]
+    [InlineData(null, "srgb_8")]
+    [InlineData(PrintColorMode.Color, "srgb_8")]
+    [InlineData(PrintColorMode.Monochrome, "sgray_8")]
+    public async Task PrintAsync_ChoosesTheRasterTypeFromTheColorMode(PrintColorMode? mode, string expected)
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        OperationHandler handler = new(RasterAttributes(), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler)) { Formats = new PrintFormatPolicy(null, [converter]) };
+
+        _ = await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            mode is null ? null : new PrintOptions { ColorMode = mode },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(expected, converter.LastContext.RasterType);
+    }
+
+    [Fact]
+    public async Task PrintAsync_PassesTheSheetBackAndTheDuplexModeToTheConverter()
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        OperationHandler handler = new(RasterAttributes(), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler)) { Formats = new PrintFormatPolicy(null, [converter]) };
+
+        _ = await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { Duplex = DuplexMode.LongEdge },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("rotated", converter.LastContext.SheetBack);
+        Assert.Equal(DuplexMode.LongEdge, converter.LastContext.Duplex);
+    }
+
+    // A printer that reads PWG Raster, rasters at 300 and 600, and turns its sheets over.
+    private static byte[] RasterAttributes() =>
+        IppMessages.Response(0x0000,
+            (0x49, "document-format-supported", PrinterContentTypes.PwgRaster),
+            (0x44, "pwg-raster-document-type-supported", "sgray_8"),
+            (0x44, null, "srgb_8"),
+            (0x32, "pwg-raster-document-resolution-supported", Resolution(300)),
+            (0x32, null, Resolution(600)),
+            (0x44, "pwg-raster-document-sheet-back", "rotated"));
+
+    // RFC 8010: width and height as 4-byte integers, then the unit 3 for dots an inch.
+    private static byte[] Resolution(int dpi) =>
+    [
+        (byte)(dpi >> 24), (byte)(dpi >> 16), (byte)(dpi >> 8), (byte)dpi,
+        (byte)(dpi >> 24), (byte)(dpi >> 16), (byte)(dpi >> 8), (byte)dpi,
+        3,
+    ];
+
     private static async Task<string> PrintPdfAsync(
         FakeConverter converter,
         PrintOptions options,
