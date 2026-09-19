@@ -18,15 +18,22 @@ if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240, 0))
 // application that consumes src/, so a trim or an AOT problem in the library shows up here.
 // A published exe is started from any working directory, while dotnet run starts in the
 // project folder. The folder beside the exe holds wwwroot after publish, so prefer it when
-// it does and fall back to the working directory for development.
-var contentRoot = Directory.Exists(Path.Combine(AppContext.BaseDirectory, "wwwroot"))
+// it does and fall back to the working directory for development. A build leaves an empty
+// wwwroot beside the exe, so the page itself is what the probe looks for.
+var contentRoot = File.Exists(Path.Combine(AppContext.BaseDirectory, "wwwroot", "index.html"))
     ? AppContext.BaseDirectory
     : Directory.GetCurrentDirectory();
 var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = args, ContentRootPath = contentRoot });
 
 // This application prints to real hardware on the local network, so it listens on the
 // loopback address only. Set ASPNETCORE_URLS to move it, and know what that means.
-builder.WebHost.UseUrls(Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "http://localhost:5080");
+var urls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "http://localhost:5080";
+builder.WebHost.UseUrls(urls);
+
+// ASP.NET Core narrates every request and every static file it serves, which buries the
+// lines the printing stack writes. Its warnings still arrive, and the address it would
+// have reported is printed below instead.
+builder.Logging.AddFilter("Microsoft", LogLevel.Warning);
 
 // Native AOT has no reflection to fall back on, so every contract is source-generated.
 // The options of the source generator govern what the context reads from disk; these
@@ -60,6 +67,6 @@ JobSetsApi.Map(app);
 DiagnosticsApi.Map(app);
 
 Console.WriteLine($"Current OS: {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
-Console.WriteLine("Open the printer manager in a browser. Press Ctrl+C to stop it.");
+Console.WriteLine($"Open the printer manager at {urls}. Press Ctrl+C to stop it.");
 
 app.Run();

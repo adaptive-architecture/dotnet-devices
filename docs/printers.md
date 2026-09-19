@@ -1168,29 +1168,43 @@ dotnetup dotnet run --project samples/Devices.Samples
 It listens on `http://localhost:5080` and on the loopback address only, because it prints
 to real hardware. Set `ASPNETCORE_URLS` to move it, and know what that means.
 
-The page has a printer list on the left and four tabs on the right:
+The page is the work on the left and the log on the right. The printer and its channel sit
+above the tabs and not inside one, in that order, because one owns the other and because
+printing, running a job set and reading a status all send to them. Nothing is selected until
+a person selects it: a button that needs a channel says so while none is, and the tabs that
+need no printer say that too.
 
-- **Print** — the channel, the file and the options, then one button. The file is one the
-  sample ships in `PrintFiles/`, or one uploaded from the machine. A switch sends the bytes
-  unchanged (raw) instead of through the queue. The options form offers only what the
-  channel reported, so the page never invents a choice. Before the button, the page calls
+The four tabs are:
+
+- **Print** — the file and the options, then one button. The file is one the sample ships
+  in `PrintFiles/`, or one uploaded from the machine. A switch sends the bytes unchanged
+  (raw) instead of through the queue. The options form offers only what the channel
+  reported, so the page never invents a choice. Before the button, the page calls
   `PrinterDevice.Accepts` and warns when the channel says it does not read the format.
 - **Job sets** — the scripted hardware test. A job set is a JSON file; the sample ships
   `PrintJobs/queue-sweep.json` (five documents through one queue, each changing one option
   from the job before it) and `PrintJobs/raw-sweep.json` (a JPEG, a ZPL label and an EPL
   label, unchanged). A set can also be uploaded, so the same test runs on Windows, Linux and
   macOS and the results compare job by job. The run ends with a summary of what became of
-  each job.
+  each job. The set is edited in the browser: one tab per job, named by the file it prints,
+  with the same option controls the print tab builds from what the channel reported, and jobs
+  that can be added, duplicated and removed. The edit is a copy — the file on disk is untouched, and **Download** writes
+  what the form holds, so a set is written without hand-editing JSON.
 - **Printer** — the status and the capabilities of the selected device, channel by channel.
 - **Diagnostics** — which channels reach one queue (`QueueCorrelation`, with an optional
   tracer job), what one host answers over IPP and over SNMP, and the Windows spooler checks
   of [windows-manual-tests.md](windows-manual-tests.md).
 
 A job reports its progress over minutes, so every flow that prints answers with a stream of
-server-sent events. The browser shows each line as it arrives in a log that covers the
-page, which opens itself when a run starts and is opened again by the **Log** button beside
-**Probe subnet**. Closing it says "not now": the next run opens it again. Closing the page
-stops the watch. The printer keeps the job.
+server-sent events. The browser shows each line as it arrives in a log rail beside the form,
+which can be copied, downloaded, filtered to the warnings or the errors, and hidden with the
+**Log** button beside **Probe subnet**. What arrives while it is hidden is counted on that
+button, and every action also reports its outcome beside the button that started it, so a
+hidden log never reads as nothing happening. Closing the page stops the watch. The printer
+keeps the job.
+
+The console the sample itself writes keeps the framework quiet: ASP.NET Core is filtered to
+its warnings, so what scrolls past is the address, and then what the library says.
 
 ### The job set format
 

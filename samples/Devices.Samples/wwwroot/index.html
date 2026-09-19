@@ -13,18 +13,27 @@
   <div class="actions">
     <button id="refresh" type="button">Refresh</button>
     <button id="probe" type="button" title="Probe every local address on TCP port 9100. This takes minutes.">Probe subnet</button>
-    <button id="log-toggle" type="button" title="Open the log. It also opens itself when there is something to read.">Log</button>
     <span id="discovery-state" class="note"></span>
+    <button id="log-toggle" type="button" title="Show or hide the log">Log <span id="log-unread" class="badge hidden">0</span></button>
   </div>
 </header>
 
 <main>
-  <aside>
-    <h2>Printers</h2>
-    <ul id="printers" class="printers"><li class="note">Not discovered yet.</li></ul>
-  </aside>
-
   <section class="work">
+    <!-- The printer and the channel belong here and not on the print tab: printing, running
+      a job set and reading a status all send to them, so they stay on the screen whichever
+      tab is open, and the channel is chosen after the printer that owns it. -->
+    <div class="context">
+      <label class="context-printer">Printer
+        <select id="printer"><option value="">Not discovered yet</option></select>
+      </label>
+      <label class="context-channel">Channel
+        <select id="channel"><option value="">No printer selected</option></select>
+      </label>
+      <p class="note" id="printer-note"></p>
+      <p class="note" id="channel-note"></p>
+    </div>
+
     <nav class="tabs">
       <button type="button" class="tab" data-tab="print">Print</button>
       <button type="button" class="tab" data-tab="sets">Job sets</button>
@@ -33,11 +42,6 @@
     </nav>
 
     <div class="panel" id="panel-print">
-      <label>Channel
-        <select id="channel"></select>
-      </label>
-      <p class="note" id="channel-note"></p>
-
       <fieldset>
         <legend>What to print</legend>
         <label class="switch"><input type="radio" name="source" value="supplied" checked> A file the sample ships</label>
@@ -61,60 +65,134 @@
       </fieldset>
 
       <p id="accepts" class="warning hidden"></p>
-      <button type="button" id="print" class="primary">Print</button>
+      <div class="act">
+        <button type="button" id="print" class="primary" data-scope="channel">Print</button>
+        <span class="hint"></span>
+        <span class="status"></span>
+      </div>
     </div>
 
     <div class="panel hidden" id="panel-sets">
-      <label>A job set the sample ships
-        <select id="set"></select>
-      </label>
-      <label>Or a job set of my own (JSON)
-        <input type="file" id="set-upload" accept=".json,application/json">
-      </label>
-      <pre id="set-preview" class="preview">Select a job set.</pre>
-      <button type="button" id="run-set" class="primary">Run the job set</button>
+      <fieldset>
+        <legend>Start from</legend>
+        <label>A job set the sample ships
+          <select id="set"></select>
+        </label>
+        <label>Or a job set of my own (JSON)
+          <input type="file" id="set-upload" accept=".json,application/json">
+        </label>
+        <p class="note">Editing below changes this copy only. The file on disk is untouched, and
+          "Download" writes what the form holds.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>The set</legend>
+        <div class="row">
+          <label class="grow">Name <input type="text" id="set-name"></label>
+          <label>Mode
+            <select id="set-mode">
+              <option value="queue">queue — the job may be converted</option>
+              <option value="raw">raw — the bytes are sent unchanged</option>
+            </select>
+          </label>
+        </div>
+        <label>Description <input type="text" id="set-description"></label>
+        <p class="note">The mode is not a transport. Where the bytes travel is the channel above.</p>
+      </fieldset>
+
+      <nav class="job-tabs" id="job-tabs"></nav>
+      <div id="jobs" class="jobs"></div>
+
+      <div class="row">
+        <button type="button" id="reset-set">Reset to the shipped set</button>
+        <button type="button" id="download-set">Download</button>
+      </div>
+
+      <details class="json">
+        <summary>The JSON this sends</summary>
+        <pre id="set-json" class="preview"></pre>
+        <button type="button" id="copy-set">Copy the JSON</button>
+      </details>
+
+      <div class="act">
+        <button type="button" id="run-set" class="primary" data-scope="channel">Run the job set</button>
+        <span class="hint"></span>
+        <span class="status"></span>
+      </div>
     </div>
 
     <div class="panel hidden" id="panel-printer">
-      <button type="button" id="read-status">Read the status</button>
+      <div class="act">
+        <button type="button" id="read-status" data-scope="channel">Read the status</button>
+        <span class="hint"></span>
+        <span class="status"></span>
+      </div>
       <pre id="printer-details" class="preview">Select a printer.</pre>
     </div>
 
     <div class="panel hidden" id="panel-diagnostics">
+      <p class="note">These checks take a host or a queue name of their own. None of them uses the
+        printer selected above.</p>
+
       <fieldset>
         <legend>Which channels reach one queue</legend>
+        <p class="note">Reads the queue of every printer that was discovered.</p>
         <label class="switch"><input type="checkbox" id="tracer">
           Create a held job that carries no document where a queue is empty, then cancel it</label>
-        <button type="button" id="correlate">Compare the job queues</button>
+        <div class="act">
+          <button type="button" id="correlate">Compare the job queues</button>
+          <span class="status"></span>
+        </div>
       </fieldset>
 
       <fieldset>
         <legend>What one host answers</legend>
         <label>Host <input type="text" id="host" placeholder="192.168.0.152"></label>
-        <button type="button" id="details">Read IPP and SNMP</button>
+        <div class="act">
+          <button type="button" id="details">Read IPP and SNMP</button>
+          <span class="status"></span>
+        </div>
       </fieldset>
 
       <fieldset>
         <legend>The Windows spooler checks</legend>
         <label>Print queue name <input type="text" id="queue" placeholder="EPSON_L6270_Series"></label>
         <label class="switch"><input type="checkbox" id="spooler-print"> Also submit the check 3 test job</label>
-        <button type="button" id="windows-checks">Gather the evidence</button>
+        <div class="act">
+          <button type="button" id="windows-checks">Gather the evidence</button>
+          <span class="status"></span>
+        </div>
         <p class="note">These checks need Windows. They report the evidence for
           docs/windows-manual-tests.md; a person still judges the result.</p>
       </fieldset>
     </div>
   </section>
-</main>
 
-<dialog class="log" id="log">
-  <div class="log-head">
-    <h2>Log</h2>
-    <button type="button" id="stop" class="hidden">Stop watching</button>
-    <button type="button" id="clear">Clear</button>
-    <button type="button" id="log-close">Close</button>
-  </div>
-  <ol id="lines"></ol>
-</dialog>
+  <!-- The log is a rail and not a modal: a run is watched beside the form that started it,
+    and a line that arrives while it is hidden is counted on the button instead of lost. -->
+  <section class="log" id="log">
+    <div class="log-head">
+      <h2>Log</h2>
+      <button type="button" id="stop" class="hidden">Stop watching</button>
+      <button type="button" id="log-copy">Copy</button>
+      <button type="button" id="log-download">Download</button>
+      <button type="button" id="log-clear">Clear</button>
+      <button type="button" id="log-hide" title="Hide the log">Hide</button>
+    </div>
+    <div class="log-tools">
+      <label>Show
+        <select id="log-filter">
+          <option value="all">everything</option>
+          <option value="warning">warnings and errors</option>
+          <option value="error">errors</option>
+        </select>
+      </label>
+      <label class="switch"><input type="checkbox" id="log-follow" checked> Follow</label>
+      <label class="switch"><input type="checkbox" id="log-time" checked> Times</label>
+    </div>
+    <pre id="lines" class="lines" tabindex="0"></pre>
+  </section>
+</main>
 
 <script src="app.js"></script>
 </body>
