@@ -16,7 +16,13 @@ if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240, 0))
 // The slim builder leaves out what a printer manager never uses, and it is the shape the
 // native AOT publish supports. That publish is why this sample exists: it is the only
 // application that consumes src/, so a trim or an AOT problem in the library shows up here.
-var builder = WebApplication.CreateSlimBuilder(args);
+// A published exe is started from any working directory, while dotnet run starts in the
+// project folder. The folder beside the exe holds wwwroot after publish, so prefer it when
+// it does and fall back to the working directory for development.
+var contentRoot = Directory.Exists(Path.Combine(AppContext.BaseDirectory, "wwwroot"))
+    ? AppContext.BaseDirectory
+    : Directory.GetCurrentDirectory();
+var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = args, ContentRootPath = contentRoot });
 
 // This application prints to real hardware on the local network, so it listens on the
 // loopback address only. Set ASPNETCORE_URLS to move it, and know what that means.

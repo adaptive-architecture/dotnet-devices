@@ -1,0 +1,18 @@
+{
+  "name": "PDF spooler",
+  "description": "Test 9: PDF through the spooler queue. Both jobs must arrive as one job each in the queue window, in page order. Send corrupt.pdf by itself afterwards: it must fail with InvalidOperationException naming the file and leave the queue window empty, so it is deliberately not in this set.",
+  "mode": "queue",
+  "jobs": [
+    {
+      "file": "pages.pdf",
+      "description": "four pages in colour, in order, as one job in the queue window"
+    },
+    {
+      "file": "pages.pdf",
+      "description": "pages 2 and 4 only, selected by the converter before anything is spooled",
+      "options": {
+        "pageRanges": "2,4"
+      }
+    }
+  ]
+}

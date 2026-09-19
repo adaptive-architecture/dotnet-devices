@@ -1,0 +1,35 @@
+{
+  "name": "Queue sweep",
+  "description": "PDF documents through one queue. Each job changes exactly one option from the job before it, so a wrong page names its own option. The pages.pdf jobs are the ones that prove the raster path: on an IPP printer that does not read PDF they are rendered here and sent as PWG Raster, and every fault that path can have is visible on the sheet.",
+  "mode": "queue",
+  "jobs": [
+    {
+      "file": "pages.pdf",
+      "description": "four pages in colour, to check the raster geometry",
+      "options": {
+        "colorMode": "Color"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "the same four pages in grayscale, which is one octet a pixel instead of three",
+      "options": {
+        "colorMode": "Monochrome"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "pages 2 and 4 only, selected by the converter and not by the printer",
+      "options": {
+        "pageRanges": "2,4"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "four pages duplex on the long edge, to check the back-side transform",
+      "options": {
+        "duplex": "LongEdge"
+      }
+    }
+  ]
+}
