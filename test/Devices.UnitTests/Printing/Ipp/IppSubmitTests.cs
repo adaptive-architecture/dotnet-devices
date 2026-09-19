@@ -1,4 +1,4 @@
-using AdaptArch.Devices.Printing;
+﻿using AdaptArch.Devices.Printing;
 using AdaptArch.Devices.Printing.Ipp;
 using Microsoft.Extensions.Logging;
 using Xunit;
@@ -23,7 +23,7 @@ public class IppSubmitTests
     public async Task PrintAsync_RecordsTheSubmittedOctets()
     {
         // Five octets of octet-stream: no negotiation, so the print is the only job.
-        PeekingHandler handler = new(int.MaxValue);
+        PeekingHandler handler = new(Int32.MaxValue);
         FakeLoggerFactory factory = new();
         using IppPrinter printer = new(Endpoint, new HttpClient(handler), null, new IppTransportOptions { LoggerFactory = factory });
 
@@ -92,7 +92,7 @@ public class IppSubmitTests
                 read += count;
             }
 
-            if (_contentBytesToRead == int.MaxValue)
+            if (_contentBytesToRead == Int32.MaxValue)
             {
                 await content.CopyToAsync(Stream.Null, cancellationToken).ConfigureAwait(false);
             }
