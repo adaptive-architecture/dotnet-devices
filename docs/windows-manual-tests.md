@@ -65,7 +65,8 @@ below are still necessary.
 
 ## Gather the evidence with the sample
 
-Start the sample on the Windows machine, and open the address it prints:
+Start the [printer manager sample](samples/printer-manager.md) on the Windows machine, and
+open the address it prints:
 
 ```
 dotnetup dotnet run --project samples/Devices.Samples

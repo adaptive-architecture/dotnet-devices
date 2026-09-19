@@ -11,6 +11,7 @@ the overview, then read the specifics you need.
 - [Troubleshooting](troubleshooting.md) — find why a print job did not print
 - [Windows manual tests](windows-manual-tests.md) — the spooler interop that no automated
   test can run
+- [Samples](samples/README.md) — the demonstration applications under `samples/`
 
 The published site at [adaptive-architecture.github.io/dotnet-devices](https://adaptive-architecture.github.io/dotnet-devices/)
 holds the user-facing pages and the generated API reference.

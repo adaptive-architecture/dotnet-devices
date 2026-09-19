@@ -134,14 +134,9 @@ self-contained, and native AOT — into `./artifacts/samples/<rid>/`. The `src/`
 is where a trim or an AOT problem shows up. Warnings stay errors, so an `IL2xxx` or an
 `IL3xxx` warning fails the publish.
 
-The sample is an ASP.NET Core web application, and it takes no NuGet dependency for that:
-`Microsoft.NET.Sdk.Web` adds a framework reference and nothing else. It is built to keep the
-native AOT publish green — `WebApplication.CreateSlimBuilder`, a source-generated
-`JsonSerializerContext` for every contract, and `EnableRequestDelegateGenerator` on in the
-project file, so an endpoint the generator cannot read fails `dotnet build` and not only the
-publish. A trimmed publish turns reflection-based JSON off
-(`JsonSerializerIsReflectionEnabledByDefault=false`), so a contract missing from the context
-fails at start-up, where the endpoint is mapped.
+The sample is built to keep that publish green;
+[samples/printer-manager.md](samples/printer-manager.md#building-with-trimming-and-native-aot)
+says how.
 
 The script passes `-p:BuildDocFx=true`. That keeps the `ProjectReference` inside
 `Devices.DependencyInjection`, which a `Release` build otherwise replaces with a

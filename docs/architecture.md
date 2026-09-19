@@ -6,7 +6,7 @@
 dotnet-devices/
 ├── src/                  # Source projects (NuGet packages)
 ├── test/                 # Unit and integration tests
-├── samples/              # Usage demonstration projects
+├── samples/              # Usage demonstration projects (docs/samples/)
 ├── docs/                 # Progressive-discovery documentation (this directory)
 ├── docfx/                # DocFX site (rendered via GitHub Pages)
 ├── pipeline/             # Build and deployment scripts
