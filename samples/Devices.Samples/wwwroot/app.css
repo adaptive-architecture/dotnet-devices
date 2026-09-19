@@ -54,51 +54,53 @@ h2 { font-size: 14px; margin: 0 0 8px; text-transform: uppercase; letter-spacing
 
 .actions { display: flex; gap: 8px; align-items: center; }
 
+.badge {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  text-align: center;
+}
+
 main {
   display: grid;
-  grid-template-columns: minmax(240px, 320px) 1fr;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   gap: 16px;
   padding: 16px;
   align-items: start;
   flex: 1;
+  min-height: 0;
 }
 
-aside, .work, .log {
+body.log-hidden main { grid-template-columns: minmax(0, 1fr); }
+body.log-hidden .log { display: none; }
+
+.work, .log {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
 }
 
-/* The log covers the page: a hardware test is watched, not skimmed beside the form. */
-.log {
-  margin: auto;
-  width: min(1100px, 92vw);
-  height: 86vh;
-  max-width: none;
-  max-height: none;
-  color: var(--ink);
-}
-
-.log[open] { display: flex; flex-direction: column; }
-.log::backdrop { background: rgb(0 0 0 / 45%); }
-
-.printers { list-style: none; margin: 0; padding: 0; }
-
-.printers li {
-  padding: 8px;
+.context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: end;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
   border-radius: 6px;
-  cursor: pointer;
-  border: 1px solid transparent;
+  background: var(--bg);
 }
 
-.printers li:hover { border-color: var(--line); }
-.printers li.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
-.printers li.note { cursor: default; }
-
-.printers .name { font-weight: 600; }
-.printers .id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); word-break: break-all; }
-.printers .traits { font-size: 12px; color: var(--muted); }
+.context-printer, .context-channel { flex: 1; min-width: 260px; }
+.context select { max-width: none; width: 100%; font-weight: 600; }
+.context .note { flex-basis: 100%; }
+.context .note code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
 
@@ -114,7 +116,7 @@ aside, .work, .log {
 
 .tab.active { color: var(--ink); border-bottom-color: var(--accent); }
 
-.panel { display: flex; flex-direction: column; gap: 10px; max-width: 900px; }
+.panel { display: flex; flex-direction: column; gap: 10px; }
 .hidden { display: none; }
 
 fieldset { border: 1px solid var(--line); border-radius: 6px; padding: 10px; margin: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -133,6 +135,8 @@ select, input[type="text"], input[type="number"], input[type="file"] {
   max-width: 480px;
 }
 
+.context select, .log select { background: var(--panel); }
+
 button {
   font: inherit;
   padding: 6px 12px;
@@ -143,17 +147,77 @@ button {
   cursor: pointer;
 }
 
-button:hover { border-color: var(--accent); }
+button:hover:not(:disabled) { border-color: var(--accent); }
 button:disabled { opacity: .5; cursor: not-allowed; }
 
-.panel button, fieldset button { align-self: flex-start; }
+.panel button, fieldset button, .jobs button { align-self: flex-start; }
 .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* An action says beside itself why it cannot run and what it did, so a hidden log never
+   reads as nothing happening. */
+.act { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.act button { align-self: auto; }
+.hint { font-size: 13px; color: var(--muted); }
+.status { font-size: 13px; }
+.status.warning { color: var(--warn); }
+.status.error { color: var(--bad); }
+.status.done { color: var(--good); }
+
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.row .grow { flex: 1; min-width: 220px; }
+.row > label { flex: 0 1 auto; }
 
 .options { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
 .options select, .options input { max-width: none; }
 
+/* One job at a time: a set of nine jobs is a strip of nine tabs, and the job being edited
+   has the room the option grid needs. */
+.job-tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); }
+
+.job-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 6px 10px;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-tab.active { color: var(--ink); border-bottom-color: var(--accent); }
+.job-tab.add { color: var(--accent); }
+
+.jobs { display: flex; flex-direction: column; gap: 10px; }
+
+.job {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg);
+}
+
+.job-head { display: flex; align-items: center; gap: 8px; }
+.job-number { font-weight: 600; color: var(--muted); font-size: 13px; }
+.job-head .spacer { flex: 1; }
+.job-head button { padding: 4px 8px; font-size: 13px; }
+.job select, .job input[type="text"], .job input[type="number"] { background: var(--panel); }
+.job .options { padding-top: 4px; border-top: 1px dashed var(--line); }
+
+.json summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.json { display: flex; flex-direction: column; gap: 8px; }
+
 .note { color: var(--muted); font-size: 12px; margin: 0; max-width: 90ch; }
-.warning { background: var(--warn-bg); color: var(--warn); border-radius: 6px; padding: 8px; margin: 0; max-width: 90ch; }
+/* The banner is a paragraph. A warning that is a line of the log, or a word beside a
+   button, takes the colour and nothing else. */
+p.warning { background: var(--warn-bg); color: var(--warn); border-radius: 6px; padding: 8px; margin: 0; max-width: 90ch; }
 
 .preview {
   background: var(--bg);
@@ -168,24 +232,47 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   white-space: pre-wrap;
 }
 
-.log-head { display: flex; align-items: center; gap: 8px; }
-.log-head h2 { flex: 1; margin: 0; }
-
-#lines {
-  list-style: none;
-  margin: 8px 0 0;
-  padding: 0;
-  flex: 1;
-  overflow: auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12.5px;
+/* The rail keeps its own scroll and stays on the screen while the form beside it scrolls. */
+.log {
+  position: sticky;
+  top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: calc(100vh - 32px);
 }
 
-#lines li { padding: 2px 4px; white-space: pre-wrap; }
-#lines li.warning { color: var(--warn); }
-#lines li.error { color: var(--bad); }
-#lines li.done { color: var(--good); font-weight: 600; }
+.log-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.log-head h2 { flex: 1; margin: 0; }
+.log-head button { padding: 4px 8px; font-size: 13px; }
+.log-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 13px; }
+.log-tools label { flex-direction: row; align-items: center; gap: 6px; }
+.log-tools select { padding: 2px 6px; font-size: 13px; }
 
-@media (max-width: 860px) {
-  main { grid-template-columns: 1fr; }
+/* A <pre> and not a list: a selection across lines copies as the lines themselves. */
+.lines {
+  flex: 1;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+.lines .warning { color: var(--warn); }
+.lines .error { color: var(--bad); }
+.lines .done { color: var(--good); font-weight: 600; }
+.lines .time { color: var(--muted); }
+.lines:empty::after { content: "Nothing yet."; color: var(--muted); }
+
+@media (max-width: 1000px) {
+  main, body.log-hidden main { grid-template-columns: 1fr; }
+  .log { position: static; height: auto; max-height: 40vh; min-height: 260px; }
 }

@@ -1,55 +1,178 @@
 'use strict';
 
-// State the page keeps: what the last discovery found, and what the person selected.
+// State the page keeps: what the last discovery found, what the person selected, and the
+// working copy of the job set that the form edits.
 const state = {
   devices: [],
   device: null,
   files: [],
   sets: [],
-  uploadedSet: null,
+  set: null,
+  job: 0,
   running: null,
-  logMuted: false,
+  entries: [],
+  unread: 0,
 };
 
 const $ = (id) => document.getElementById(id);
 
-// ---------------------------------------------------------------- the log panel
+// ---------------------------------------------------------------- the log rail
 
 function log(text, level) {
-  const line = document.createElement('li');
-  line.textContent = text;
-  if (level && level !== 'info') {
-    line.className = level;
+  const entry = { text, level: level || 'info', at: new Date() };
+  state.entries.push(entry);
+  if (passes(entry)) {
+    $('lines').appendChild(line(entry));
+    follow();
   }
+
+  if (document.body.classList.contains('log-hidden')) {
+    state.unread += 1;
+    $('log-unread').textContent = String(state.unread);
+    $('log-unread').classList.remove('hidden');
+  }
+}
+
+function passes(entry) {
+  const filter = $('log-filter').value;
+  if (filter === 'error') { return entry.level === 'error'; }
+  if (filter === 'warning') { return entry.level === 'error' || entry.level === 'warning'; }
+  return true;
+}
+
+function line(entry) {
+  const element = document.createElement('span');
+  element.className = entry.level;
+  if ($('log-time').checked) {
+    const time = document.createElement('span');
+    time.className = 'time';
+    time.textContent = `${entry.at.toTimeString().slice(0, 8)} `;
+    element.appendChild(time);
+  }
+
+  element.appendChild(document.createTextNode(`${entry.text}\n`));
+  return element;
+}
+
+function follow() {
+  if ($('log-follow').checked) {
+    $('lines').scrollTop = $('lines').scrollHeight;
+  }
+}
+
+function renderLog() {
   const lines = $('lines');
-  lines.appendChild(line);
-  lines.scrollTop = lines.scrollHeight;
-  openLog();
+  lines.textContent = '';
+  for (const entry of state.entries.filter(passes)) {
+    lines.appendChild(line(entry));
+  }
+  follow();
 }
 
-// The log opens itself when there is something to read, which is what the panel beside
-// the form used to do by always being there. Closing it says "not now", and only the
-// next run, or the button, brings it back.
-function openLog() {
-  if (!state.logMuted && !$('log').open) {
-    $('log').showModal();
+// The text of the log as a file holds it: what "Copy" puts on the clipboard and what
+// "Download" writes. The filter applies, because what is read is what is wanted.
+function logText() {
+  return state.entries.filter(passes)
+    .map((entry) => ($('log-time').checked ? `${entry.at.toTimeString().slice(0, 8)} ${entry.text}` : entry.text))
+    .join('\n');
+}
+
+function showLog(show) {
+  document.body.classList.toggle('log-hidden', !show);
+  if (show) {
+    state.unread = 0;
+    $('log-unread').classList.add('hidden');
+    follow();
   }
 }
 
-$('log').addEventListener('close', () => { state.logMuted = true; });
-$('log-close').addEventListener('click', () => { $('log').close(); });
+$('log-toggle').addEventListener('click', () => showLog(document.body.classList.contains('log-hidden')));
+$('log-hide').addEventListener('click', () => showLog(false));
+$('log-clear').addEventListener('click', () => { state.entries = []; renderLog(); });
+$('log-filter').addEventListener('change', renderLog);
+$('log-time').addEventListener('change', renderLog);
 
-$('log-toggle').addEventListener('click', () => {
-  if ($('log').open) {
-    $('log').close();
-    return;
+$('log-copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(logText());
+    $('log-copy').textContent = 'Copied';
+    setTimeout(() => { $('log-copy').textContent = 'Copy'; }, 1500);
+  } catch {
+    // A browser that refuses the clipboard still allows a selection of the whole log.
+    const range = document.createRange();
+    range.selectNodeContents($('lines'));
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    $('log-copy').textContent = 'Selected — press Ctrl+C';
+    setTimeout(() => { $('log-copy').textContent = 'Copy'; }, 2500);
   }
-
-  state.logMuted = false;
-  openLog();
 });
 
-$('clear').addEventListener('click', () => { $('lines').textContent = ''; });
+$('log-download').addEventListener('click', () => {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  download(new Blob([logText()], { type: 'text/plain' }), `printer-manager-${stamp}.log`);
+});
+
+function download(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+// ---------------------------------------------------------------- what an action reports
+
+function box(button, name) {
+  const holder = button.closest('.act');
+  return holder ? holder.querySelector(name) : null;
+}
+
+function status(button, text, level) {
+  const element = box(button, '.status');
+  if (element) {
+    element.textContent = text || '';
+    element.className = `status${level ? ` ${level}` : ''}`;
+  }
+}
+
+// Says it twice on purpose: the line goes to the log, and the short form stays beside the
+// button, so an action is never silent when the log is hidden.
+function report(button, text, level) {
+  log(text, level);
+  status(button, text, level);
+}
+
+async function busy(button, work) {
+  button.disabled = true;
+  button.dataset.busy = 'true';
+  status(button, 'Working...');
+  try {
+    await work();
+  } finally {
+    delete button.dataset.busy;
+    button.disabled = false;
+    updateScopes();
+  }
+}
+
+// A button that sends to the selected channel says so while nothing is selected, instead
+// of failing into the log when it is pressed.
+function updateScopes() {
+  const ready = channel() !== null;
+  for (const button of document.querySelectorAll('[data-scope="channel"]')) {
+    if (button.dataset.busy !== 'true') {
+      button.disabled = !ready;
+    }
+
+    const hint = box(button, '.hint');
+    if (hint) {
+      hint.textContent = ready ? '' : 'Select a printer in the list on the left.';
+    }
+  }
+}
 
 // Reads a text/event-stream answer as it arrives. EventSource cannot do this, because it
 // sends a GET only and reconnects when the stream ends; a finished print job must not be
@@ -62,13 +185,12 @@ async function stream(url, init) {
   const controller = new AbortController();
   state.running = controller;
   $('stop').classList.remove('hidden');
-  state.logMuted = false;
-  openLog();
+  showLog(true);
   try {
     const response = await fetch(url, Object.assign({ signal: controller.signal }, init));
     if (!response.ok) {
       log(await response.text(), 'error');
-      return;
+      return false;
     }
 
     const reader = response.body.getReader();
@@ -84,10 +206,14 @@ async function stream(url, init) {
         buffer = buffer.slice(cut + 2);
       }
     }
+
+    return true;
   } catch (error) {
     if (error.name !== 'AbortError') {
       log(`The stream stopped: ${error.message}`, 'error');
     }
+
+    return false;
   } finally {
     state.running = null;
     $('stop').classList.add('hidden');
@@ -131,9 +257,12 @@ async function loadPrinters(refresh, probe) {
   try {
     state.devices = await getJson(`/api/printers?refresh=${refresh}&probe=${probe}`);
     $('discovery-state').textContent = `${state.devices.length} printer(s).`;
+    log(`Discovery found ${state.devices.length} printer(s).`);
+    const previous = state.device;
+    state.device = previous ? state.devices.find((d) => d.id === previous.id) || null : null;
     renderPrinters();
   } catch (error) {
-    $('discovery-state').textContent = '';
+    $('discovery-state').textContent = 'The discovery failed.';
     log(`The discovery failed: ${error.message}`, 'error');
   } finally {
     $('refresh').disabled = false;
@@ -141,49 +270,58 @@ async function loadPrinters(refresh, probe) {
   }
 }
 
+// The printer is picked where the channel is picked, because one owns the other. Nothing
+// is selected until a person selects it: the first entry is a prompt and not a device.
 function renderPrinters() {
-  const list = $('printers');
-  list.textContent = '';
-  if (state.devices.length === 0) {
-    const empty = document.createElement('li');
-    empty.className = 'note';
-    empty.textContent = 'No printer answered. Press "Probe subnet" to look on TCP port 9100.';
-    list.appendChild(empty);
-    return;
-  }
+  const select = $('printer');
+  select.textContent = '';
+  const prompt = document.createElement('option');
+  prompt.value = '';
+  prompt.textContent = state.devices.length
+    ? `Select one of ${state.devices.length} printer(s)`
+    : 'No printer answered. Press "Probe subnet".';
+  select.appendChild(prompt);
 
   for (const device of state.devices) {
-    const item = document.createElement('li');
-    item.innerHTML = '<div class="name"></div><div class="id"></div><div class="traits"></div>';
-    item.querySelector('.name').textContent = device.name || '(no name)';
-    item.querySelector('.id').textContent = device.id;
-    item.querySelector('.traits').textContent = device.summary;
-    item.addEventListener('click', () => select(device));
-    if (state.device && state.device.id === device.id) {
-      item.className = 'selected';
-    }
-    list.appendChild(item);
+    const option = document.createElement('option');
+    option.value = device.id;
+    option.textContent = `${device.name || '(no name)'} — ${device.summary}`;
+    select.appendChild(option);
   }
+
+  select.value = state.device ? state.device.id : '';
+  renderChannels();
 }
 
-function select(device) {
-  state.device = device;
-  renderPrinters();
+function onPrinterChange() {
+  state.device = state.devices.find((d) => d.id === $('printer').value) || null;
   renderChannels();
-  renderPrinterTab();
 }
 
 function renderChannels() {
   const select = $('channel');
   select.textContent = '';
-  if (!state.device) { return; }
+  if (!state.device) {
+    const empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = 'No printer selected';
+    select.appendChild(empty);
+    $('printer-note').textContent = '';
+    onChannelChange();
+    renderPrinterTab();
+    return;
+  }
+
+  $('printer-note').textContent = `${state.device.id}${state.device.location ? ` — ${state.device.location}` : ''}`;
   for (const channel of state.device.channels) {
     const option = document.createElement('option');
     option.value = channel.id;
     option.textContent = `${channel.scheme} — ${channel.address} (${channel.summary})`;
     select.appendChild(option);
   }
+
   onChannelChange();
+  renderPrinterTab();
 }
 
 function channel() {
@@ -199,11 +337,14 @@ function onChannelChange() {
     ? `${selected.givesPassthrough ? 'Sends the bytes unchanged' : 'May convert the job'}; ` +
       `${selected.hasJobQueue ? 'the job can be watched' : 'no job queue, so there is no progress to watch'}.` +
       (selected.reads ? ` Reads: ${selected.reads}` : ' It reported no format.')
-    : '';
+    : 'Every action on the Print, Job sets and Printer tabs sends to this channel.';
   if (selected && !selected.hasJobQueue) {
     $('raw').checked = true;
   }
-  renderOptions();
+
+  updateScopes();
+  renderPrintOptions();
+  renderJobs();
   checkAccepts();
 }
 
@@ -217,6 +358,8 @@ async function loadFiles() {
     option.textContent = `${file.name} — ${file.contentType}`;
     select.appendChild(option);
   }
+
+  renderJobs();
   checkAccepts();
 }
 
@@ -227,8 +370,12 @@ function contentType() {
     const file = $('upload').files[0];
     return file ? guess(file.name) : '';
   }
-  const chosen = state.files.find((f) => f.name === $('file').value);
-  return chosen ? chosen.contentType : '';
+  return typeOfFile($('file').value);
+}
+
+function typeOfFile(name) {
+  const chosen = state.files.find((f) => f.name === name);
+  return chosen ? chosen.contentType : guess(name || '');
 }
 
 function guess(name) {
@@ -248,59 +395,83 @@ function uploading() {
 }
 
 // Only what the printer reported reaches the form. A printer that reported nothing is not
-// asked, because the page would be inventing the choice.
-function renderOptions() {
-  const host = $('options');
+// asked, because the page would be inventing the choice. The same builder fills the print
+// tab and every job row of a set, so a job is edited with the controls it prints with.
+function renderOptions(host, raw, type, values) {
   host.textContent = '';
-  const selected = channel();
-  const configuration = selected ? selected.configuration : null;
-  const raw = $('raw').checked;
+  const configuration = channel() ? channel().configuration : null;
 
-  host.appendChild(field('jobName', 'Job name', 'text'));
-  host.appendChild(field('copies', 'Copies', 'number'));
-  host.appendChild(field('pageRanges', 'Pages (1-3,5)', 'text'));
+  host.appendChild(field('jobName', 'Job name', 'text', values));
+  host.appendChild(field('copies', 'Copies', 'number', values));
+  host.appendChild(field('pageRanges', 'Pages (1-3,5)', 'text', values));
 
   if (raw) {
     host.appendChild(note('A raw send carries no job template, so the options below are not sent.'));
+    keep(host, values);
     return;
   }
 
-  const type = contentType();
-  if (type === 'image/png' || type === 'image/jpeg') {
-    host.appendChild(choice('colorMode', 'Colour', ['Color', 'Monochrome']));
+  // An image converter reads the colour mode whatever the printer said, and a printer that
+  // reported colour reads it for every other format the converter renders.
+  if (type === 'image/png' || type === 'image/jpeg' || (configuration && configuration.supportsColor)) {
+    host.appendChild(choice('colorMode', 'Colour', ['Color', 'Monochrome'], values));
   }
 
-  if (!configuration) { return; }
+  if (!configuration) {
+    keep(host, values);
+    return;
+  }
+
   if (configuration.orientations && configuration.orientations.length) {
-    host.appendChild(choice('orientation', 'Rotation', configuration.orientations));
+    host.appendChild(choice('orientation', 'Rotation', configuration.orientations, values));
   }
   if (configuration.scalings && configuration.scalings.length) {
-    host.appendChild(choice('scaling', 'Scaling', configuration.scalings));
+    host.appendChild(choice('scaling', 'Scaling', configuration.scalings, values));
   }
   if (configuration.qualities && configuration.qualities.length) {
-    host.appendChild(choice('quality', 'Quality', configuration.qualities));
+    host.appendChild(choice('quality', 'Quality', configuration.qualities, values));
   }
   if (configuration.media && configuration.media.length) {
-    host.appendChild(choice('mediaSize', 'Media', names(configuration.media)));
+    host.appendChild(choice('mediaSize', 'Media', names(configuration.media), values));
   }
   if (configuration.mediaSources && configuration.mediaSources.length) {
-    host.appendChild(choice('mediaSource', 'Tray', names(configuration.mediaSources)));
+    host.appendChild(choice('mediaSource', 'Tray', names(configuration.mediaSources), values));
   }
   if (configuration.mediaTypes && configuration.mediaTypes.length) {
-    host.appendChild(choice('mediaType', 'Media type', configuration.mediaTypes));
+    host.appendChild(choice('mediaType', 'Media type', configuration.mediaTypes, values));
   }
   if (configuration.outputBins && configuration.outputBins.length) {
-    host.appendChild(choice('outputBin', 'Output bin', configuration.outputBins));
+    host.appendChild(choice('outputBin', 'Output bin', configuration.outputBins, values));
   }
   if (configuration.resolutionsDpi && configuration.resolutionsDpi.length) {
-    host.appendChild(choice('resolutionDpi', 'Resolution (dpi)', configuration.resolutionsDpi.map(String)));
+    host.appendChild(choice('resolutionDpi', 'Resolution (dpi)', configuration.resolutionsDpi.map(String), values));
   }
   if (configuration.numberUpValues && configuration.numberUpValues.length) {
-    host.appendChild(choice('numberUp', 'Pages on one sheet', configuration.numberUpValues.map(String)));
+    host.appendChild(choice('numberUp', 'Pages on one sheet', configuration.numberUpValues.map(String), values));
   }
   if (configuration.supportsDuplex) {
-    host.appendChild(choice('duplex', 'Duplex', ['Simplex', 'LongEdge', 'ShortEdge']));
+    host.appendChild(choice('duplex', 'Duplex', ['Simplex', 'LongEdge', 'ShortEdge'], values));
   }
+
+  keep(host, values);
+}
+
+// A value a job carries that this channel never offered is still shown, so editing a set on
+// the wrong printer, on a channel that reported nothing, or in raw mode does not drop what
+// the set asked for: what is on the form is what the run sends.
+function keep(host, values) {
+  for (const [name, value] of Object.entries(values || {})) {
+    if (!host.querySelector(`[data-option="${name}"]`)) {
+      host.appendChild(kept(name, value));
+    }
+  }
+}
+
+// The print tab keeps what was typed when the form is rebuilt.
+function renderPrintOptions() {
+  const host = $('options');
+  const keep = host.childElementCount ? readOptions(host) : {};
+  renderOptions(host, $('raw').checked, contentType(), keep);
 }
 
 // The Windows spooler reports "A4 (9)". The number belongs on the screen and not in the job.
@@ -308,18 +479,19 @@ function names(values) {
   return values.map((value) => value.replace(/ \(\d+\)$/, ''));
 }
 
-function field(name, label, type) {
+function field(name, label, type, values) {
   const wrapper = document.createElement('label');
   wrapper.textContent = label;
   const input = document.createElement('input');
   input.type = type;
   input.dataset.option = name;
   if (type === 'number') { input.min = '1'; }
+  if (values && values[name] !== undefined && values[name] !== null) { input.value = values[name]; }
   wrapper.appendChild(input);
   return wrapper;
 }
 
-function choice(name, label, values) {
+function choice(name, label, options, values) {
   const wrapper = document.createElement('label');
   wrapper.textContent = label;
   const select = document.createElement('select');
@@ -328,13 +500,37 @@ function choice(name, label, values) {
   blank.value = '';
   blank.textContent = 'Printer default';
   select.appendChild(blank);
-  for (const value of values) {
+  for (const value of options) {
     const option = document.createElement('option');
     option.value = value;
     option.textContent = value;
     select.appendChild(option);
   }
+
+  const held = values ? values[name] : undefined;
+  if (held !== undefined && held !== null && held !== '') {
+    if (!options.includes(String(held))) {
+      const extra = document.createElement('option');
+      extra.value = held;
+      extra.textContent = `${held} (not reported by this channel)`;
+      select.appendChild(extra);
+    }
+
+    select.value = String(held);
+  }
+
   wrapper.appendChild(select);
+  return wrapper;
+}
+
+function kept(name, value) {
+  const wrapper = document.createElement('label');
+  wrapper.textContent = `${name} (kept from the set)`;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.dataset.option = name;
+  input.value = value;
+  wrapper.appendChild(input);
   return wrapper;
 }
 
@@ -345,12 +541,14 @@ function note(text) {
   return paragraph;
 }
 
-function options() {
+const numbers = ['copies', 'numberUp', 'resolutionDpi'];
+
+function readOptions(host) {
   const result = {};
-  for (const input of $('options').querySelectorAll('[data-option]')) {
+  for (const input of host.querySelectorAll('[data-option]')) {
     const value = input.value.trim();
     if (!value) { continue; }
-    result[input.dataset.option] = input.type === 'number' || ['copies', 'numberUp', 'resolutionDpi'].includes(input.dataset.option)
+    result[input.dataset.option] = input.type === 'number' || numbers.includes(input.dataset.option)
       ? Number(value)
       : value;
   }
@@ -384,42 +582,42 @@ async function checkAccepts() {
 }
 
 $('print').addEventListener('click', async () => {
+  const button = $('print');
   const selected = channel();
-  if (!selected) {
-    log('Select a printer first.', 'warning');
-    return;
-  }
-
   const raw = $('raw').checked;
   const upload = uploading() ? $('upload').files[0] : null;
   const what = upload ? upload.name : $('file').value;
   if (!what) {
-    log('Select a file first.', 'warning');
+    report(button, 'Select a file first.', 'warning');
     return;
   }
 
   if (!confirm(`Send '${what}' to ${selected.id}? This uses paper and ink.`)) {
-    log('Cancelled; nothing was sent.', 'warning');
+    report(button, 'Cancelled; nothing was sent.', 'warning');
     return;
   }
 
-  if (upload) {
-    const form = new FormData();
-    form.append('file', upload);
-    form.append('printerId', selected.id);
-    form.append('contentType', contentType());
-    form.append('raw', String(raw));
-    form.append('options', JSON.stringify(options()));
-    await stream('/api/jobs/upload', { method: 'POST', body: form });
-    return;
-  }
-
-  await stream('/api/jobs', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ printerId: selected.id, file: what, contentType: contentType(), raw, options: options() }),
+  await busy(button, async () => {
+    const sent = upload
+      ? await sendUpload(selected, upload, raw)
+      : await stream('/api/jobs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ printerId: selected.id, file: what, contentType: contentType(), raw, options: readOptions($('options')) }),
+      });
+    status(button, sent ? `Sent '${what}'. The log has the detail.` : 'The run ended early; read the log.', sent ? 'done' : 'error');
   });
 });
+
+function sendUpload(selected, upload, raw) {
+  const form = new FormData();
+  form.append('file', upload);
+  form.append('printerId', selected.id);
+  form.append('contentType', contentType());
+  form.append('raw', String(raw));
+  form.append('options', JSON.stringify(readOptions($('options'))));
+  return stream('/api/jobs/upload', { method: 'POST', body: form });
+}
 
 // ---------------------------------------------------------------- the job set tab
 
@@ -433,53 +631,246 @@ async function loadSets() {
     option.textContent = `${set.name} (${set.mode || 'queue'}, ${set.jobs.length} job(s))`;
     select.appendChild(option);
   }
-  showSet();
+
+  loadSet(shippedSet());
 }
 
-function currentSet() {
-  return state.uploadedSet || state.sets.find((s) => s.name === $('set').value) || null;
+function shippedSet() {
+  return state.sets.find((s) => s.name === $('set').value) || state.sets[0] || { name: 'New job set', mode: 'queue', jobs: [] };
 }
 
-function showSet() {
-  const set = currentSet();
-  $('set-preview').textContent = set ? JSON.stringify(set, null, 2) : 'No job set.';
+// The form edits a copy. The file on disk, and the set the server listed, stay as they are.
+function loadSet(set) {
+  state.set = JSON.parse(JSON.stringify(set || { name: 'New job set', mode: 'queue', jobs: [] }));
+  state.set.jobs = state.set.jobs || [];
+  state.job = 0;
+  $('set-name').value = state.set.name || '';
+  $('set-description').value = state.set.description || '';
+  $('set-mode').value = state.set.mode || 'queue';
+  renderJobs();
 }
+
+// One job at a time. A set of nine jobs is a strip of nine tabs, and the job being edited
+// gets the width its option grid needs.
+function renderJobs() {
+  if (!state.set) { return; }
+  const jobs = state.set.jobs;
+  state.job = Math.min(Math.max(state.job, 0), Math.max(jobs.length - 1, 0));
+
+  const strip = $('job-tabs');
+  strip.textContent = '';
+  jobs.forEach((job, index) => {
+    const tab = button(jobLabel(job, index), () => { state.job = index; renderJobs(); });
+    tab.className = `job-tab${index === state.job ? ' active' : ''}`;
+    tab.title = job.description || '';
+    strip.appendChild(tab);
+  });
+
+  const add = button('+ Add a job', () => {
+    // No file: the sample ships a deliberately broken PDF, so a guessed default would be a
+    // job nobody asked for. The field offers every shipped name.
+    jobs.push({ file: '', options: {} });
+    state.job = jobs.length - 1;
+    renderJobs();
+  });
+  add.className = 'job-tab add';
+  strip.appendChild(add);
+
+  const host = $('jobs');
+  host.textContent = '';
+  host.appendChild(jobs.length
+    ? jobRow(jobs[state.job], state.job)
+    : note('This set holds no job yet. Press "Add a job".'));
+  showSetJson();
+}
+
+function jobLabel(job, index) {
+  return `${index + 1} · ${job.file || 'no file'}`;
+}
+
+function jobRow(job, index) {
+  const row = document.createElement('article');
+  row.className = 'job';
+
+  const head = document.createElement('div');
+  head.className = 'job-head';
+  const number = document.createElement('span');
+  number.className = 'job-number';
+  number.textContent = `Job ${index + 1} of ${state.set.jobs.length}`;
+  const spacer = document.createElement('span');
+  spacer.className = 'spacer';
+  head.append(number, spacer, button('Duplicate', () => {
+    state.set.jobs.splice(index + 1, 0, JSON.parse(JSON.stringify(job)));
+    state.job = index + 1;
+    renderJobs();
+  }), button('Remove', () => {
+    state.set.jobs.splice(index, 1);
+    state.job = index - 1;
+    renderJobs();
+  }));
+  row.appendChild(head);
+
+  const top = document.createElement('div');
+  top.className = 'row';
+  top.append(
+    fileChoice(job, row),
+    text('Content type', job.contentType || '', '', (value) => { job.contentType = value || undefined; onJobFileChange(job, row); }, 'from the file name'));
+  row.appendChild(top);
+  row.appendChild(text('Description', job.description || '', 'grow', (value) => { job.description = value || undefined; showSetJson(); }));
+
+  const options = document.createElement('div');
+  options.className = 'options';
+  job.options = job.options || {};
+  renderOptions(options, $('set-mode').value === 'raw', jobType(job), job.options);
+  options.addEventListener('change', () => { job.options = readOptions(options); showSetJson(); });
+  options.addEventListener('input', () => { job.options = readOptions(options); showSetJson(); });
+  row.appendChild(options);
+  return row;
+}
+
+function jobType(job) {
+  return job.contentType || typeOfFile(job.file || '');
+}
+
+// A different file reads a different format, so the options it can carry change with it.
+function onJobFileChange(job, row) {
+  const options = row.querySelector('.options');
+  renderOptions(options, $('set-mode').value === 'raw', jobType(job), job.options);
+  const tab = $('job-tabs').children[state.job];
+  if (tab) { tab.textContent = jobLabel(job, state.job); }
+  showSetJson();
+}
+
+// The server reads the file from PrintFiles/, so the job picks one of those and does not
+// type a name. A set that arrived naming something else keeps that name, and says so.
+function fileChoice(job, row) {
+  const wrapper = document.createElement('label');
+  wrapper.className = 'grow';
+  wrapper.textContent = 'File';
+  const select = document.createElement('select');
+  const printable = state.files.filter((f) => f.canPrint);
+  if (!job.file || !printable.some((f) => f.name === job.file)) {
+    const other = document.createElement('option');
+    other.value = job.file || '';
+    other.textContent = job.file ? `${job.file} — not in PrintFiles/` : 'Choose a file';
+    select.appendChild(other);
+  }
+
+  for (const file of printable) {
+    const option = document.createElement('option');
+    option.value = file.name;
+    option.textContent = `${file.name} — ${file.contentType}`;
+    select.appendChild(option);
+  }
+
+  select.value = job.file || '';
+  select.addEventListener('change', () => { job.file = select.value; onJobFileChange(job, row); });
+  wrapper.appendChild(select);
+  return wrapper;
+}
+
+function text(label, value, className, onChange, placeholder) {
+  const wrapper = document.createElement('label');
+  wrapper.textContent = label;
+  if (className) { wrapper.className = className; }
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = value;
+  if (placeholder) { input.placeholder = placeholder; }
+  input.addEventListener('input', () => onChange(input.value.trim()));
+  wrapper.appendChild(input);
+  return wrapper;
+}
+
+function button(label, onClick) {
+  const element = document.createElement('button');
+  element.type = 'button';
+  element.textContent = label;
+  element.addEventListener('click', onClick);
+  return element;
+}
+
+// What the form holds, in the shape PrintJobs/*.json holds. An empty field is left out, so
+// the JSON reads like a set a person would write.
+function setPayload() {
+  return {
+    name: $('set-name').value.trim() || undefined,
+    description: $('set-description').value.trim() || undefined,
+    mode: $('set-mode').value,
+    jobs: state.set.jobs.map((job) => ({
+      file: job.file || undefined,
+      description: job.description || undefined,
+      contentType: job.contentType || undefined,
+      options: job.options && Object.keys(job.options).length ? job.options : undefined,
+    })),
+  };
+}
+
+function showSetJson() {
+  $('set-json').textContent = JSON.stringify(setPayload(), null, 2);
+}
+
+$('set').addEventListener('change', () => loadSet(shippedSet()));
+$('set-name').addEventListener('input', showSetJson);
+$('set-description').addEventListener('input', showSetJson);
+$('set-mode').addEventListener('change', renderJobs);
+$('reset-set').addEventListener('click', () => {
+  loadSet(shippedSet());
+  log(`Reset to the shipped set '${$('set').value}'.`);
+});
+$('download-set').addEventListener('click', () => {
+  const name = ($('set-name').value.trim() || 'job-set').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  download(new Blob([JSON.stringify(setPayload(), null, 2)], { type: 'application/json' }), `${name}.json`);
+});
+$('copy-set').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(setPayload(), null, 2));
+    $('copy-set').textContent = 'Copied';
+    setTimeout(() => { $('copy-set').textContent = 'Copy the JSON'; }, 1500);
+  } catch (error) {
+    log(`The clipboard refused the JSON: ${error.message}`, 'warning');
+  }
+});
 
 $('set-upload').addEventListener('change', async (event) => {
   const file = event.target.files[0];
-  if (!file) {
-    state.uploadedSet = null;
-    showSet();
-    return;
-  }
+  if (!file) { return; }
 
   try {
-    state.uploadedSet = JSON.parse(await file.text());
-    log(`Read the job set '${file.name}'. It is used instead of the supplied one.`);
+    loadSet(JSON.parse(await file.text()));
+    log(`Read the job set '${file.name}'. The form holds it now.`);
   } catch (error) {
-    state.uploadedSet = null;
     log(`'${file.name}' is not a job set: ${error.message}`, 'error');
   }
-  showSet();
 });
 
 $('run-set').addEventListener('click', async () => {
+  const button = $('run-set');
   const selected = channel();
-  const set = currentSet();
-  if (!selected || !set) {
-    log('Select a printer and a job set first.', 'warning');
+  const set = setPayload();
+  if (!set.jobs.length) {
+    report(button, 'The set holds no job.', 'warning');
     return;
   }
 
-  if (!confirm(`Run '${set.name}' — ${set.jobs.length} job(s) — on ${selected.id}? This uses paper and ink.`)) {
-    log('Cancelled; nothing was sent.', 'warning');
+  const nameless = set.jobs.findIndex((job) => !job.file);
+  if (nameless >= 0) {
+    report(button, `Job ${nameless + 1} names no file.`, 'warning');
     return;
   }
 
-  await stream('/api/job-sets/run', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ printerId: selected.id, set }),
+  if (!confirm(`Run '${set.name || 'the job set'}' — ${set.jobs.length} job(s) — on ${selected.id}? This uses paper and ink.`)) {
+    report(button, 'Cancelled; nothing was sent.', 'warning');
+    return;
+  }
+
+  await busy(button, async () => {
+    const ran = await stream('/api/job-sets/run', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ printerId: selected.id, set }),
+    });
+    status(button, ran ? 'The set ran. The log holds the outcome of each job.' : 'The run ended early; read the log.', ran ? 'done' : 'error');
   });
 });
 
@@ -542,74 +933,85 @@ function push(lines, label, values) {
 }
 
 $('read-status').addEventListener('click', async () => {
-  const selected = channel() || (state.device ? { id: state.device.id } : null);
-  if (!selected) {
-    log('Select a printer first.', 'warning');
-    return;
-  }
-
-  try {
-    const status = await getJson(`/api/printers/status?id=${encodeURIComponent(selected.id)}`);
-    const parts = [status.state, status.isAcceptingJobs ? 'accepting jobs' : 'not accepting jobs'];
-    if (status.serialNumber) { parts.push(`serial ${status.serialNumber}`); }
-    if (status.lifetimePageCount !== null && status.lifetimePageCount !== undefined) { parts.push(`${status.lifetimePageCount} pages`); }
-    if (status.detail) { parts.push(status.detail); }
-    for (const marker of status.markers) { parts.push(marker); }
-    log(`${selected.id}: ${parts.join('; ')}`, 'done');
-  } catch (error) {
-    log(`No status: ${error.message}`, 'error');
-  }
+  const button = $('read-status');
+  const selected = channel();
+  await busy(button, async () => {
+    try {
+      const reading = await getJson(`/api/printers/status?id=${encodeURIComponent(selected.id)}`);
+      const parts = [reading.state, reading.isAcceptingJobs ? 'accepting jobs' : 'not accepting jobs'];
+      if (reading.serialNumber) { parts.push(`serial ${reading.serialNumber}`); }
+      if (reading.lifetimePageCount !== null && reading.lifetimePageCount !== undefined) { parts.push(`${reading.lifetimePageCount} pages`); }
+      if (reading.detail) { parts.push(reading.detail); }
+      for (const marker of reading.markers) { parts.push(marker); }
+      log(`${selected.id}: ${parts.join('; ')}`, 'done');
+      status(button, parts.join('; '), 'done');
+    } catch (error) {
+      report(button, `No status: ${error.message}`, 'error');
+    }
+  });
 });
 
 // ---------------------------------------------------------------- diagnostics
 
 $('correlate').addEventListener('click', async () => {
+  const button = $('correlate');
   const tracer = $('tracer').checked;
   if (tracer && !confirm('Create a held job that carries no document on each printer with an empty queue, then cancel it?')) {
-    log('Cancelled; the queues were only read.', 'warning');
+    report(button, 'Cancelled; the queues were only read.', 'warning');
     return;
   }
 
-  await stream('/api/diagnostics/correlate', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ tracer }),
+  await busy(button, async () => {
+    const ran = await stream('/api/diagnostics/correlate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tracer }),
+    });
+    status(button, ran ? 'Compared. The log holds what each queue answered.' : 'It ended early; read the log.', ran ? 'done' : 'error');
   });
 });
 
 $('details').addEventListener('click', async () => {
+  const button = $('details');
   const host = $('host').value.trim();
   if (!host) {
-    log('Enter a host first.', 'warning');
+    report(button, 'Enter a host first.', 'warning');
     return;
   }
 
-  try {
-    const answer = await getJson(`/api/diagnostics/details?host=${encodeURIComponent(host)}`);
-    log(`IPP  ${answer.host}: ${answer.ipp}`);
-    log(`SNMP ${answer.host}: ${answer.snmp}`);
-  } catch (error) {
-    log(error.message, 'error');
-  }
+  await busy(button, async () => {
+    try {
+      const answer = await getJson(`/api/diagnostics/details?host=${encodeURIComponent(host)}`);
+      log(`IPP  ${answer.host}: ${answer.ipp}`);
+      log(`SNMP ${answer.host}: ${answer.snmp}`);
+      status(button, `${answer.host} answered. The log holds both readings.`, 'done');
+    } catch (error) {
+      report(button, error.message, 'error');
+    }
+  });
 });
 
 $('windows-checks').addEventListener('click', async () => {
+  const button = $('windows-checks');
   const queue = $('queue').value.trim();
   if (!queue) {
-    log('Enter a print queue name first.', 'warning');
+    report(button, 'Enter a print queue name first.', 'warning');
     return;
   }
 
   const print = $('spooler-print').checked;
   if (print && !confirm(`Send a tiny test payload to '${queue}' twice, as two copies?`)) {
-    log('Cancelled; nothing was sent.', 'warning');
+    report(button, 'Cancelled; nothing was sent.', 'warning');
     return;
   }
 
-  await stream('/api/diagnostics/windows-spooler', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ queue, print }),
+  await busy(button, async () => {
+    const ran = await stream('/api/diagnostics/windows-spooler', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ queue, print }),
+    });
+    status(button, ran ? 'Gathered. The log holds the evidence.' : 'It ended early; read the log.', ran ? 'done' : 'error');
   });
 });
 
@@ -626,18 +1028,19 @@ for (const tab of document.querySelectorAll('.tab')) {
 
 $('refresh').addEventListener('click', () => loadPrinters(true, false));
 $('probe').addEventListener('click', () => loadPrinters(true, true));
+$('printer').addEventListener('change', onPrinterChange);
 $('channel').addEventListener('change', onChannelChange);
-$('file').addEventListener('change', () => { renderOptions(); checkAccepts(); });
-$('upload').addEventListener('change', () => { renderOptions(); checkAccepts(); });
-$('content-type').addEventListener('change', () => { renderOptions(); checkAccepts(); });
-$('raw').addEventListener('change', renderOptions);
-$('set').addEventListener('change', () => { state.uploadedSet = null; showSet(); });
+$('file').addEventListener('change', () => { renderPrintOptions(); checkAccepts(); });
+$('upload').addEventListener('change', () => { renderPrintOptions(); checkAccepts(); });
+$('content-type').addEventListener('change', () => { renderPrintOptions(); checkAccepts(); });
+$('raw').addEventListener('change', renderPrintOptions);
 for (const radio of document.querySelectorAll('input[name="source"]')) {
-  radio.addEventListener('change', () => { renderOptions(); checkAccepts(); });
+  radio.addEventListener('change', () => { renderPrintOptions(); checkAccepts(); });
 }
 
 document.querySelector('.tab').click();
-renderOptions();
+updateScopes();
+onChannelChange();
 loadFiles().catch((error) => log(error.message, 'error'));
 loadSets().catch((error) => log(error.message, 'error'));
 loadPrinters(false, false);
