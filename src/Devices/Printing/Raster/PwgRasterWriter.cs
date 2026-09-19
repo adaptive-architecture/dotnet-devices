@@ -13,6 +13,8 @@ namespace AdaptArch.Devices.Printing.Raster;
 /// <para>
 /// Pages are written one at a time and nothing is buffered, because an A4 page at 300 dots
 /// an inch in <see cref="PwgRasterColorSpace.Srgb8"/> is about 26 MB before compression.
+/// A duplex back side the printer reads transformed is the one exception: its reordered
+/// copy lives only until the page is encoded.
 /// </para>
 /// <para>
 /// The synchronization word is written by the constructor, so a document with no page is
@@ -102,8 +104,17 @@ public sealed class PwgRasterWriter
                 nameof(pixels));
         }
 
-        WriteHeader(width, height, stride);
-        WriteBitmap(pixels, stride);
+        (var crossFeed, var feed) = BackSideTransforms();
+        WriteHeader(width, height, stride, crossFeed, feed);
+        if (crossFeed == 1 && feed == 1)
+        {
+            WriteBitmap(pixels, stride);
+        }
+        else
+        {
+            WriteBitmap(OrientForBackSide(pixels, width, height, stride, crossFeed, feed), stride);
+        }
+
         _pagesWritten++;
     }
 
@@ -137,7 +148,38 @@ public sealed class PwgRasterWriter
         };
     }
 
-    private void WriteHeader(int width, int height, int stride)
+    // PWG 5102.4 section 4.3.2.8: the header fields declare the orientation of the
+    // bitmap, and the bitmap itself must arrive that way — the printer performs no
+    // transformation of its own. A back side the table moves is therefore reordered
+    // here, pixel by pixel rather than octet by octet, because a colour pixel is
+    // three octets that must stay together. The copy is transient: it is encoded
+    // straight into the destination and released.
+    private byte[] OrientForBackSide(ReadOnlySpan<byte> pixels, int width, int height, int stride, int crossFeed, int feed)
+    {
+        var oriented = new byte[pixels.Length];
+        for (var y = 0; y < height; y++)
+        {
+            var sourceY = feed == 1 ? y : height - 1 - y;
+            var sourceLine = pixels.Slice(sourceY * stride, stride);
+            var targetLine = oriented.AsSpan(y * stride, stride);
+            if (crossFeed == 1)
+            {
+                sourceLine.CopyTo(targetLine);
+            }
+            else
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    var source = sourceLine.Slice((width - 1 - x) * _bytesPerPixel, _bytesPerPixel);
+                    source.CopyTo(targetLine.Slice(x * _bytesPerPixel, _bytesPerPixel));
+                }
+            }
+        }
+
+        return oriented;
+    }
+
+    private void WriteHeader(int width, int height, int stride, int crossFeed, int feed)
     {
         Span<byte> header = stackalloc byte[HeaderLength];
         header.Clear();
@@ -169,7 +211,6 @@ public sealed class PwgRasterWriter
         WriteUInt32(header, 420, (uint)_bytesPerPixel);                     // NumColors
         WriteUInt32(header, 452, (uint)_options.TotalPageCount);
 
-        (var crossFeed, var feed) = BackSideTransforms();
         WriteInt32(header, 456, crossFeed);
         WriteInt32(header, 460, feed);
 

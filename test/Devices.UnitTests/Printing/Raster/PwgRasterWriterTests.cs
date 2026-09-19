@@ -149,6 +149,71 @@ public class PwgRasterWriterTests
         Assert.Equal(1, ReadInt32(back, 460));
     }
 
+    // PWG 5102.4 section 4.3.2.8: the header declares the bitmap orientation, and the
+    // bitmap itself must arrive that way — the printer performs no transformation of
+    // its own. A back side the Table 9 values move is therefore reordered here, while
+    // the front side always goes out as it came in.
+    [Theory]
+    [InlineData(DuplexMode.LongEdge, PwgRasterSheetBack.Rotated, 6, 5, 4, 3, 2, 1)]
+    [InlineData(DuplexMode.LongEdge, PwgRasterSheetBack.Flipped, 4, 5, 6, 1, 2, 3)]
+    [InlineData(DuplexMode.LongEdge, PwgRasterSheetBack.Normal, 1, 2, 3, 4, 5, 6)]
+    [InlineData(DuplexMode.ShortEdge, PwgRasterSheetBack.Flipped, 3, 2, 1, 6, 5, 4)]
+    [InlineData(DuplexMode.ShortEdge, PwgRasterSheetBack.ManualTumble, 6, 5, 4, 3, 2, 1)]
+    [InlineData(DuplexMode.ShortEdge, PwgRasterSheetBack.Rotated, 1, 2, 3, 4, 5, 6)]
+    public void WritePage_ReordersThePixelsOfADuplexBackSide(
+        DuplexMode duplex, PwgRasterSheetBack sheetBack, int p0, int p1, int p2, int p3, int p4, int p5)
+    {
+        byte[] pages = [1, 2, 3, 4, 5, 6];
+        var (front, back) = WriteDuplexGray(duplex, sheetBack, pages, 3, 2);
+
+        Assert.Equal(pages, front);
+        Assert.Equal<byte[]>([(byte)p0, (byte)p1, (byte)p2, (byte)p3, (byte)p4, (byte)p5], back);
+    }
+
+    [Fact]
+    public void WritePage_LeavesBackSidePixelsAloneWhenTheJobIsOneSided()
+    {
+        byte[] pages = [1, 2, 3, 4, 5, 6];
+        MemoryStream stream = new();
+        PwgRasterWriter writer = new(stream, new PwgRasterOptions
+        {
+            ColorSpace = PwgRasterColorSpace.Grayscale8,
+            Duplex = DuplexMode.Simplex,
+            SheetBack = PwgRasterSheetBack.Rotated,
+        });
+
+        writer.WritePage(pages, 3, 2);
+        var afterFront = (int)stream.Length;
+        writer.WritePage(pages, 3, 2);
+
+        var document = stream.ToArray();
+        Assert.Equal(pages, Decode(document[(SyncLength + HeaderLength)..afterFront], 3, 1));
+        Assert.Equal(pages, Decode(document[(afterFront + HeaderLength)..], 3, 1));
+    }
+
+    [Fact]
+    public void WritePage_ReversesColourPixelsWholeWhenMirroringABackSide()
+    {
+        // A colour pixel is three octets that must stay together: mirroring moves
+        // whole pixels, never single octets.
+        byte[] pages = [10, 20, 30, 40, 50, 60];
+        MemoryStream stream = new();
+        PwgRasterWriter writer = new(stream, new PwgRasterOptions
+        {
+            ColorSpace = PwgRasterColorSpace.Srgb8,
+            Duplex = DuplexMode.ShortEdge,
+            SheetBack = PwgRasterSheetBack.Flipped,
+        });
+
+        writer.WritePage(pages, 2, 1);
+        var afterFront = (int)stream.Length;
+        writer.WritePage(pages, 2, 1);
+
+        var document = stream.ToArray();
+        Assert.Equal(pages, Decode(document[(SyncLength + HeaderLength)..afterFront], 6, 3));
+        Assert.Equal<byte[]>([40, 50, 60, 10, 20, 30], Decode(document[(afterFront + HeaderLength)..], 6, 3));
+    }
+
     [Fact]
     public void WritePage_NamesTheMediaWhenTheOptionsDo()
     {
@@ -342,6 +407,27 @@ public class PwgRasterWriterTests
         PwgRasterWriter writer = new(stream, new PwgRasterOptions { ColorSpace = PwgRasterColorSpace.Srgb8 });
         writer.WritePage(pixels, width, height);
         return stream.ToArray();
+    }
+
+    private static (byte[] Front, byte[] Back) WriteDuplexGray(
+        DuplexMode duplex, PwgRasterSheetBack sheetBack, byte[] pixels, int width, int height)
+    {
+        MemoryStream stream = new();
+        PwgRasterWriter writer = new(stream, new PwgRasterOptions
+        {
+            ColorSpace = PwgRasterColorSpace.Grayscale8,
+            Duplex = duplex,
+            SheetBack = sheetBack,
+        });
+
+        writer.WritePage(pixels, width, height);
+        var afterFront = (int)stream.Length;
+        writer.WritePage(pixels, width, height);
+
+        var document = stream.ToArray();
+        return (
+            Decode(document[(SyncLength + HeaderLength)..afterFront], width, 1),
+            Decode(document[(afterFront + HeaderLength)..], width, 1));
     }
 
     private static byte[] BitmapOf(byte[] document) => document[(SyncLength + HeaderLength)..];

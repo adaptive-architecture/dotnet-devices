@@ -89,10 +89,26 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             for (var i = 0; i < returned; i++)
             {
                 var info = Marshal.PtrToStructure<WindowsSpoolerInterop.PrinterInfo4>(buffer + (i * itemSize));
-                if (!String.IsNullOrWhiteSpace(info.PrinterName))
+                if (String.IsNullOrWhiteSpace(info.PrinterName))
                 {
-                    printers.Add(MapDiscovered(info.PrinterName));
+                    continue;
                 }
+
+                DiscoveredPrinter printer;
+                try
+                {
+                    printer = MapDiscovered(info.PrinterName);
+                }
+                catch (ArgumentException exception)
+                {
+                    // Windows accepts names no identifier can carry, such as the
+                    // in-box "Generic / Text Only". One of them must not hide the
+                    // queues beside it, so it is skipped and reported instead.
+                    SpoolerLog.QueueNotListed(_logger, info.PrinterName, exception);
+                    continue;
+                }
+
+                printers.Add(printer);
             }
 
             SpoolerLog.QueuesEnumerated(_logger, printers.Count);

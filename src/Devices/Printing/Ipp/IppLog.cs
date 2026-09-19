@@ -44,6 +44,12 @@ internal static partial class IppLog
     [LoggerMessage(EventId = 1034, Level = LogLevel.Warning, Message = "The job of {ContentType} for {Endpoint} is not converted, because {Reason}, so it is sent unchanged and the printer may refuse it.")]
     public static partial void DocumentNotConverted(ILogger logger, string contentType, Uri endpoint, string reason);
 
+    [LoggerMessage(EventId = 1035, Level = LogLevel.Debug, Message = "The job of {ContentType} of {Bytes} octets is submitted to {Endpoint}.")]
+    public static partial void DocumentSubmitted(ILogger logger, string contentType, Uri endpoint, long bytes);
+
+    [LoggerMessage(EventId = 1036, Level = LogLevel.Error, Message = "Printer {Endpoint} answered job {JobId} after {Sent} of {Total} octets of {ContentType} were uploaded. The job may print only in part.")]
+    public static partial void DocumentShortSent(ILogger logger, Uri endpoint, string jobId, long sent, long total, string contentType);
+
     [LoggerMessage(EventId = 1021, Level = LogLevel.Debug, Message = "IPP job {JobId} on {Endpoint} is {State}; reasons {Reasons}; message {Message}.")]
     public static partial void JobRead(ILogger logger, string jobId, Uri endpoint, PrintJobState state, string? reasons, string? message);
 }

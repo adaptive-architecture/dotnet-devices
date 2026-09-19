@@ -55,6 +55,20 @@ public class WindowsSpoolerDriverSeamTests
     }
 
     [Fact]
+    public async Task EnumeratePrintersAsync_AQueueNoIdentifierCanCarry_IsSkippedAndTheRestAreReported()
+    {
+        // Windows accepts names no identifier can carry, such as the in-box
+        // "Generic / Text Only". One of them must not hide the queues beside it.
+        FakeWindowsSpoolerInterop interop = new();
+        interop.Queues.Clear();
+        interop.Queues.AddRange(["lobby", "Generic / Text Only", "warehouse"]);
+
+        var printers = await DriverFor(interop).EnumeratePrintersAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(["lobby", "warehouse"], printers.Select(printer => printer.Id.Authority));
+    }
+
+    [Fact]
     public async Task EnumeratePrintersAsync_AnErrorThatIsNotAShortBuffer_Throws()
     {
         // 1722: RPC_S_SERVER_UNAVAILABLE, a print server that is not answering.

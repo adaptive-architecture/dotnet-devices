@@ -20,9 +20,10 @@ internal static class IppRequests
         CancellationToken cancellationToken)
     {
         var (payload, documentFormat, options, dropped) = submission;
-        await using var document = MemoryMarshal.TryGetArray(payload.Data, out var segment)
+        await using var buffer = MemoryMarshal.TryGetArray(payload.Data, out var segment)
             ? new MemoryStream(segment.Array!, segment.Offset, segment.Count, false)
             : new MemoryStream(payload.Data.ToArray(), false);
+        UploadCountingStream document = new(buffer);
         PrintJobRequest request = new()
         {
             Document = document,
@@ -38,6 +39,7 @@ internal static class IppRequests
 
         IppOperations operations = new(context, uri, "Print-Job", printerId);
         SharpIpp.Models.Responses.PrintJobResponse response;
+        IppLog.DocumentSubmitted(context.Logger, documentFormat, uri, buffer.Length);
         try
         {
             response = await operations.SendAsync(
@@ -54,6 +56,16 @@ internal static class IppRequests
 
         var job = response.JobAttributes
             ?? throw new InvalidDataException($"The IPP response from '{uri}' did not include job attributes.");
+
+        // A printer answers when it accepts the job, which may be before it read the
+        // whole document: an early answer aborts the upload without an error. The job
+        // exists, so this is reported and not thrown; the watch and the impressions
+        // tell whether what arrived prints whole.
+        if (document.BytesRead < buffer.Length)
+        {
+            IppLog.DocumentShortSent(
+                context.Logger, uri, job.JobId.ToString(CultureInfo.InvariantCulture), document.BytesRead, buffer.Length, documentFormat);
+        }
 
         // A printer may refuse a job in the answer to the submission itself, so the reasons
         // are read here too and not only on a later read of the queue.
@@ -350,5 +362,77 @@ internal static class IppRequests
             static (client, message, token) => client.GetPrinterAttributesAsync(message, token),
             request,
             cancellationToken);
+    }
+
+    // Counts the octets the HTTP stack pulls for the upload. SharpIppNext hands the
+    // document stream over and reads nothing itself, so what is counted here is what
+    // left the machine. An early answer from the printer aborts the rest without an
+    // error, and only this count can still tell.
+    private sealed class UploadCountingStream : Stream
+    {
+        private readonly Stream _inner;
+
+        public UploadCountingStream(Stream inner) => _inner = inner;
+
+        public long BytesRead { get; private set; }
+
+        public override bool CanRead => _inner.CanRead;
+
+        public override bool CanSeek => _inner.CanSeek;
+
+        public override bool CanWrite => false;
+
+        public override long Length => _inner.Length;
+
+        public override long Position
+        {
+            get => _inner.Position;
+            set => _inner.Position = value;
+        }
+
+        public override void Flush() => _inner.Flush();
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var read = _inner.Read(buffer, offset, count);
+            BytesRead += read;
+            return read;
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            var read = _inner.Read(buffer);
+            BytesRead += read;
+            return read;
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            return ReadAsync(new Memory<byte>(buffer, offset, count), cancellationToken).AsTask();
+        }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            var read = await _inner.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            BytesRead += read;
+            return read;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => _inner.Seek(offset, origin);
+
+        public override void SetLength(long value) => _inner.SetLength(value);
+
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException("The upload stream is read-only.");
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _inner.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
     }
 }

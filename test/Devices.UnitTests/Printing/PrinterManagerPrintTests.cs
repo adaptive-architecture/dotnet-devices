@@ -1,4 +1,5 @@
 ﻿using AdaptArch.Devices.Printing;
+using AdaptArch.Devices.UnitTests.Printing.Spooler;
 using Xunit;
 
 namespace AdaptArch.Devices.UnitTests.Printing;
@@ -359,6 +360,47 @@ public class PrinterManagerPrintTests
         FakePrinterFactory factory = new();
         PrinterManager manager = new(
             new FakeMdnsDiscovery([printer]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor());
+
+        _ = await manager.DiscoverAsync(null, TestContext.Current.CancellationToken);
+        var error = await Assert.ThrowsAsync<NotSupportedException>(() => manager.PrintAsync(
+            printer.Id, Zpl(), null, TestContext.Current.CancellationToken));
+
+        Assert.Contains(PrinterContentTypes.Zpl, error.Message, StringComparison.Ordinal);
+        Assert.Empty(factory.Opened);
+    }
+
+    [Fact]
+    public async Task PrintAsync_AConverterRegistered_ReachesAChannelThatReadsOtherFormatsOnly()
+    {
+        // The IPP channel reports JPEG only, so a PDF has no channel that reads it.
+        // A registered PDF converter may still render it into a format the channel
+        // reads; the channel negotiates that target itself, so the manager hands
+        // the document over instead of refusing before the channel is even opened.
+        var printer = FakePrinters.Reading("192.168.1.50", PrinterContentTypes.Jpeg);
+        FakePrinterFactory factory = new();
+        PrinterManagerOptions options = new();
+        options.Converters.Add(new RecordingPdfConverter(1));
+        PrinterManager manager = new(
+            new FakeMdnsDiscovery([printer]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor(), options);
+
+        _ = await manager.DiscoverAsync(null, TestContext.Current.CancellationToken);
+        var job = await manager.PrintAsync(printer.Id, Pdf(), null, TestContext.Current.CancellationToken);
+
+        Assert.Equal("1", job.JobId);
+        Assert.Equal(printer.Id, Assert.Single(factory.Opened).Id);
+    }
+
+    [Fact]
+    public async Task PrintAsync_RefusesAFormatNoConverterReads()
+    {
+        // The converter reads PDF, so a label language still has nowhere to go when
+        // no channel reads it.
+        var printer = FakePrinters.Reading("192.168.1.50", PrinterContentTypes.Jpeg);
+        FakePrinterFactory factory = new();
+        PrinterManagerOptions options = new();
+        options.Converters.Add(new RecordingPdfConverter(1));
+        PrinterManager manager = new(
+            new FakeMdnsDiscovery([printer]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor(), options);
 
         _ = await manager.DiscoverAsync(null, TestContext.Current.CancellationToken);
         var error = await Assert.ThrowsAsync<NotSupportedException>(() => manager.PrintAsync(

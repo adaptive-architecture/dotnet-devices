@@ -30,6 +30,9 @@ internal static partial class SpoolerLog
     [LoggerMessage(EventId = 4011, Level = LogLevel.Error, Message = "The identity of the Windows queue {QueueName} was not read, so its port aliases are lost and it may show as a printer of its own.")]
     public static partial void QueueIdentityNotRead(ILogger logger, string queueName, Exception exception);
 
+    [LoggerMessage(EventId = 4012, Level = LogLevel.Warning, Message = "The Windows queue {QueueName} was not listed, because no identifier can carry its name.")]
+    public static partial void QueueNotListed(ILogger logger, string queueName, Exception exception);
+
     // 4020 block: the device mode.
 
     [LoggerMessage(EventId = 4020, Level = LogLevel.Warning, Message = "The driver of queue {QueueName} did not apply the options {Options}. Windows carries no media type, output bin, page range or pages per sheet in a device mode.")]

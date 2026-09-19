@@ -1,6 +1,6 @@
 {
-  "name": "Queue sweep",
-  "description": "PDF documents through one queue. Each job changes exactly one option from the job before it, so a wrong page names its own option. The pages.pdf jobs are the ones that prove the raster path: on an IPP printer that does not read PDF they are rendered here and sent as PWG Raster, and every fault that path can have is visible on the sheet.",
+  "name": "PDF through IPP pwg-raster",
+  "description": "PDF documents through the pwg-raster on IPP(S)",
   "mode": "queue",
   "jobs": [
     {
