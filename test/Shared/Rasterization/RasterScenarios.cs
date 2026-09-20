@@ -14,10 +14,12 @@ namespace AdaptArch.Devices.Rasterization;
 /// converter directly, assert what a printer would otherwise have to show, and write every
 /// page out as a PNG so a person can look at the result.
 /// <para>
-/// Each engine is measured against itself. <c>WindowsPdfLimits</c> counts device-independent
-/// pixels of 1/96 inch and <c>PdfiumLimits</c> counts points of 1/72, so the two produce
-/// different pixel dimensions for one resolution and comparing them octet by octet would
-/// fail for a reason that is not a defect.
+/// Each engine is measured against itself, never against the other. Not because they
+/// disagree about the page size: they do not, and the units each measures it in cancel, so
+/// A4 is 1240 by 1755 at 150 dots an inch to both of them. What is left is the rasterizers
+/// themselves, which is a difference this repository has no standard to judge. The fixture
+/// embeds its font so that the one difference that was never about the engines -- each
+/// platform substituting its own Helvetica -- is gone.
 /// </para>
 /// </remarks>
 internal static class RasterScenarios

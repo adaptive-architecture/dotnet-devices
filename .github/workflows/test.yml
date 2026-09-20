@@ -262,9 +262,11 @@ jobs:
             <li><a href="rasterization-linux/index.html">From the Linux runner</a> — PDFium only.
             The in-box engine ships with Windows, so it renders nothing here and its tiles say so.</li>
           </ul>
-          <p>The two engines are never compared octet by octet: they measure in different units
-          (1/96 inch against 1/72), so one resolution comes out at different pixel sizes. Each is
-          asserted against itself, and these pages are where they are compared by eye.</p>
+          <p>The two engines agree about the page size: the units each measures it in cancel, and
+          both render A4 at 1240 by 1755 for 150 dots an inch. The fixture embeds its font rather
+          than naming one, so they draw the same glyphs too, and what is left between them is their
+          rasterizers. Each engine is asserted against itself, and these pages are where the two are
+          compared by eye.</p>
           </body>
           </html>
           HTML

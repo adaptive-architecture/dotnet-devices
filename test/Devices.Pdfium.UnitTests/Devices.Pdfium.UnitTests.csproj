@@ -21,4 +21,11 @@
     <Content Include="..\..\samples\Devices.Samples\PrintFiles\pages.pdf" Link="pages.pdf" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+
+  <!-- The fixture embeds this font rather than naming one, so every engine on every platform
+    draws the same glyphs. test/Shared/Rasterization/fonts/README.md says why it is checked in. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\Shared\Rasterization\fonts\LiberationSans-Regular.ttf" LogicalName="LiberationSans-Regular.ttf" />
+  </ItemGroup>
+
 </Project>

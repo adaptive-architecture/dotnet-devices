@@ -175,10 +175,16 @@ internal sealed class RasterSheet
         out of the PWG Raster it produced. <strong>Nothing here was printed.</strong> A tile that
         says it is missing is an engine that did not run on the machine that wrote this page:
         the in-box engine ships with Windows, so it renders nothing on Linux or macOS.</p>
-        <p>The two engines are never compared octet by octet. The Windows engine measures in
-        device-independent pixels of 1/96 inch and PDFium in points of 1/72, so they render one
-        resolution at different pixel sizes. Each is asserted against itself; this page is where
-        they are compared by eye.</p>
+        <p>The two engines agree about the page size, and the units each measures it in cancel:
+        A4 is 595 points to one and 793.33 device-independent pixels to the other, which is the
+        same 8.264 inches, so both render 1240 by 1755 at 150 dots an inch.</p>
+        <p>They used to disagree about text, for a reason that was never about the engines. The
+        fixture named Helvetica and embedded nothing, so each platform substituted its own
+        &mdash; Arial on Windows, something else on Linux &mdash; and the same numeral came out
+        with different outlines, 0.56% of a page between two operating systems running the same
+        engine. The fixture now embeds Liberation Sans, so every engine everywhere draws the
+        same glyphs. What remains between the two engines is their rasterizers, which is the
+        thing this page exists to show.</p>
 
         """;
 

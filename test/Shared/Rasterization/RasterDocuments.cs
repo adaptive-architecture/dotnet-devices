@@ -1,6 +1,7 @@
 ﻿#nullable enable
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
 using System.Text;
 
 namespace AdaptArch.Devices.Rasterization;
@@ -55,18 +56,31 @@ internal static class RasterDocuments
     /// </summary>
     internal static byte[] FourPages()
     {
-        StringBuilder body = new();
-        _ = body.Append("%PDF-1.4\n");
-
+        // Latin1 and not ASCII, because the font programme below is binary and every octet
+        // of it has to survive the round trip through this builder unchanged.
+        List<byte> body = [];
         List<int> offsets = [];
+
         void Add(string obj)
         {
-            offsets.Add(body.Length);
-            _ = body.Append(obj);
+            offsets.Add(body.Count);
+            body.AddRange(Encoding.Latin1.GetBytes(obj));
         }
+
+        void AddStream(string dictionary, byte[] data)
+        {
+            offsets.Add(body.Count);
+            body.AddRange(Encoding.Latin1.GetBytes($"{offsets.Count} 0 obj\n{dictionary}\nstream\n"));
+            body.AddRange(data);
+            body.AddRange(Encoding.Latin1.GetBytes("\nendstream\nendobj\n"));
+        }
+
+        body.AddRange(Encoding.Latin1.GetBytes("%PDF-1.4\n"));
 
         var kids = String.Join(' ', Enumerable.Range(0, PageCount).Select(page => $"{3 + (page * 2)} 0 R"));
         var font = 3 + (PageCount * 2);
+        var descriptor = font + 1;
+        var programme = font + 2;
 
         Add("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
         Add($"2 0 obj\n<< /Type /Pages /Kids [{kids}] /Count {PageCount} >>\nendobj\n");
@@ -81,21 +95,54 @@ internal static class RasterDocuments
             Add($"{self + 1} 0 obj\n<< /Length {content.Length} >>\nstream\n{content}\nendstream\nendobj\n");
         }
 
-        Add($"{font} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n");
+        // The digits are the only characters drawn, and every digit of an Arial-metric font
+        // is 556 thousandths of an em wide. The descriptor values are that same familiar set.
+        // None of them decides a glyph shape: the embedded outlines do, which is the whole
+        // reason the file below is in the repository.
+        Add($"{font} 0 obj\n<< /Type /Font /Subtype /TrueType /BaseFont /{FontName} "
+            + $"/FirstChar 49 /LastChar 52 /Widths [556 556 556 556] /Encoding /WinAnsiEncoding "
+            + $"/FontDescriptor {descriptor} 0 R >>\nendobj\n");
 
-        var startXref = body.Length;
-        _ = body.Append("xref\n0 ").Append(offsets.Count + 1).Append('\n');
-        _ = body.Append("0000000000 65535 f \n");
+        Add($"{descriptor} 0 obj\n<< /Type /FontDescriptor /FontName /{FontName} /Flags 32 "
+            + "/FontBBox [-543 -303 1301 980] /ItalicAngle 0 /Ascent 905 /Descent -212 "
+            + $"/CapHeight 716 /StemV 88 /FontFile2 {programme} 0 R >>\nendobj\n");
+
+        var outlines = FontProgramme();
+        AddStream($"<< /Length {outlines.Length} /Length1 {outlines.Length} >>", outlines);
+
+        var startXref = body.Count;
+        StringBuilder tail = new();
+        _ = tail.Append("xref\n0 ").Append(offsets.Count + 1).Append('\n');
+        _ = tail.Append("0000000000 65535 f \n");
         foreach (var offset in offsets)
         {
-            _ = body.Append(offset.ToString("D10", CultureInfo.InvariantCulture)).Append(" 00000 n \n");
+            _ = tail.Append(offset.ToString("D10", CultureInfo.InvariantCulture)).Append(" 00000 n \n");
         }
 
-        _ = body.Append("trailer\n<< /Size ").Append(offsets.Count + 1).Append(" /Root 1 0 R >>\nstartxref\n")
+        _ = tail.Append("trailer\n<< /Size ").Append(offsets.Count + 1).Append(" /Root 1 0 R >>\nstartxref\n")
             .Append(startXref).Append("\n%%EOF\n");
+        body.AddRange(Encoding.Latin1.GetBytes(tail.ToString()));
 
-        return Encoding.ASCII.GetBytes(body.ToString());
+        return [.. body];
     }
+
+    /// <summary>The name the embedded font programme is referred to by.</summary>
+    internal const string FontName = "LiberationSans";
+
+    // Read out of the assembly rather than from beside it, so neither test project has to
+    // copy a file to its output and no run depends on a working directory.
+    private static byte[] FontProgramme()
+    {
+        using var stream = typeof(RasterDocuments).Assembly.GetManifestResourceStream(FontResource)
+            ?? throw new InvalidOperationException(
+                $"The assembly carries no '{FontResource}'. See test/Shared/Rasterization/fonts/README.md.");
+
+        using MemoryStream buffer = new();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
+    }
+
+    private const string FontResource = "LiberationSans-Regular.ttf";
 
     // PDF user space has its origin at the bottom-left, so the band is drawn at the top of
     // the sheet and the corner block at the bottom.

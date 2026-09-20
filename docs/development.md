@@ -113,9 +113,25 @@ to the back side, and the raster carries the inverse so the two cancel, so the t
 backwards from the binding that provoked it. The table there matches CUPS's
 `_cupsRasterInitPWGHeader` exactly.
 
-The two engines are never compared octet by octet: `WindowsPdfLimits` counts
-device-independent pixels of 1/96 inch and `PdfiumLimits` counts points of 1/72, so they
-render one resolution at different pixel sizes. Each is asserted against itself.
+Each engine is asserted against itself and never against the other. Not for the reason it
+first looks: the two agree about the page size, because `WindowsPdfLimits` counting
+device-independent pixels of 1/96 inch and `PdfiumLimits` counting points of 1/72 are two
+spellings of the same physical size, and the conversion to dots cancels the difference
+exactly. A4 renders 1240 by 1755 at 150 dots an inch on both.
+
+### Why the fixture embeds a font
+
+It did not, at first, and that was measurable. A PDF may name a font without carrying it, and
+the fixture named Helvetica, which no engine actually has. So each platform substituted its
+own: Arial on Windows, something else on the Linux runner. On one CI run the same page
+differed by **0.56% of its octets between the two operating systems running the same engine**,
+and by 0.11% between the two engines on one machine — every differing pixel inside the
+numeral's bounding box, and none anywhere else. Vector fills were identical throughout.
+
+`test/Shared/Rasterization/fonts/` now holds Liberation Sans and its licence, and the fixture
+embeds the outlines, so the font is no longer a variable. That folder's `README.md` says why a
+binary asset is checked into a tree whose convention is that nothing depends on one, why this
+font and not Arial, and why the whole file rather than a subset.
 
 CI renders them on both runners and leaves one archive to download. The `test` job uploads
 what Linux rendered, the `windows` job uploads what Windows rendered, and a third job,
