@@ -5,6 +5,7 @@
 const state = {
   devices: [],
   device: null,
+  engines: [],
   files: [],
   sets: [],
   set: null,
@@ -348,6 +349,15 @@ function onChannelChange() {
   checkAccepts();
 }
 
+// Which engines can render a PDF. There is no fixed answer: it depends on the packages this
+// build referenced, so the page asks rather than assuming, and offers nothing where only one
+// engine is registered.
+async function loadEngines() {
+  state.engines = await getJson('/api/pdf-engines');
+  renderPrintOptions();
+  renderJobs();
+}
+
 async function loadFiles() {
   state.files = await getJson('/api/files');
   const select = $('file');
@@ -409,6 +419,14 @@ function renderOptions(host, raw, type, values) {
     host.appendChild(note('A raw send carries no job template, so the options below are not sent.'));
     keep(host, values);
     return;
+  }
+
+  // Not a channel capability: it names the converter in this process, so it is offered
+  // whatever the printer reported, and only where there is a choice to make.
+  if (type === 'application/pdf' && state.engines.length > 1) {
+    const names = state.engines.map((engine) => engine.name);
+    const fallback = state.engines.find((engine) => engine.isDefault);
+    host.appendChild(choice('converter', 'PDF engine', names, values, `${fallback ? fallback.name : names[0]} (default)`));
   }
 
   // An image converter reads the colour mode whatever the printer said, and a printer that
@@ -491,14 +509,14 @@ function field(name, label, type, values) {
   return wrapper;
 }
 
-function choice(name, label, options, values) {
+function choice(name, label, options, values, blankLabel) {
   const wrapper = document.createElement('label');
   wrapper.textContent = label;
   const select = document.createElement('select');
   select.dataset.option = name;
   const blank = document.createElement('option');
   blank.value = '';
-  blank.textContent = 'Printer default';
+  blank.textContent = blankLabel || 'Printer default';
   select.appendChild(blank);
   for (const value of options) {
     const option = document.createElement('option');
@@ -1041,6 +1059,7 @@ for (const radio of document.querySelectorAll('input[name="source"]')) {
 document.querySelector('.tab').click();
 updateScopes();
 onChannelChange();
+loadEngines().catch((error) => log(error.message, 'error'));
 loadFiles().catch((error) => log(error.message, 'error'));
 loadSets().catch((error) => log(error.message, 'error'));
 loadPrinters(false, false);

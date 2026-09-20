@@ -325,8 +325,38 @@ an application without a manager needs, and what
 `WindowsPrinting.EnablePdfPrinting()` and `PdfiumPrinting.EnablePdfPrinting()` call. A
 converter on the manager wins over a process one for the same format, so an application can
 replace the built-in behaviour; among process converters the first registered for a content
-type is the one that runs, which is what decides between the two PDF packages when a process
-enables both.
+type is the one that runs.
+
+### Two converters for one format
+
+Ordering settles which converter runs, and it is the whole answer while nothing needs another
+one. PDF is where something does: both `AdaptArch.Devices.Pdfium` and
+`AdaptArch.Devices.Windows` read it, they render differently, and on Windows a process may
+want each of them for different jobs. So a converter carries a name, and a job may ask for
+one:
+
+```csharp
+// What this process can be asked for. Ordering carries the preference, so the first entry
+// is what a job that names nothing will get.
+foreach (var engine in PrintFormatPolicy.Default.ConvertersFor(PrinterContentTypes.Pdf))
+{
+    Console.WriteLine(engine.Name);   // "Windows", then "PDFium", on a process that enabled both
+}
+
+await manager.PrintAsync(id, payload, new PrintOptions { ConverterName = "PDFium" }, cancellationToken);
+```
+
+`IPrintPayloadConverter.Name` is a default interface member, so a converter that nobody
+chooses between needs to do nothing and one written before the member still compiles; the
+default is the type name. Names are matched case-insensitively, because they arrive from a
+JSON file or a form field as often as from code.
+
+`PrintOptions.ConverterName` is unlike every other member of that class: it is read by this
+library and never sent to the printer, as `PageRanges` is. **A name no registered converter
+carries fails the job** with `NotSupportedException` that lists the names that do exist,
+rather than quietly rendering with another engine — a job that named one asked for that one,
+and a page rendered by a different engine is not the answer to that question. A job that
+names nothing is unaffected and takes the preferred converter.
 
 What the registration changes:
 

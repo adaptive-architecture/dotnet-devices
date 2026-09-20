@@ -302,6 +302,51 @@ public class IppPrinterDocumentFormatTests
         3,
     ];
 
+    [Fact]
+    public async Task PrintAsync_APdfNamingAConverter_ConvertsWithThatOneAndNotThePreferredOne()
+    {
+        FakeConverter preferred = new(1, PrinterContentTypes.PwgRaster) { Name = "Preferred" };
+        FakeConverter asked = new(1, PrinterContentTypes.PwgRaster) { Name = "Asked" };
+        OperationHandler handler = new(AttributesResponse(PrinterContentTypes.PwgRaster), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler))
+        {
+            Formats = new PrintFormatPolicy(null, [preferred, asked]),
+        };
+
+        _ = await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { ConverterName = "asked" },
+            TestContext.Current.CancellationToken);
+
+        // Case-insensitive, and the one registered first does not run although it reads PDF.
+        Assert.Equal(1, asked.Calls);
+        Assert.Equal(0, preferred.Calls);
+    }
+
+    [Fact]
+    public async Task PrintAsync_APdfNamingAConverterNobodyCarries_FailsInsteadOfSendingThePdf()
+    {
+        FakeConverter real = new(1, PrinterContentTypes.PwgRaster) { Name = "Real" };
+        OperationHandler handler = new(AttributesResponse(PrinterContentTypes.PwgRaster), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler))
+        {
+            Formats = new PrintFormatPolicy(null, [real]),
+        };
+
+        // Without a name, a missing converter sends the document unchanged for the printer
+        // to judge. With one, silence would send a PDF to a printer that cannot read it and
+        // report success, so the job fails here and names what this process registered.
+        var exception = await Assert.ThrowsAsync<NotSupportedException>(() => printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { ConverterName = "Imaginary" },
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("'Imaginary'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("'Real'", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(0, real.Calls);
+        Assert.Null(handler.PrintJobBody);
+    }
+
     private static async Task<string> PrintPdfAsync(
         FakeConverter converter,
         PrintOptions options,
@@ -330,6 +375,9 @@ public class IppPrinterDocumentFormatTests
             _documents = documents;
             _targets = targets;
         }
+
+        // Set it where a test registers two of these and has to tell them apart.
+        public string Name { get; init; } = nameof(FakeConverter);
 
         public int Calls { get; private set; }
 

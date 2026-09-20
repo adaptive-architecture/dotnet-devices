@@ -506,6 +506,55 @@ public class WindowsSpoolerDriverSeamTests
     }
 
     [Fact]
+    public async Task SubmitAsync_ADocumentNamingAConverter_UsesThatOneAndNotThePreferredOne()
+    {
+        FakeWindowsSpoolerInterop interop = new();
+        FakeWindowsGdiImagePrinter images = new();
+        RecordingPdfConverter preferred = new(pages: 1);
+        RecordingPdfConverter asked = new(pages: 3) { Name = "Other" };
+        WindowsSpoolerDriver driver = new(
+            interop,
+            images,
+            isWindows: true,
+            new PrintFormatPolicy(null, [preferred, asked]));
+
+        _ = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromBytes(new byte[] { 1, 2, 3 }, PrinterContentTypes.Pdf),
+            new PrintOptions { ConverterName = "other" },
+            TestContext.Current.CancellationToken);
+
+        // Named, so the one registered first does not run even though it reads the format.
+        Assert.Equal(0, preferred.LastDpi);
+        Assert.Equal(3, Assert.Single(images.Pages).Count);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_ADocumentNamingAConverterNobodyCarries_SaysWhichNamesExist()
+    {
+        FakeWindowsSpoolerInterop interop = new();
+        FakeWindowsGdiImagePrinter images = new();
+        WindowsSpoolerDriver driver = new(
+            interop,
+            images,
+            isWindows: true,
+            new PrintFormatPolicy(null, [new RecordingPdfConverter(1) { Name = "Real" }]));
+
+        // Rendering with another engine would answer a question the caller did not ask, so
+        // the job fails, and the message names what this process actually registered.
+        var exception = await Assert.ThrowsAsync<NotSupportedException>(() => driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromBytes(new byte[] { 1, 2, 3 }, PrinterContentTypes.Pdf),
+            new PrintOptions { ConverterName = "Imaginary" },
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("'Imaginary'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("'Real'", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(images.Jobs);
+        Assert.Empty(interop.Written);
+    }
+
+    [Fact]
     public async Task GetConfigurationAsync_ReadsTheDefaultsOutOfTheQueueDeviceMode()
     {
         var deviceMode = Marshal.AllocHGlobal(Marshal.SizeOf<WindowsSpoolerInterop.DevMode>());

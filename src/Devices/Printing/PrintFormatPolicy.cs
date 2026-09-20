@@ -133,4 +133,50 @@ public sealed class PrintFormatPolicy
             return ProcessConverters.Find(converter => converter.CanConvert(contentType));
         }
     }
+
+    /// <summary>
+    /// Gets the converter of the given name that reads the content type.
+    /// </summary>
+    /// <param name="contentType">The media type of the payload.</param>
+    /// <param name="name">The <see cref="IPrintPayloadConverter.Name"/> to look for, matched case-insensitively, or <c>null</c> for the one this policy prefers.</param>
+    /// <returns>The converter, or <c>null</c> when none of the registered ones both reads the type and carries the name.</returns>
+    /// <remarks>
+    /// This is what <see cref="PrintOptions.ConverterName"/> selects with. A <c>null</c> name
+    /// behaves as <see cref="ConverterFor(System.String)"/>, so a job that asks for nothing keeps
+    /// getting the preferred converter.
+    /// </remarks>
+    public IPrintPayloadConverter? ConverterFor(string contentType, string? name)
+    {
+        if (name is null)
+        {
+            return ConverterFor(contentType);
+        }
+
+        return Enumerable.FirstOrDefault(
+            ConvertersFor(contentType),
+            converter => String.Equals(converter.Name, name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Gets every registered converter that reads the content type, best first.
+    /// </summary>
+    /// <param name="contentType">The media type of the payload.</param>
+    /// <returns>The converters, in the order they are preferred. The first is what <see cref="ConverterFor(System.String)"/> returns.</returns>
+    /// <remarks>
+    /// An application offering a choice of engine lists these and shows
+    /// <see cref="IPrintPayloadConverter.Name"/>. Ordering carries the preference, so the
+    /// first entry is the default and nothing else has to say which one that is.
+    /// </remarks>
+    public IReadOnlyList<IPrintPayloadConverter> ConvertersFor(string contentType)
+    {
+        List<IPrintPayloadConverter> found = [];
+        found.AddRange(_converters.Where(converter => converter.CanConvert(contentType)));
+
+        lock (ProcessLock)
+        {
+            found.AddRange(ProcessConverters.Where(converter => converter.CanConvert(contentType)));
+        }
+
+        return found;
+    }
 }

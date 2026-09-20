@@ -15,6 +15,9 @@ internal sealed class RecordingPdfConverter : IPrintPayloadConverter
 
     public RecordingPdfConverter(int pages) => _pages = pages;
 
+    // Set it where a test registers two of these and has to tell them apart.
+    public string Name { get; init; } = nameof(RecordingPdfConverter);
+
     public string? LastTarget { get; private set; }
 
     public int LastDpi { get; private set; }

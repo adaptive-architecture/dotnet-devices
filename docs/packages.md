@@ -80,9 +80,13 @@ interchangeable rather than complementary, and which to take is a judgement abou
 | Not served | Server Core, Nano Server, Server 2012 R2 | Nothing |
 
 An application that prints PDF only on a desktop Windows machine should prefer the Windows
-package and download nothing. Everything else wants this one. A process may enable both, and
-the first converter registered for a content type is the one that runs, so it enables the
-one it prefers first.
+package and download nothing. Everything else wants this one.
+
+A process may enable both. The first converter registered for a content type is the one that
+runs, so it enables the one it prefers first, and a job that wants the other names it:
+`new PrintOptions { ConverterName = "PDFium" }`. The two converters are called `"Windows"` and
+`"PDFium"`, and `PrintFormatPolicy.ConvertersFor` lists what a process can be asked for. See
+[printers.md](printers.md#two-converters-for-one-format).
 
 ### Windows-only package instead of a Windows-only dependency
 

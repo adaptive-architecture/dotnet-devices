@@ -80,6 +80,43 @@ library the package carries for every platform, so unlike the in-box Windows eng
 on the Linux runner. `PdfiumPdfConverterTests` renders real PDFs with it and reads the PNG
 and the PWG Raster back.
 
+### Looking at what a rasterizer produced
+
+The scenarios of `samples/Devices.Samples/PrintJobs/queue-sweep-pdf.json` can otherwise only
+be judged on paper. One harness in `test/Shared/Rasterization/` renders them without printing
+anything: it converts a generated four-page PDF, decodes the PWG Raster with a reader written
+against PWG 5102.4, asserts the geometry, the colour space and the duplex transforms, and
+writes every page out through the public `PngWriter`.
+
+It is linked into the test project of each engine rather than living in one of its own, so
+each project stays honest about the package it covers:
+
+| Project | Engine | Runs on |
+| --- | --- | --- |
+| `test/Devices.Pdfium.UnitTests` | PDFium | Every platform, CI included |
+| `test/Devices.Windows.UnitTests` | The in-box engine | Windows; it skips elsewhere |
+
+Each engine writes its PNGs to `artifacts/rasterization/<engine>/`, and both write the same
+`artifacts/rasterization/index.html`: **one page showing every engine beside every other**.
+Open it after a test run. `.gitignore` already covers `artifacts/`, and
+`pipeline/unit-test.sh` empties the tree before a run, so what is there is from the last one.
+
+The page is built from `RasterCatalogue` rather than from what is on disk, so it always lists
+both engines whichever project wrote it, and an engine that did not run shows tiles saying so
+instead of quietly shrinking to the half that did. That is the ordinary case on Linux and
+macOS, where the in-box engine renders nothing.
+
+It also explains the one thing in that output that reliably looks like a defect: a long-edge
+back side is mirrored top to bottom and a short-edge one left to right, which is the opposite
+of what the binding suggests. `pwg-raster-document-sheet-back` describes what the printer does
+to the back side, and the raster carries the inverse so the two cancel, so the transform reads
+backwards from the binding that provoked it. The table there matches CUPS's
+`_cupsRasterInitPWGHeader` exactly.
+
+The two engines are never compared octet by octet: `WindowsPdfLimits` counts
+device-independent pixels of 1/96 inch and `PdfiumLimits` counts points of 1/72, so they
+render one resolution at different pixel sizes. Each is asserted against itself.
+
 `pipeline/unit-test.sh` fails the build when line coverage over everything else falls below
 `THRESHOLD` (90%). The figure is computed from the merged LCOV reports, because a file is
 instrumented by every test project that references it and only the union says what really

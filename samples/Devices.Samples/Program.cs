@@ -73,6 +73,7 @@ app.UseStaticFiles(new StaticFileOptions
 PrintersApi.Map(app);
 JobsApi.Map(app);
 JobSetsApi.Map(app);
+EnginesApi.Map(app);
 DiagnosticsApi.Map(app);
 
 Console.WriteLine($"Current OS: {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");

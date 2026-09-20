@@ -10,4 +10,15 @@
     <PackageReference Include="AdaptArch.Devices.Pdfium" />
   </ItemGroup>
 
+
+  <!-- The rasterization scenarios are one harness run by each engine's own project, so the
+    PDFium half runs everywhere and the in-box half runs where that engine exists. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\Rasterization\*.cs" LinkBase="Rasterization" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\samples\Devices.Samples\PrintFiles\pages.pdf" Link="pages.pdf" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

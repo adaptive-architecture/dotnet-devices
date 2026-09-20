@@ -66,3 +66,8 @@ internal sealed record FileDto(string Name, string ContentType, bool CanPrint, l
 // is not a refusal: the channel reported nothing. "Reads" is the list the channel did
 // report, which is the useful next step when the answer is false.
 internal sealed record AcceptsDto(bool? Accepts, string Reads);
+
+// One PDF rendering engine the process registered. The name is what a job puts in
+// PrintOptions.ConverterName; IsDefault marks the one a job that names none will get, which
+// is simply the first the policy lists.
+internal sealed record EngineDto(string Name, bool IsDefault);

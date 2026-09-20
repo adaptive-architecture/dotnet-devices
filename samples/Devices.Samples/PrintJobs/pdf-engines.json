@@ -1,0 +1,47 @@
+{
+  "name": "PDF engines",
+  "description": "The same two jobs rendered by each PDF engine this build registered, so the two engines can be compared sheet by sheet. Each engine prints pages 1 and 3 in colour on the long edge, then pages 2 and 4 in grayscale on the short edge: the page range is applied by the converter and never reaches the printer, the colour mode chooses the raster type, and the two duplex modes read the back of a sheet in different coordinate systems. On Linux and macOS only PDFium is registered and the last two jobs fail by design, naming the engines that do exist. The unit tests render these same pages to PNG without printing them; open artifacts/rasterization/index.html after a test run.",
+  "mode": "queue",
+  "jobs": [
+    {
+      "file": "pages.pdf",
+      "description": "PDFium: pages 1 and 3 in colour, duplex on the long edge",
+      "options": {
+        "converter": "PDFium",
+        "pageRanges": "1,3",
+        "colorMode": "Color",
+        "duplex": "LongEdge"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "PDFium: pages 2 and 4 in grayscale, duplex on the short edge",
+      "options": {
+        "converter": "PDFium",
+        "pageRanges": "2,4",
+        "colorMode": "Monochrome",
+        "duplex": "ShortEdge"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "Windows in-box engine: pages 1 and 3 in colour, duplex on the long edge",
+      "options": {
+        "converter": "Windows",
+        "pageRanges": "1,3",
+        "colorMode": "Color",
+        "duplex": "LongEdge"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "Windows in-box engine: pages 2 and 4 in grayscale, duplex on the short edge",
+      "options": {
+        "converter": "Windows",
+        "pageRanges": "2,4",
+        "colorMode": "Monochrome",
+        "duplex": "ShortEdge"
+      }
+    }
+  ]
+}

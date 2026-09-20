@@ -11,6 +11,10 @@ namespace AdaptArch.Devices.Pdfium;
 // never PNG. The target the context names decides which.
 internal sealed class PdfiumPdfConverter : IPrintPayloadConverter
 {
+    // The engine, not the package: a job names what renders it, and this reads the same
+    // on every platform the package runs on.
+    public string Name => "PDFium";
+
     public bool CanConvert(string contentType) =>
         String.Equals(contentType, PrinterContentTypes.Pdf, StringComparison.OrdinalIgnoreCase);
 

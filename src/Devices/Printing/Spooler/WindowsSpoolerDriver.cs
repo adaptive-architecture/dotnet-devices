@@ -242,6 +242,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             bytes,
             renderDpi,
             options?.PageRanges,
+            options?.ConverterName,
             cancellationToken).ConfigureAwait(false);
 
         var deviceMode = IntPtr.Zero;
@@ -361,11 +362,16 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         byte[] data,
         int dpi,
         IReadOnlyList<PageRange>? ranges,
+        string? converterName,
         CancellationToken cancellationToken)
     {
-        var converter = _formats.ConverterFor(contentType);
+        var converter = _formats.ConverterFor(contentType, converterName);
         if (converter is null)
         {
+            // A job that named a converter gets told which names exist; one that named none
+            // gets told how to register the first.
+            PrintConverters.ThrowIfNamed(_formats, contentType, converterName);
+
             throw new NotSupportedException(
                 $"The Windows spooler cannot print '{contentType}' without a converter for it: add one to PrinterManagerOptions.Converters. " +
                 $"For PDF, reference AdaptArch.Devices.Windows or AdaptArch.Devices.Pdfium and call EnablePdfPrinting(). Queue '{queueName}' spooled nothing.");

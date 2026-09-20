@@ -33,6 +33,11 @@ internal sealed class PrintOptionsDto
     // "1-3,5" reads better in a JSON file and in a form field than a list of objects.
     public string PageRanges { get; set; }
 
+    // Which engine renders a PDF, where the process registered more than one. A free string
+    // and not an enum: what is registered depends on the build, and GET /api/pdf-engines is
+    // what says. An unknown name fails the job in the library, which names what does exist.
+    public string Converter { get; set; }
+
     public int? NumberUp { get; set; }
 
     public string JobName { get; set; }
@@ -56,6 +61,7 @@ internal sealed class PrintOptionsDto
             ResolutionDpi = ResolutionDpi,
             NumberUp = Positive(NumberUp, nameof(NumberUp)),
             PageRanges = ParseRanges(PageRanges),
+            ConverterName = Trim(Converter),
             JobName = Trim(JobName) ?? jobName,
         };
 

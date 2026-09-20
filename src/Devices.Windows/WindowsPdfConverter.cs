@@ -13,6 +13,10 @@ namespace AdaptArch.Devices.Windows;
 [SupportedOSPlatform("windows10.0.10240.0")]
 internal sealed class WindowsPdfConverter : IPrintPayloadConverter
 {
+    // The engine, not the package. "Windows" is what a person picking between this and
+    // PDFium would call the one that is already on the machine.
+    public string Name => "Windows";
+
     public bool CanConvert(string contentType) =>
         String.Equals(contentType, PrinterContentTypes.Pdf, StringComparison.OrdinalIgnoreCase);
 
