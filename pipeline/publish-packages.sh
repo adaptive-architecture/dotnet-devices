@@ -35,6 +35,7 @@ fi
 projects=( \
   "Devices" \
   "Devices.DependencyInjection" \
+  "Devices.Pdfium" \
   "Devices.Windows" \
 )
 

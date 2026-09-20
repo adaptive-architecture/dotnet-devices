@@ -368,7 +368,17 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         {
             throw new NotSupportedException(
                 $"The Windows spooler cannot print '{contentType}' without a converter for it: add one to PrinterManagerOptions.Converters. " +
-                $"For PDF, reference AdaptArch.Devices.Windows and call WindowsPrinting.EnablePdfPrinting(). Queue '{queueName}' spooled nothing.");
+                $"For PDF, reference AdaptArch.Devices.Windows or AdaptArch.Devices.Pdfium and call EnablePdfPrinting(). Queue '{queueName}' spooled nothing.");
+        }
+
+        // A converter is chosen by what it reads, and GDI draws only PNG. One that reads this
+        // format but writes something else -- a PWG Raster stream, say, for an IPP printer --
+        // would otherwise be handed to GDI, which reads the first octets and draws nothing.
+        if (!converter.CanEmit(PrinterContentTypes.Png))
+        {
+            throw new NotSupportedException(
+                $"The converter of '{contentType}' does not write '{PrinterContentTypes.Png}', which is the only format the Windows spooler draws: " +
+                $"register one that does. Queue '{queueName}' spooled nothing.");
         }
 
         PrintConversionContext context = new(contentType, PrinterContentTypes.Png, dpi, ranges, queueName);

@@ -5,12 +5,14 @@
   <Folder Name="/src/">
     <Project Path="src/Devices/Devices.csproj" />
     <Project Path="src/Devices.DependencyInjection/Devices.DependencyInjection.csproj" />
+    <Project Path="src/Devices.Pdfium/Devices.Pdfium.csproj" />
     <Project Path="src/Devices.Windows/Devices.Windows.csproj" />
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/Devices.UnitTests/Devices.UnitTests.csproj" />
     <Project Path="test/Devices.DependencyInjection.UnitTests/Devices.DependencyInjection.UnitTests.csproj" />
     <Project Path="test/Devices.IntegrationTests/Devices.IntegrationTests.csproj" />
+    <Project Path="test/Devices.Pdfium.UnitTests/Devices.Pdfium.UnitTests.csproj" />
     <Project Path="test/Devices.Windows.UnitTests/Devices.Windows.UnitTests.csproj" />
     <Project Path="test/Devices.InteropTests/Devices.InteropTests.csproj" />
   </Folder>

@@ -5,13 +5,22 @@ using AdaptArch.Devices.Samples.Api;
 using AdaptArch.Devices.Samples.Contracts;
 
 // The Windows package is referenced on Windows only (see the sample project file), so the
-// call needs the same compile-time guard as the reference.
+// call needs the same compile-time guard as the reference. It is enabled first because the
+// first converter registered for a content type is the one that runs, and the in-box engine
+// is the one to prefer where it exists: it needs no native library beside the executable.
 #if WINDOWS10_0_19041_0_OR_GREATER
 if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240, 0))
 {
     AdaptArch.Devices.Windows.WindowsPrinting.EnablePdfPrinting();
 }
 #endif
+
+// The PDFium package is referenced on every platform, and enabled on every platform even
+// where the line above already answered for PDF. That is deliberate: pipeline/publish-samples.sh
+// is the only trim and native AOT gate in this repository, and a reference nothing calls is
+// a reference the trimmer removes whole, which would leave the publish green having proven
+// nothing about it.
+AdaptArch.Devices.Pdfium.PdfiumPrinting.EnablePdfPrinting();
 
 // The slim builder leaves out what a printer manager never uses, and it is the shape the
 // native AOT publish supports. That publish is why this sample exists: it is the only

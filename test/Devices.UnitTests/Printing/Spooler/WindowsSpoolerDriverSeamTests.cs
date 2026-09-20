@@ -481,6 +481,31 @@ public class WindowsSpoolerDriverSeamTests
     }
 
     [Fact]
+    public async Task SubmitAsync_ADocumentWhoseConverterCannotWritePng_FailsBeforeAnythingSpools()
+    {
+        FakeWindowsSpoolerInterop interop = new();
+        FakeWindowsGdiImagePrinter images = new();
+        WindowsSpoolerDriver driver = new(
+            interop,
+            images,
+            isWindows: true,
+            new PrintFormatPolicy(null, [new RasterOnlyPdfConverter()]));
+
+        // A converter is chosen by what it reads, so one written for an IPP printer is
+        // selected here too. GDI reads PNG and nothing else, and without this check the
+        // driver would hand it a PWG Raster stream and draw an empty page.
+        var exception = await Assert.ThrowsAsync<NotSupportedException>(() => driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromBytes(new byte[] { 1, 2, 3 }, PrinterContentTypes.Pdf),
+            null,
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains(PrinterContentTypes.Png, exception.Message, StringComparison.Ordinal);
+        Assert.Empty(images.Jobs);
+        Assert.Empty(interop.Written);
+    }
+
+    [Fact]
     public async Task GetConfigurationAsync_ReadsTheDefaultsOutOfTheQueueDeviceMode()
     {
         var deviceMode = Marshal.AllocHGlobal(Marshal.SizeOf<WindowsSpoolerInterop.DevMode>());

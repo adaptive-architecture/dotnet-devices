@@ -8,6 +8,7 @@
 | :--- | :--- |
 | `AdaptArch.Devices` | Core cross-platform device abstractions (printers, scanners, peripherals). Four reviewed runtime dependencies, listed below. |
 | `AdaptArch.Devices.DependencyInjection` | `Microsoft.Extensions.DependencyInjection` registrations for `AdaptArch.Devices` (`AddDevices`, `AddPrinters`). |
+| `AdaptArch.Devices.Pdfium` | Cross-platform PDF rasterization for `AdaptArch.Devices`, on PDFium. One reviewed runtime dependency, which brings native libraries; see the exception below. |
 | `AdaptArch.Devices.Windows` | Windows-only extensions for `AdaptArch.Devices`: spooler PDF rendering through the in-box engine. No runtime NuGet dependency of its own. |
 
 Framework integrations (DI/hosting/logging) ship as separate packages, so consumers take only
@@ -30,6 +31,16 @@ Approved dependencies of `AdaptArch.Devices`:
 
 The first three libraries are not exposed in the public API surface: each one stays behind a
 client class, so any of them can be replaced without a breaking change.
+
+Approved dependencies of `AdaptArch.Devices.Pdfium`:
+
+| Package | Licence | Transitive deps | Why it was approved |
+| :--- | :--- | :--- | :--- |
+| `PDFiumCore` | Apache-2.0 | `bblanchon.PDFium.Linux`, `bblanchon.PDFium.macOS`, `bblanchon.PDFium.Win32` (all MIT, all native only) | Generated bindings over Google's PDFium, the engine in Chrome and Edge. Approved in [issue 20](https://github.com/adaptive-architecture/dotnet-devices/issues/20): until it, a PDF sent to an IPP printer that reads only PWG Raster printed on Windows and nowhere else. It hands back a chunky bitmap, which is exactly what `PwgRasterWriter.WritePage` and `PngWriter.Encode` take, so it needs no adapter and pulls in no image encoder. Its licence is this repository's own, its `net8.0` asset takes nothing managed, and it tracks upstream PDFium roughly fortnightly. The three native packages are the exception below. |
+
+Nothing of `PDFiumCore` reaches the public API surface of `AdaptArch.Devices.Pdfium`: it is
+one `internal` converter behind `PdfiumPrinting.PdfConverter`, which is an
+`IPrintPayloadConverter` and nothing more. The core package is unchanged by it.
 
 ### Approved exception: the logging abstraction is in the public API
 
@@ -56,6 +67,23 @@ Windows image printing deliberately adds no package: PNG and JPEG jobs are drawn
 GDI+ through `gdi32.dll` and `gdiplus.dll`, which are system components, so there is
 nothing to review.
 
+### Two packages for the same row
+
+`AdaptArch.Devices.Pdfium` and `AdaptArch.Devices.Windows` both read PDF and both write PNG
+and PWG Raster, so on Windows either serves any channel that converts. They are
+interchangeable rather than complementary, and which to take is a judgement about cost:
+
+| | `AdaptArch.Devices.Windows` | `AdaptArch.Devices.Pdfium` |
+| :--- | :--- | :--- |
+| Platforms | Windows 10 and later, and Windows Server with the Desktop Experience | Windows, Linux and macOS, x64 and ARM alike |
+| Download | Nothing; the engine is in-box | About 170 MB restored, about 7.5 MB deployed for one RID |
+| Not served | Server Core, Nano Server, Server 2012 R2 | Nothing |
+
+An application that prints PDF only on a desktop Windows machine should prefer the Windows
+package and download nothing. Everything else wants this one. A process may enable both, and
+the first converter registered for a content type is the one that runs, so it enables the
+one it prefers first.
+
 ### Windows-only package instead of a Windows-only dependency
 
 PDF on the Windows spooler renders with `Windows.Data.Pdf`, which only a `-windows`
@@ -74,6 +102,40 @@ with `NotSupportedException` before anything spools. The seam is an interface th
 application implements, so both sides stay trim- and AOT-safe with no reflection,
 and the same seam carries any other format (see
 [printers.md](printers.md#add-a-format-the-library-does-not-know)).
+
+### Approved exception: three transitive native packages
+
+[AGENTS.md](../AGENTS.md) prefers a dependency with no transitive chain. `PDFiumCore` has
+three, and every one of them exists to carry a native library: it ships no `runtimes/`
+folder of its own any more, and `bblanchon.PDFium.Linux`, `.macOS` and `.Win32` supply
+`libpdfium` for thirteen runtime identifiers between them. They are MIT, they contain no
+managed assembly, and there is no version of this feature without them: the alternative is
+not a shorter chain but no rasterizer.
+
+What the chain costs is disk. A restore of the three is about 170 MB, most of it the Linux
+package, which carries seven identifiers including three musl builds. **That cost is the
+reason this is a separate package** rather than part of the core: an application printing
+ZPL to a label printer should not download PDFium to do it. A RID-specific publish deploys
+one `libpdfium` of about 7.5 MB; a framework-dependent publish with no RID copies every
+identifier it restored.
+
+Three further things came out of the review and are worth stating:
+
+- **PDFium is not thread-safe**, and `PrinterManager` may convert two jobs at once.
+  `PdfiumRenderer` therefore serializes every call into the library behind one
+  `SemaphoreSlim`, including the one-time `FPDF_InitLibrary`. Without that gate the process
+  crashes rather than fails, which is why a test renders eight jobs at once.
+- **A native library is a process-wide crash surface and a CVE feed**, and PDFium parses
+  untrusted input by definition. Watch upstream releases; the package tracks them closely.
+- **`libpdfium.dylib` ships unsigned.** This is nothing to a CLI or a service, and something
+  a notarized macOS `.app` bundle must sign for itself.
+
+Trim and native AOT were measured, not assumed, as the rule requires. `PDFiumCore` binds
+through `dlopen`/`LoadLibrary` and `Marshal.GetDelegateForFunctionPointer` rather than
+`DllImport`, which is the pattern that usually fails native AOT, so the proof was a run and
+not a publish: the trimmed and the native AOT binaries both rendered a PDF to PNG and to PWG
+Raster, byte for byte the same as the ordinary build, on `linux-x64`. No `IL2xxx` and no
+`IL3xxx` warning was raised, so `IsAotCompatible` stands for this package as for the others.
 
 ### Approved exception: a prerelease SNMP dependency
 

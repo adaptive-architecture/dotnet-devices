@@ -75,6 +75,11 @@ Linux unaffected.
 [windows-manual-tests.md](windows-manual-tests.md#the-tests-that-run-themselves-on-windows)
 says how to pause the queue and why that matters.
 
+`src/Devices.Pdfium` is on neither exclusion list, and must not go on one: PDFium is a native
+library the package carries for every platform, so unlike the in-box Windows engine it runs
+on the Linux runner. `PdfiumPdfConverterTests` renders real PDFs with it and reads the PNG
+and the PWG Raster back.
+
 `pipeline/unit-test.sh` fails the build when line coverage over everything else falls below
 `THRESHOLD` (90%). The figure is computed from the merged LCOV reports, because a file is
 instrumented by every test project that references it and only the union says what really
@@ -133,6 +138,14 @@ self-contained, and native AOT — into `./artifacts/samples/<rid>/`. The `src/`
 `IsAotCompatible`, and the sample is the only application that consumes them, so this script
 is where a trim or an AOT problem shows up. Warnings stay errors, so an `IL2xxx` or an
 `IL3xxx` warning fails the publish.
+
+The sample references `AdaptArch.Devices.Pdfium` on every platform and calls its
+`EnablePdfPrinting()` unconditionally, even on Windows where the in-box engine already
+answered for PDF. That is what keeps this gate honest: a reference nothing calls is one the
+trimmer removes whole, and the publish would then be green having proven nothing about it.
+The dependency costs about 170 MB of native packages on restore; a RID-specific publish
+deploys one `libpdfium` of about 7.5 MB, and a framework-dependent publish with no RID
+copies every identifier it restored.
 
 The sample is built to keep that publish green;
 [samples/printer-manager.md](samples/printer-manager.md#building-with-trimming-and-native-aot)

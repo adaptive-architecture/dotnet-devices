@@ -1,6 +1,7 @@
 ﻿#nullable enable
 using System.Text;
 using AdaptArch.Devices.IntegrationTests.Fixtures;
+using AdaptArch.Devices.Pdfium;
 using AdaptArch.Devices.Printing;
 using AdaptArch.Devices.Printing.Ipp;
 using AdaptArch.Devices.Printing.Raster;
@@ -98,5 +99,31 @@ public class IppConversionTests
         var sent = Assert.Single(documents, document => document.Length == raster.Length);
         Assert.Equal(raster, sent);
         Assert.Equal("RaS2", Encoding.ASCII.GetString(sent, 0, 4));
+    }
+
+    [Fact]
+    public async Task PrintAsync_ThePdfiumConverter_RendersAPdfThisPrinterCanRead()
+    {
+        // The row this package exists for, end to end and on any platform: a printer that
+        // advertises image/pwg-raster and no PDF, a real PDF, and a real rasterizer between
+        // them. Nothing here is a fake, and the printer is the one that judges the result.
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await _printer.WaitUntilIdleAsync(cancellationToken);
+
+        using IppPrinter printer = new(_printer.Endpoint)
+        {
+            Formats = new PrintFormatPolicy(null, [PdfiumPrinting.PdfConverter]),
+        };
+
+        _ = await printer.PrintAsync(
+            PrinterPayload.FromBytes(TestDocuments.OnePagePdf(), PrinterContentTypes.Pdf),
+            new PrintOptions { JobName = "pdfium-to-raster", ResolutionDpi = 150 },
+            cancellationToken);
+
+        // One PWG Raster document, not a PDF and not one file a page.
+        var documents = await _printer.ReceivedDocumentsAsync(cancellationToken);
+        var sent = Assert.Single(documents, document =>
+            document.Length > 4 && Encoding.ASCII.GetString(document, 0, 4) == "RaS2");
+        Assert.DoesNotContain("%PDF", Encoding.Latin1.GetString(sent, 0, 1800), StringComparison.Ordinal);
     }
 }

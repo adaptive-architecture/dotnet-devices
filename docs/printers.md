@@ -219,6 +219,14 @@ neither. There the library converts, and sends the result as the format the prin
 | `spooler://` on Windows | Converted to one PNG a page and drawn through GDI |
 | `raw://` | Sent unchanged. Port 9100 has no stage that puts a raster on a page |
 
+Every row that says *Converted* needs a rasterizer, and neither of the two is in the core
+package. `AdaptArch.Devices.Pdfium` renders with PDFium on Windows, Linux and macOS alike;
+`AdaptArch.Devices.Windows` renders with the in-box engine and downloads nothing. Either one
+serves any of these rows on Windows, and only the first serves them elsewhere.
+[Packages](packages.md#two-packages-for-the-same-row) sets the two side by side. With
+neither, a `Converted` row falls back to the row below it: the job is sent unchanged for the
+printer to refuse, or it fails with `NotSupportedException` before anything spools.
+
 The target is `image/pwg-raster` and nothing else. IPP Everywhere requires it of every
 printer, it is lossless, and one stream carries every page, so a converted document stays
 one document and needs no multi-document job. `image/png` is never offered to a printer: no
@@ -228,7 +236,8 @@ writes as well as what it reads:
 ```csharp
 public bool CanConvert(string contentType) => contentType == PrinterContentTypes.Pdf;
 
-// The default answers for image/png only, which is what the Windows spooler asks for.
+// Overridden: the default answers for image/png only, which is what the Windows spooler
+// asks for and all a converter written before this member existed could produce.
 public bool CanEmit(string target) => target is PrinterContentTypes.Png or PrinterContentTypes.PwgRaster;
 ```
 
@@ -245,9 +254,15 @@ Page ranges are applied by the converter and then **not** sent to the printer, w
 otherwise select a subset of the subset.
 
 `PwgRasterWriter` writes the format, and it is public: an application with a rasterizer of
-its own gets a conforming encoder without writing one. `AdaptArch.Devices.Windows` uses it
-behind `WindowsPrinting.PdfConverter`, which writes PNG for the spooler and PWG Raster for
-an IPP printer from the same in-box engine.
+its own gets a conforming encoder without writing one. `PngWriter` is public beside it for
+the same reason and for the other target, because the Windows spooler asks for `image/png`
+by name; it writes one non-interlaced 8-bit image, greyscale or truecolour, and costs the
+core package no dependency. Both take the same bitmap: top line first, chunky pixels, no
+padding between the lines.
+
+`AdaptArch.Devices.Windows` uses them behind `WindowsPrinting.PdfConverter` and
+`AdaptArch.Devices.Pdfium` behind `PdfiumPrinting.PdfConverter`. Each writes PNG for the
+spooler and PWG Raster for an IPP printer, from one render.
 
 ## Add a format the library does not know
 
@@ -307,8 +322,11 @@ A converter returns pages in `context.TargetContentType`, which is `image/png` t
 `PrinterManagerOptions.Converters` scopes a converter to one manager.
 `PrintFormatPolicy.AddDefaultConverter` registers one for the whole process, which is what
 an application without a manager needs, and what
-`WindowsPrinting.EnablePdfPrinting()` calls. A converter on the manager wins over a
-process one for the same format, so an application can replace the built-in behaviour.
+`WindowsPrinting.EnablePdfPrinting()` and `PdfiumPrinting.EnablePdfPrinting()` call. A
+converter on the manager wins over a process one for the same format, so an application can
+replace the built-in behaviour; among process converters the first registered for a content
+type is the one that runs, which is what decides between the two PDF packages when a process
+enables both.
 
 What the registration changes:
 
@@ -628,12 +646,13 @@ The Windows driver builds a `DEVMODE` for the job with `DocumentProperties` and 
 onto the job. Printer languages use the `RAW` data type and pass the bytes through
 unchanged; PNG and JPEG images are drawn onto a GDI printer device context with GDI+
 so the driver rasterises the page, using only the system `gdi32.dll` and `gdiplus.dll`
-and no extra NuGet package. PDF pages render to PNG first with the in-box Windows
-engine, then print as one GDI document through the same path. That renderer lives in
-the separate `AdaptArch.Devices.Windows` package (a `-windows` target is the only one
-that can see the engine), and the application lights it up with
-`WindowsPrinting.EnablePdfPrinting()`; without a converter for PDF a job fails
-with `NotSupportedException` before anything spools. Any other document format prints
+and no extra NuGet package. PDF pages render to PNG first, then print as one GDI
+document through the same path. That renderer lives outside the core package, in
+`AdaptArch.Devices.Windows` (a `-windows` target is the only one that can see the in-box
+engine) or in `AdaptArch.Devices.Pdfium`, which needs no in-box engine at all; the
+application lights one up with `EnablePdfPrinting()`. Without a converter for PDF a job
+fails with `NotSupportedException` before anything spools, and so does one whose converter
+writes no PNG: GDI draws that and nothing else. Any other document format prints
 the same way once the application registers a converter for it.
 
 Where each of these runs:
@@ -642,7 +661,8 @@ Where each of these runs:
 | --- | --- |
 | IPP, raw TCP, SNMP and discovery | Every platform .NET 10 supports, Windows, Linux and macOS alike. |
 | The spooler: printer languages, PNG and JPEG | Every Windows .NET 10 supports, Server Core included, because `winspool.drv`, `gdi32` and `gdiplus` ship in-box on all of them. Not Nano Server, which has neither GDI nor a spooler. |
-| The spooler: PDF | Windows 10, Windows 11, and Windows Server with the Desktop Experience. The engine is WinRT, so Windows Server 2012 R2 has none and Server Core is untested. A machine without it gets `PlatformNotSupportedException` and not a complaint about the file. |
+| The spooler: PDF, with `AdaptArch.Devices.Windows` | Windows 10, Windows 11, and Windows Server with the Desktop Experience. The engine is WinRT, so Windows Server 2012 R2 has none and Server Core is untested. A machine without it gets `PlatformNotSupportedException` and not a complaint about the file. |
+| The spooler: PDF, with `AdaptArch.Devices.Pdfium` | Every Windows the row above this one covers, Server Core and Server 2012 R2 included: PDFium is a native library the package carries and owes nothing to the installation. Not Nano Server, which has no spooler to print through. |
 
 Windows Protected Print Mode, which an administrator can turn on from Windows 11 24H2 and
 Windows Server 2025, blocks third-party drivers and leaves only the Microsoft IPP class
@@ -1200,11 +1220,12 @@ of the label.
 
 A printer that reports nothing did not refuse; it only did not answer.
 
-To print a PDF on a printer that has no PDF interpreter, send it through the CUPS
-spooler queue instead. The queue driver rasterises the document. On Windows, print
-it through the spooler with the `AdaptArch.Devices.Windows` package enabled: each page
-renders to PNG with the in-box engine and prints as one GDI document. Sending PDF
-bytes as `RAW` reaches a firmware that reads only its own page language and prints
+To print a PDF on a printer that has no PDF interpreter, enable a rasterizer package and
+send it as PDF: `AdaptArch.Devices.Pdfium` on any platform, or `AdaptArch.Devices.Windows`
+on a desktop Windows machine. The library then converts it to what the channel reads, one
+PWG Raster stream for an IPP printer and one PNG a page for the Windows spooler. Failing
+that, send it through a CUPS spooler queue, whose driver rasterises the document. Sending
+PDF bytes as `RAW` reaches a firmware that reads only its own page language and prints
 nothing while the spooler still reports success.
 
 ## USB printers
