@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Cross-platform PDF rasterization for AdaptArch.Devices: renders a PDF with PDFium so an IPP printer that reads only PWG Raster, and a Windows spooler without the in-box engine, can print one.</Description>
+  </PropertyGroup>
+
+  <!-- Reviewed runtime dependency. See docs/packages.md before adding another. -->
+  <ItemGroup>
+    <PackageReference Include="PDFiumCore" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(CONFIGURATION)' == 'Debug' Or '$(BuildDocFx)' == 'true'">
+    <ProjectReference Include="..\Devices\Devices.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(CONFIGURATION)' == 'Release' And '$(BuildDocFx)' != 'true'">
+    <PackageReference Include="AdaptArch.Devices" />
+  </ItemGroup>
+
+</Project>

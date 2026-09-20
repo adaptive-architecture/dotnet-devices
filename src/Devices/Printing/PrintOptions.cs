@@ -108,6 +108,25 @@ public sealed class PrintOptions
     public IReadOnlyList<PageRange>? PageRanges { get; set; }
 
     /// <summary>
+    /// Gets or sets the name of the converter that renders this job, when more than one
+    /// reads its format.
+    /// </summary>
+    /// <remarks>
+    /// Unlike every other property here, this one is not a printer setting and never leaves
+    /// the library: it picks an <see cref="IPrintPayloadConverter"/> by its
+    /// <see cref="IPrintPayloadConverter.Name"/>, matched case-insensitively. An unset value
+    /// takes the converter the policy prefers, which is the first one registered for the
+    /// format. It is ignored when the channel reads the payload as it is and nothing converts.
+    /// <para>
+    /// A name no registered converter carries fails the job with
+    /// <see cref="NotSupportedException"/> rather than quietly rendering with another engine,
+    /// because a job that named one asked for that one.
+    /// <see cref="PrintFormatPolicy.ConvertersFor"/> lists what a process can be asked for.
+    /// </para>
+    /// </remarks>
+    public string? ConverterName { get; set; }
+
+    /// <summary>
     /// Gets or sets the number of pages to put on one sheet. Must be positive when set.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is zero or negative.</exception>

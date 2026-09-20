@@ -68,6 +68,22 @@ written as its name and `pageRanges` written as `"1-3,5"`. `contentType` overrid
 file extension says. The target printer is not in the set: the printer is what differs
 between two machines, so the person selects it in the browser.
 
+`converter` names the engine that renders a document, where the build registered more than
+one. It maps to `PrintOptions.ConverterName`, and the shipped **PDF engines** set uses it to
+print the same two jobs through each engine in turn:
+
+```json
+{ "file": "pages.pdf",
+  "description": "PDFium: pages 1 and 3 in colour, duplex on the long edge",
+  "options": { "converter": "PDFium", "pageRanges": "1,3", "colorMode": "Color", "duplex": "LongEdge" } }
+```
+
+Which names exist depends on the packages the build referenced, so the page reads them from
+`GET /api/pdf-engines` rather than offering a fixed list, and shows the selector only where
+there is a choice to make. On Linux and macOS that is PDFium alone, and the jobs of that set
+which name `Windows` fail with a message listing what does exist. To see the same pages
+without printing them, run the tests and open `artifacts/rasterization/index.html`.
+
 ## The HTTP interface
 
 | Method and path | What it does |
@@ -76,6 +92,7 @@ between two machines, so the person selects it in the browser.
 | `GET /api/printers/status?id=` | The status of one printer. |
 | `GET /api/printers/accepts?id=&contentType=` | The tri-state answer of `PrinterDevice.Accepts`. |
 | `GET /api/files` | The files in `PrintFiles/`. |
+| `GET /api/pdf-engines` | The PDF engines this process registered, best first. `isDefault` marks the one a job that names none will get. |
 | `POST /api/jobs` | Print a file from `PrintFiles/`. Answers with server-sent events. |
 | `POST /api/jobs/upload` | The same, with the bytes in a multipart form. |
 | `GET /api/job-sets` | The job sets in `PrintJobs/`. |

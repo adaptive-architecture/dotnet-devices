@@ -47,6 +47,13 @@ esac
 rm -rf ./coverage/*
 rm -rf ./test/TestResults
 
+# The rasterization scenarios write PNGs here, one folder per engine, and each engine's test
+# project empties its own folder as it runs. Emptying the whole tree is this script's job
+# instead: it is the only place that knows a run is starting, so an engine whose project did
+# not run this time -- the in-box Windows one on Linux -- leaves nothing behind to be read as
+# though it had.
+rm -rf ./artifacts/rasterization
+
 # MTP mode (opted in via global.json `test.runner`):
 # - `dotnet test` discovers only MTP test projects, so samples/src are skipped
 #   without a `--filter`.

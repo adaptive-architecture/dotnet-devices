@@ -75,6 +75,81 @@ Linux unaffected.
 [windows-manual-tests.md](windows-manual-tests.md#the-tests-that-run-themselves-on-windows)
 says how to pause the queue and why that matters.
 
+`src/Devices.Pdfium` is on neither exclusion list, and must not go on one: PDFium is a native
+library the package carries for every platform, so unlike the in-box Windows engine it runs
+on the Linux runner. `PdfiumPdfConverterTests` renders real PDFs with it and reads the PNG
+and the PWG Raster back.
+
+### Looking at what a rasterizer produced
+
+The scenarios of `samples/Devices.Samples/PrintJobs/queue-sweep-pdf.json` can otherwise only
+be judged on paper. One harness in `test/Shared/Rasterization/` renders them without printing
+anything: it converts a generated four-page PDF, decodes the PWG Raster with a reader written
+against PWG 5102.4, asserts the geometry, the colour space and the duplex transforms, and
+writes every page out through the public `PngWriter`.
+
+It is linked into the test project of each engine rather than living in one of its own, so
+each project stays honest about the package it covers:
+
+| Project | Engine | Runs on |
+| --- | --- | --- |
+| `test/Devices.Pdfium.UnitTests` | PDFium | Every platform, CI included |
+| `test/Devices.Windows.UnitTests` | The in-box engine | Windows; it skips elsewhere |
+
+Each engine writes its PNGs to `artifacts/rasterization/<engine>/`, and both write the same
+`artifacts/rasterization/index.html`: **one page showing every engine beside every other**.
+Open it after a test run. `.gitignore` already covers `artifacts/`, and
+`pipeline/unit-test.sh` empties the tree before a run, so what is there is from the last one.
+
+The page is built from `RasterCatalogue` rather than from what is on disk, so it always lists
+both engines whichever project wrote it, and an engine that did not run shows tiles saying so
+instead of quietly shrinking to the half that did. That is the ordinary case on Linux and
+macOS, where the in-box engine renders nothing.
+
+It also explains the one thing in that output that reliably looks like a defect: a long-edge
+back side is mirrored top to bottom and a short-edge one left to right, which is the opposite
+of what the binding suggests. `pwg-raster-document-sheet-back` describes what the printer does
+to the back side, and the raster carries the inverse so the two cancel, so the transform reads
+backwards from the binding that provoked it. The table there matches CUPS's
+`_cupsRasterInitPWGHeader` exactly.
+
+Each engine is asserted against itself and never against the other. Not for the reason it
+first looks: the two agree about the page size, because `WindowsPdfLimits` counting
+device-independent pixels of 1/96 inch and `PdfiumLimits` counting points of 1/72 are two
+spellings of the same physical size, and the conversion to dots cancels the difference
+exactly. A4 renders 1240 by 1755 at 150 dots an inch on both.
+
+### Why the fixture embeds a font
+
+It did not, at first, and that was measurable. A PDF may name a font without carrying it, and
+the fixture named Helvetica, which no engine actually has. So each platform substituted its
+own: Arial on Windows, something else on the Linux runner. On one CI run the same page
+differed by **0.56% of its octets between the two operating systems running the same engine**,
+and by 0.11% between the two engines on one machine — every differing pixel inside the
+numeral's bounding box, and none anywhere else. Vector fills were identical throughout.
+
+`test/Shared/Rasterization/fonts/` now holds Liberation Sans and its licence, and the fixture
+embeds the outlines, so the font is no longer a variable. That folder's `README.md` says why a
+binary asset is checked into a tree whose convention is that nothing depends on one, why this
+font and not Arial, and why the whole file rather than a subset.
+
+CI renders them on both runners and leaves one archive to download. The `test` job uploads
+what Linux rendered, the `windows` job uploads what Windows rendered, and a third job,
+`rasterization`, puts the two together:
+
+```
+artifacts/index.html                     which of the two to open, and why
+artifacts/rasterization-linux/           PDFium only
+artifacts/rasterization-windows/         both engines, so this is the comparison
+```
+
+Both halves are uploaded with `if: always()`, because a page that came out wrong is the
+thing these images exist to show, and the download of each is `continue-on-error`, so half
+of a run is still worth having. Held for 30 days; the per-runner halves for 7.
+
+A run on your own machine writes the same pages to `artifacts/rasterization/` without the
+per-runner split, since only one machine rendered them.
+
 `pipeline/unit-test.sh` fails the build when line coverage over everything else falls below
 `THRESHOLD` (90%). The figure is computed from the merged LCOV reports, because a file is
 instrumented by every test project that references it and only the union says what really
@@ -133,6 +208,14 @@ self-contained, and native AOT — into `./artifacts/samples/<rid>/`. The `src/`
 `IsAotCompatible`, and the sample is the only application that consumes them, so this script
 is where a trim or an AOT problem shows up. Warnings stay errors, so an `IL2xxx` or an
 `IL3xxx` warning fails the publish.
+
+The sample references `AdaptArch.Devices.Pdfium` on every platform and calls its
+`EnablePdfPrinting()` unconditionally, even on Windows where the in-box engine already
+answered for PDF. That is what keeps this gate honest: a reference nothing calls is one the
+trimmer removes whole, and the publish would then be green having proven nothing about it.
+The dependency costs about 170 MB of native packages on restore; a RID-specific publish
+deploys one `libpdfium` of about 7.5 MB, and a framework-dependent publish with no RID
+copies every identifier it restored.
 
 The sample is built to keep that publish green;
 [samples/printer-manager.md](samples/printer-manager.md#building-with-trimming-and-native-aot)

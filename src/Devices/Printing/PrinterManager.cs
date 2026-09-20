@@ -503,7 +503,7 @@ public sealed class PrinterManager : IPrinterManager
         ArgumentNullException.ThrowIfNull(payload);
 
         var device = await ResolveAsync(id, cancellationToken).ConfigureAwait(false);
-        var channel = ChooseForPrint(device, id, payload.ContentType);
+        var channel = ChooseForPrint(device, id, payload.ContentType, options?.ConverterName);
         var printer = _factory.Open(channel);
         try
         {
@@ -670,7 +670,7 @@ public sealed class PrinterManager : IPrinterManager
     // language is read by the device firmware and every other format is read by a driver.
     // A device identifier and a channel identifier cannot be told apart when no channel
     // reported an identity, so the identifier breaks a tie and never overrules the payload.
-    private DiscoveredPrinter ChooseForPrint(PrinterDevice device, PrinterId id, string contentType)
+    private DiscoveredPrinter ChooseForPrint(PrinterDevice device, PrinterId id, string contentType, string? converterName)
     {
         var allowed = Allowed(device);
         if (allowed.Count == 0)
@@ -681,7 +681,7 @@ public sealed class PrinterManager : IPrinterManager
         // A channel that reported it does not read the content type is never chosen. A
         // channel that reported nothing has not refused, so it stays a candidate.
         List<DiscoveredPrinter> usable = [.. allowed.Where(channel => device.Accepts(channel, contentType) != false)];
-        if (usable.Count == 0 && _formats.ConverterFor(contentType) is not null)
+        if (usable.Count == 0 && _formats.ConverterFor(contentType, converterName) is not null)
         {
             // No channel reads the document, but a converter may render it into a
             // format one does. The channel negotiates that target itself, from the

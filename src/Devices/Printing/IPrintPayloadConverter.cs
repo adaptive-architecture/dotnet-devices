@@ -12,6 +12,24 @@
 public interface IPrintPayloadConverter
 {
     /// <summary>
+    /// Gets the name a job uses to ask for this converter rather than another.
+    /// </summary>
+    /// <remarks>
+    /// Only needed where more than one converter reads a format, which is what
+    /// <see cref="PrintOptions.ConverterName"/> chooses between: PDF is read by both
+    /// <c>AdaptArch.Devices.Pdfium</c> and <c>AdaptArch.Devices.Windows</c>. The default is
+    /// the type name, so a converter nobody chooses between needs to do nothing and every
+    /// converter written before this member still compiles.
+    /// <para>
+    /// Names are matched case-insensitively, and should be short, stable and readable: an
+    /// application puts them in front of a person. Elsewhere this library names a strategy
+    /// with an enumeration, as <see cref="DiscoverySource"/> and <see cref="PrinterScheme"/>
+    /// do, but no enumeration can carry a converter an application wrote, so this one is text.
+    /// </para>
+    /// </remarks>
+    string Name => GetType().Name;
+
+    /// <summary>
     /// Tells whether this converter reads the content type.
     /// </summary>
     /// <param name="contentType">The media type of the payload.</param>

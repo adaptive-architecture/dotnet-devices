@@ -8,11 +8,13 @@
   <ItemGroup Condition="'$(CONFIGURATION)' == 'Debug' Or '$(BuildDocFx)' == 'true'">
     <ProjectReference Include="..\..\src\Devices\Devices.csproj" />
     <ProjectReference Include="..\..\src\Devices.DependencyInjection\Devices.DependencyInjection.csproj" />
+    <ProjectReference Include="..\..\src\Devices.Pdfium\Devices.Pdfium.csproj" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(CONFIGURATION)' == 'Release' And '$(BuildDocFx)' != 'true'">
     <PackageReference Include="AdaptArch.Devices" />
     <PackageReference Include="AdaptArch.Devices.DependencyInjection" />
+    <PackageReference Include="AdaptArch.Devices.Pdfium" />
   </ItemGroup>
 
 </Project>

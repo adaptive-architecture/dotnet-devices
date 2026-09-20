@@ -9,6 +9,7 @@ namespace AdaptArch.Devices.Samples.Contracts;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(IReadOnlyList<DeviceDto>))]
+[JsonSerializable(typeof(IReadOnlyList<EngineDto>))]
 [JsonSerializable(typeof(IReadOnlyList<FileDto>))]
 [JsonSerializable(typeof(IReadOnlyList<JobSetDto>))]
 [JsonSerializable(typeof(StatusDto))]

@@ -197,9 +197,13 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
         // The converter is looked for before the format list is read, because an application
         // that registered none converts nothing whatever the printer answers, and this path
         // must not cost it a request it never needed.
-        var converter = Formats.ConverterFor(payload.ContentType);
+        var converter = Formats.ConverterFor(payload.ContentType, options?.ConverterName);
         if (converter is null)
         {
+            // A job that named a converter asked for that one, so rendering with another or
+            // sending the document unchanged would both be the wrong answer to a question
+            // the caller did ask.
+            PrintConverters.ThrowIfNamed(Formats, payload.ContentType, options?.ConverterName);
             return (payload, format, options);
         }
 
