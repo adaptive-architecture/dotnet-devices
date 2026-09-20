@@ -69,8 +69,9 @@ file extension says. The target printer is not in the set: the printer is what d
 between two machines, so the person selects it in the browser.
 
 `converter` names the engine that renders a document, where the build registered more than
-one. It maps to `PrintOptions.ConverterName`, and the shipped **PDF engines** set uses it to
-print the same two jobs through each engine in turn:
+one. It maps to `PrintOptions.ConverterName`, which also forces the conversion: an IPP printer
+that reads PDF would otherwise be sent the document untouched and neither engine would run.
+The shipped **PDF engines** set uses it to print the same two jobs through each engine in turn:
 
 ```json
 { "file": "pages.pdf",

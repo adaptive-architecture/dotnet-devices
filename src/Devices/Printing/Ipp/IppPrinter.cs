@@ -182,7 +182,8 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
 
     // A document the printer cannot read is rendered to a format it can, when a converter
     // is registered for it. Everything else passes through: a printer that lists the format
-    // reads the document itself, which is always better than a raster of it.
+    // reads the document itself, which is always better than a raster of it -- unless the job
+    // named the converter, which is the one way of saying otherwise.
     private async Task<(PrinterPayload Payload, string Format, PrintOptions? Options)> ConvertIfNeededAsync(
         PrinterPayload payload,
         string format,
@@ -209,7 +210,14 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
 
         var configuration = await GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
         var supported = configuration.SupportedDocumentFormats;
-        if (supported.Contains(payload.ContentType, StringComparer.OrdinalIgnoreCase))
+
+        // The document itself is the better thing to send when nobody said otherwise: the
+        // printer's own interpreter beats any raster of ours and the job is a fraction of the
+        // size. Naming a converter is saying otherwise. Nobody sets that as a preference, so
+        // a job that carries one is asking for that engine to run, and a printer that happens
+        // to read the format too must not quietly decide it should not.
+        if (options?.ConverterName is null
+            && supported.Contains(payload.ContentType, StringComparer.OrdinalIgnoreCase))
         {
             return (payload, format, options);
         }
@@ -217,8 +225,17 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
         var target = IppDocumentFormat.NegotiateConversionTarget(supported, converter);
         if (target is null)
         {
+            // Passing through is still the right answer where the printer reads the document,
+            // but a job that named a converter should not have to infer from a printed page
+            // that the name went nowhere.
             var unreachable = _resolver.Resolved ?? await _resolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
-            IppLog.DocumentNotConverted(_context.Logger, payload.ContentType, unreachable, "the printer reads no format the converter writes");
+            IppLog.DocumentNotConverted(
+                _context.Logger,
+                payload.ContentType,
+                unreachable,
+                options?.ConverterName is null
+                    ? "the printer reads no format the converter writes"
+                    : $"the printer reads no format converter '{options.ConverterName}' writes");
             return (payload, format, options);
         }
 
