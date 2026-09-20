@@ -213,7 +213,7 @@ neither. There the library converts, and sends the result as the format the prin
 | Channel | A PDF job |
 | --- | --- |
 | `spooler://` on Linux and macOS, and `cups://` anywhere | Passed through. The CUPS filter chain renders it with driver knowledge no converter here has |
-| `ipp://` and `ipps://`, printer lists `application/pdf` | Passed through. The document itself is always better than a raster of it |
+| `ipp://` and `ipps://`, printer lists `application/pdf` | Passed through. The document itself is always better than a raster of it, unless the job names a converter |
 | `ipp://` and `ipps://`, printer lists `image/pwg-raster` | Converted, and sent as one job |
 | `ipp://` and `ipps://`, printer lists neither | Sent unchanged, for the printer to refuse. Event 1034 says why |
 | `spooler://` on Windows | Converted to one PNG a page and drawn through GDI |
@@ -357,6 +357,18 @@ carries fails the job** with `NotSupportedException` that lists the names that d
 rather than quietly rendering with another engine — a job that named one asked for that one,
 and a page rendered by a different engine is not the answer to that question. A job that
 names nothing is unaffected and takes the preferred converter.
+
+Naming one also decides **whether** the conversion happens at all. An IPP printer that reads
+the payload as it is normally receives it untouched, for the reason the table above gives: its
+own interpreter beats a raster of ours and the job is a fraction of the size. That is the
+right default and it is unchanged. But a printer that reads both PDF and PWG Raster would
+otherwise make the named engine unreachable, and there is no other way to ask for it — so a
+job that names a converter is converted even there. Nobody names an engine as a vague
+preference; naming one is the way of saying the document itself is not what should be sent.
+
+Where the printer reads nothing the named converter writes, the document is still sent as it
+is. A job that would have printed correctly should not fail over a preference, and event 1034
+says the name went nowhere and why.
 
 What the registration changes:
 

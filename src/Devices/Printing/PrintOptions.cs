@@ -116,7 +116,16 @@ public sealed class PrintOptions
     /// the library: it picks an <see cref="IPrintPayloadConverter"/> by its
     /// <see cref="IPrintPayloadConverter.Name"/>, matched case-insensitively. An unset value
     /// takes the converter the policy prefers, which is the first one registered for the
-    /// format. It is ignored when the channel reads the payload as it is and nothing converts.
+    /// format.
+    /// <para>
+    /// Setting it also says the document itself is not what should be sent. An IPP printer
+    /// that reads the payload as it is normally receives it untouched, because its own
+    /// interpreter beats a raster of ours and the job is a fraction of the size; a job that
+    /// names a converter is converted anyway. Nobody names an engine as a preference, so
+    /// naming one is taken as asking for it to run. Where the printer reads nothing that
+    /// converter writes the document is still sent as it is, since a job that would have
+    /// printed correctly should not fail, and the reason is logged.
+    /// </para>
     /// <para>
     /// A name no registered converter carries fails the job with
     /// <see cref="NotSupportedException"/> rather than quietly rendering with another engine,

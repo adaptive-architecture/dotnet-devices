@@ -347,6 +347,57 @@ public class IppPrinterDocumentFormatTests
         Assert.Null(handler.PrintJobBody);
     }
 
+    [Fact]
+    public async Task PrintAsync_APdfThePrinterReads_IsSentUnchangedWhenNoConverterIsNamed()
+    {
+        // The default, and the reason the default is what it is: the printer's own
+        // interpreter beats any raster of ours, and the job is a fraction of the size.
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+
+        var body = await PrintPdfAsync(converter, null, PrinterContentTypes.Pdf, PrinterContentTypes.PwgRaster);
+
+        Assert.Equal(0, converter.Calls);
+        Assert.Contains(PrinterContentTypes.Pdf, body, StringComparison.Ordinal);
+        Assert.DoesNotContain(FakeConverter.Marker, body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PrintAsync_APdfNamingAConverter_ConvertsEvenWhereThePrinterReadsPdf()
+    {
+        // Naming a converter is the one way of saying the document is not what should be
+        // sent. Nobody sets that as a preference, so a printer that happens to read PDF as
+        // well must not quietly decide the named engine should not run.
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster) { Name = "Named" };
+
+        var body = await PrintPdfAsync(
+            converter,
+            new PrintOptions { ConverterName = "Named" },
+            PrinterContentTypes.Pdf,
+            PrinterContentTypes.PwgRaster);
+
+        Assert.Equal(1, converter.Calls);
+        Assert.Contains(FakeConverter.Marker, body, StringComparison.Ordinal);
+        Assert.Contains(PrinterContentTypes.PwgRaster, body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PrintAsync_ANamedConverterThePrinterCannotTake_StillSendsTheDocument()
+    {
+        // The printer reads the PDF and reads nothing this converter writes. Failing a job
+        // that will print correctly would be the worse answer, so it passes through; the log
+        // is what says the name went nowhere.
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster) { Name = "Named" };
+
+        var body = await PrintPdfAsync(
+            converter,
+            new PrintOptions { ConverterName = "Named" },
+            PrinterContentTypes.Pdf,
+            PrinterContentTypes.Jpeg);
+
+        Assert.Equal(0, converter.Calls);
+        Assert.Contains(PrinterContentTypes.Pdf, body, StringComparison.Ordinal);
+    }
+
     private static async Task<string> PrintPdfAsync(
         FakeConverter converter,
         PrintOptions options,
