@@ -110,6 +110,13 @@ public class IppConversionTests
         var cancellationToken = TestContext.Current.CancellationToken;
         await _printer.WaitUntilIdleAsync(cancellationToken);
 
+        // The container is a collection fixture and its spool keeps every job the whole
+        // collection sent, in whatever order the tests ran. So the answer is the document
+        // that was not there a moment ago, and not the only one that looks like a raster:
+        // another test in this collection sends a hand-written one, and which of the two
+        // arrives first is not something this test should depend on.
+        var before = await _printer.ReceivedDocumentsAsync(cancellationToken);
+
         using IppPrinter printer = new(_printer.Endpoint)
         {
             Formats = new PrintFormatPolicy(null, [PdfiumPrinting.PdfConverter]),
@@ -120,10 +127,12 @@ public class IppConversionTests
             new PrintOptions { JobName = "pdfium-to-raster", ResolutionDpi = 150 },
             cancellationToken);
 
+        var after = await _printer.ReceivedDocumentsAsync(cancellationToken);
+        var added = after.Where(document => !before.Any(earlier => earlier.SequenceEqual(document))).ToList();
+
         // One PWG Raster document, not a PDF and not one file a page.
-        var documents = await _printer.ReceivedDocumentsAsync(cancellationToken);
-        var sent = Assert.Single(documents, document =>
-            document.Length > 4 && Encoding.ASCII.GetString(document, 0, 4) == "RaS2");
+        var sent = Assert.Single(added);
+        Assert.Equal("RaS2", Encoding.ASCII.GetString(sent, 0, 4));
         Assert.DoesNotContain("%PDF", Encoding.Latin1.GetString(sent, 0, 1800), StringComparison.Ordinal);
     }
 }
