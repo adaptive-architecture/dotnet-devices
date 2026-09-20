@@ -117,6 +117,23 @@ The two engines are never compared octet by octet: `WindowsPdfLimits` counts
 device-independent pixels of 1/96 inch and `PdfiumLimits` counts points of 1/72, so they
 render one resolution at different pixel sizes. Each is asserted against itself.
 
+CI renders them on both runners and leaves one archive to download. The `test` job uploads
+what Linux rendered, the `windows` job uploads what Windows rendered, and a third job,
+`rasterization`, puts the two together:
+
+```
+artifacts/index.html                     which of the two to open, and why
+artifacts/rasterization-linux/           PDFium only
+artifacts/rasterization-windows/         both engines, so this is the comparison
+```
+
+Both halves are uploaded with `if: always()`, because a page that came out wrong is the
+thing these images exist to show, and the download of each is `continue-on-error`, so half
+of a run is still worth having. Held for 30 days; the per-runner halves for 7.
+
+A run on your own machine writes the same pages to `artifacts/rasterization/` without the
+per-runner split, since only one machine rendered them.
+
 `pipeline/unit-test.sh` fails the build when line coverage over everything else falls below
 `THRESHOLD` (90%). The figure is computed from the merged LCOV reports, because a file is
 instrumented by every test project that references it and only the union says what really
