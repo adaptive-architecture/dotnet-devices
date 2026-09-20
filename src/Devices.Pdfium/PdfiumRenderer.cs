@@ -57,7 +57,7 @@ internal static class PdfiumRenderer
         }
     }
 
-    private static IReadOnlyList<RasterPage> Render(
+    private static List<RasterPage> Render(
         byte[] pdf,
         int dpi,
         IReadOnlyList<PageRange>? ranges,

@@ -152,9 +152,8 @@ public sealed class PrintFormatPolicy
             return ConverterFor(contentType);
         }
 
-        return Enumerable.FirstOrDefault(
-            ConvertersFor(contentType),
-            converter => String.Equals(converter.Name, name, StringComparison.OrdinalIgnoreCase));
+        return ConvertersFor(contentType)
+            .FirstOrDefault(converter => String.Equals(converter.Name, name, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

@@ -78,9 +78,12 @@ internal static class RasterDocuments
         body.AddRange(Encoding.Latin1.GetBytes("%PDF-1.4\n"));
 
         var kids = String.Join(' ', Enumerable.Range(0, PageCount).Select(page => $"{3 + (page * 2)} 0 R"));
-        var font = 3 + (PageCount * 2);
-        var descriptor = font + 1;
-        var programme = font + 2;
+
+        // The catalogue and the page tree are objects 1 and 2, each page takes two more, and
+        // the three the font needs follow them.
+        const int font = 3 + (PageCount * 2);
+        const int descriptor = font + 1;
+        const int programme = font + 2;
 
         Add("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
         Add($"2 0 obj\n<< /Type /Pages /Kids [{kids}] /Count {PageCount} >>\nendobj\n");
@@ -100,7 +103,7 @@ internal static class RasterDocuments
         // None of them decides a glyph shape: the embedded outlines do, which is the whole
         // reason the file below is in the repository.
         Add($"{font} 0 obj\n<< /Type /Font /Subtype /TrueType /BaseFont /{FontName} "
-            + $"/FirstChar 49 /LastChar 52 /Widths [556 556 556 556] /Encoding /WinAnsiEncoding "
+            + "/FirstChar 49 /LastChar 52 /Widths [556 556 556 556] /Encoding /WinAnsiEncoding "
             + $"/FontDescriptor {descriptor} 0 R >>\nendobj\n");
 
         Add($"{descriptor} 0 obj\n<< /Type /FontDescriptor /FontName /{FontName} /Flags 32 "
