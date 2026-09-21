@@ -208,16 +208,16 @@ public static class RasterScenarios
         // A4 is narrower than four by six is, so the fit is decided by the width and the
         // page leaves white above and below rather than beside.
         const double Scale = LabelWidthPixels / RasterDocuments.WidthPoints;
-        var covered = (int)(RasterDocuments.HeightPoints * Scale);
-        Assert.True(covered < LabelHeightPixels, "The fitted page should not fill the label.");
+        const int Covered = (int)(RasterDocuments.HeightPoints * Scale);
+        Assert.True(Covered < LabelHeightPixels, "The fitted page should not fill the label.");
 
-        var margin = (LabelHeightPixels - covered) / 2;
-        Assert.True(IsWhite(PixelAt(fitted, LabelWidthPixels / 2, margin / 2)), "The top margin is not the stock.");
-        Assert.True(IsWhite(PixelAt(fitted, LabelWidthPixels / 2, LabelHeightPixels - (margin / 2) - 1)), "The bottom margin is not the stock.");
+        const int Margin = (LabelHeightPixels - Covered) / 2;
+        Assert.True(IsWhite(PixelAt(fitted, LabelWidthPixels / 2, Margin / 2)), "The top margin is not the stock.");
+        Assert.True(IsWhite(PixelAt(fitted, LabelWidthPixels / 2, LabelHeightPixels - (Margin / 2) - 1)), "The bottom margin is not the stock.");
 
         // The band is the top of the page, so it is inside the fitted rectangle and not in
         // the margin above it.
-        Assert.False(IsWhite(PixelAt(fitted, LabelWidthPixels / 2, margin + 10)), "The fitted page did not start below the margin.");
+        Assert.False(IsWhite(PixelAt(fitted, LabelWidthPixels / 2, Margin + 10)), "The fitted page did not start below the margin.");
     }
 
     // The label is anchored against the bottom-left corner of the sheet, and the offset
