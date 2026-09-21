@@ -181,6 +181,10 @@ internal static class PrintOptionValidator
             Scaling = options.Scaling,
             MediaSource = options.MediaSource,
             MediaSize = options.MediaSize,
+            MediaDimensions = options.MediaDimensions,
+            MediaSizeSource = options.MediaSizeSource,
+            Placement = options.Placement,
+            Smoothing = options.Smoothing,
             MediaType = options.MediaType,
             OutputBin = options.OutputBin,
             ResolutionDpi = options.ResolutionDpi,
@@ -189,6 +193,9 @@ internal static class PrintOptionValidator
             NumberUp = options.NumberUp,
             JobName = options.JobName,
             RequestingUserName = options.RequestingUserName,
+            // A copy that lost the engine the job named would quietly render with another
+            // one, which is the behaviour naming an engine exists to prevent.
+            ConverterName = options.ConverterName,
             OnUnsupported = options.OnUnsupported,
         };
 

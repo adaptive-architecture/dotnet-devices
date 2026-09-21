@@ -471,7 +471,37 @@ function renderOptions(host, raw, type, values) {
     host.appendChild(choice('duplex', 'Duplex', ['Simplex', 'LongEdge', 'ShortEdge'], values));
   }
 
+  placement(host, type, values);
   keep(host, values);
+}
+
+// Geometry, not a channel capability: no printer advertises a label offset, so these are
+// offered for every format the process can render and applied while the page becomes pixels.
+// The anchor is what the offsets are measured from, which is why it comes first.
+function placement(host, type, values) {
+  if (type !== 'application/pdf' && type !== 'image/png' && type !== 'image/jpeg') {
+    return;
+  }
+
+  host.appendChild(note('Placement is applied while the page is rendered, so a job that sets it is converted even where the printer reads the file itself.'));
+  host.appendChild(choice('anchor', 'Anchor', [
+    'TopLeft', 'TopCenter', 'TopRight',
+    'CenterLeft', 'Center', 'CenterRight',
+    'BottomLeft', 'BottomCenter', 'BottomRight',
+  ], values, 'Centred'));
+  host.appendChild(field('offsetXMillimeters', 'Offset right (mm)', 'number', values, { step: 'any' }));
+  host.appendChild(field('offsetYMillimeters', 'Offset down (mm)', 'number', values, { step: 'any' }));
+  host.appendChild(choice('smoothing', 'Smoothing', [
+    { value: 'true', label: 'On' },
+    { value: 'false', label: 'Off, for a sharp barcode' },
+  ], values, 'Engine default'));
+
+  if (type === 'application/pdf') {
+    host.appendChild(choice('mediaSizeSource', 'Media size from', ['Printer', 'Document'], values, 'Printer'));
+  }
+
+  host.appendChild(field('mediaWidthMillimeters', 'Media width (mm)', 'number', values, { step: 'any' }));
+  host.appendChild(field('mediaHeightMillimeters', 'Media height (mm)', 'number', values, { step: 'any' }));
 }
 
 // A value a job carries that this channel never offered is still shown, so editing a set on
@@ -497,13 +527,16 @@ function names(values) {
   return values.map((value) => value.replace(/ \(\d+\)$/, ''));
 }
 
-function field(name, label, type, values) {
+function field(name, label, type, values, attributes) {
   const wrapper = document.createElement('label');
   wrapper.textContent = label;
   const input = document.createElement('input');
   input.type = type;
   input.dataset.option = name;
-  if (type === 'number') { input.min = '1'; }
+  // An offset is signed and a fraction of a millimetre matters, so those fields say so
+  // rather than taking the whole-number minimum every other count here has.
+  if (type === 'number' && !attributes) { input.min = '1'; }
+  for (const [key, value] of Object.entries(attributes || {})) { input.setAttribute(key, value); }
   if (values && values[name] !== undefined && values[name] !== null) { input.value = values[name]; }
   wrapper.appendChild(input);
   return wrapper;
@@ -518,16 +551,18 @@ function choice(name, label, options, values, blankLabel) {
   blank.value = '';
   blank.textContent = blankLabel || 'Printer default';
   select.appendChild(blank);
-  for (const value of options) {
+  for (const entry of options) {
     const option = document.createElement('option');
-    option.value = value;
-    option.textContent = value;
+    // An entry is the value itself, or a value with a label to show instead of it.
+    option.value = entry.value === undefined ? entry : entry.value;
+    option.textContent = entry.label === undefined ? option.value : entry.label;
     select.appendChild(option);
   }
 
   const held = values ? values[name] : undefined;
   if (held !== undefined && held !== null && held !== '') {
-    if (!options.includes(String(held))) {
+    const offered = options.map((entry) => String(entry.value === undefined ? entry : entry.value));
+    if (!offered.includes(String(held))) {
       const extra = document.createElement('option');
       extra.value = held;
       extra.textContent = `${held} (not reported by this channel)`;
@@ -561,11 +596,20 @@ function note(text) {
 
 const numbers = ['copies', 'numberUp', 'resolutionDpi'];
 
+// The smoothing switch is a select, so it reads back as text and has to be sent as the
+// boolean the job carries.
+const booleans = ['smoothing'];
+
 function readOptions(host) {
   const result = {};
   for (const input of host.querySelectorAll('[data-option]')) {
     const value = input.value.trim();
     if (!value) { continue; }
+    if (booleans.includes(input.dataset.option)) {
+      result[input.dataset.option] = value === 'true';
+      continue;
+    }
+
     result[input.dataset.option] = input.type === 'number' || numbers.includes(input.dataset.option)
       ? Number(value)
       : value;

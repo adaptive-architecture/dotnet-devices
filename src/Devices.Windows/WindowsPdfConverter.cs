@@ -54,12 +54,26 @@ internal sealed class WindowsPdfConverter : IPrintPayloadConverter
             TotalPageCount = pages.Count,
             Duplex = context.Duplex,
             SheetBack = PwgRaster.SheetBackFor(context.SheetBack),
+            MediaName = context.MediaName,
         });
 
+        var bytesPerPixel = colorSpace == PwgRasterColorSpace.Srgb8 ? 3 : 1;
         foreach (var page in pages)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            writer.WritePage(page.Pixels, page.Width, page.Height);
+
+            // The same placement the other engine applies, from the same arithmetic. This
+            // engine smooths whatever it is asked, so a job that wanted none still gets a
+            // nearest-neighbour composition here, which is the half of it that is ours.
+            var placed = RasterPlacement.Place(page.Pixels, page.Width, page.Height, bytesPerPixel, context);
+            if (placed is null)
+            {
+                writer.WritePage(page.Pixels, page.Width, page.Height);
+            }
+            else
+            {
+                writer.WritePage(placed.Pixels, placed.Width, placed.Height);
+            }
         }
 
         return [document.ToArray()];

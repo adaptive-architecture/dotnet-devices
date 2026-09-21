@@ -99,8 +99,190 @@ internal static class RasterScenarios
         AssertSelectedDuplex(backsInGrey, grey, 1, 3, crossFeed: -1, feed: 1);
         sheet.Add(RasterCatalogue.Scenarios[5], backsInGrey);
 
+        await RunPlacementAsync(converter, engine, pdf, sheet, colour, cancellationToken);
+
         return RasterSheet.WriteIndex();
     }
+
+    // Four inches by six at the scenario resolution: the commonest shipping label, and small
+    // enough that an A4 page has to be fitted onto it.
+    private const int LabelWidthPixels = 4 * Dpi;
+    private const int LabelHeightPixels = 6 * Dpi;
+
+    // The placement options, each on one page so the sheet stays readable. Every page here is
+    // the first page of the fixture, which carries the barcode every assertion is measured on.
+    private static async Task RunPlacementAsync(
+        IPrintPayloadConverter converter,
+        string engine,
+        byte[] pdf,
+        RasterSheet sheet,
+        IReadOnlyList<PwgRasterReader.RasterPage> colour,
+        CancellationToken cancellationToken)
+    {
+        var fitted = await RenderAsync(
+            converter,
+            pdf,
+            FirstPage() with
+            {
+                RasterType = "srgb_8",
+                MediaWidthPixels = LabelWidthPixels,
+                MediaHeightPixels = LabelHeightPixels,
+                MediaName = "na_index-4x6_4x6in",
+                Scaling = PrintScaling.Fit,
+            },
+            cancellationToken);
+        AssertFitted(Assert.Single(fitted));
+        sheet.Add(RasterCatalogue.Scenarios[6], fitted);
+
+        // A media larger than the page, so the corner the anchor names is visible and the
+        // offset has somewhere to move to.
+        var page = colour[0];
+        var anchored = await RenderAsync(
+            converter,
+            pdf,
+            FirstPage() with
+            {
+                RasterType = "srgb_8",
+                MediaWidthPixels = page.Width + 200,
+                MediaHeightPixels = page.Height + 200,
+                Scaling = PrintScaling.None,
+                Placement = new PrintPlacement
+                {
+                    Anchor = PrintAnchor.TopLeft,
+                    OffsetX = PrintLength.FromMillimeters(5),
+                    OffsetY = PrintLength.FromMillimeters(3),
+                },
+            },
+            cancellationToken);
+        AssertAnchored(Assert.Single(anchored), page);
+        sheet.Add(RasterCatalogue.Scenarios[7], anchored);
+
+        var smoothed = await RenderAsync(converter, pdf, FirstPage() with { RasterType = "srgb_8" }, cancellationToken);
+        var sharp = await RenderAsync(
+            converter,
+            pdf,
+            FirstPage() with { RasterType = "srgb_8", Smoothing = false },
+            cancellationToken);
+        AssertSmoothing(Assert.Single(smoothed), Assert.Single(sharp), engine);
+        sheet.Add(RasterCatalogue.Scenarios[8], smoothed);
+        sheet.Add(RasterCatalogue.Scenarios[9], sharp);
+
+        // The media is named and sized, and the document still wins: the page is its own
+        // media, so it is neither fitted nor moved.
+        var fromDocument = await RenderAsync(
+            converter,
+            pdf,
+            FirstPage() with
+            {
+                RasterType = "srgb_8",
+                MediaWidthPixels = LabelWidthPixels,
+                MediaHeightPixels = LabelHeightPixels,
+                MediaSizeSource = MediaSizeSource.Document,
+            },
+            cancellationToken);
+        var own = Assert.Single(fromDocument);
+        Assert.Equal(page.Width, own.Width);
+        Assert.Equal(page.Height, own.Height);
+        Assert.Equal(page.Pixels, own.Pixels);
+        sheet.Add(RasterCatalogue.Scenarios[10], fromDocument);
+    }
+
+    private static PrintConversionContext FirstPage() =>
+        new(PrinterContentTypes.Pdf, PrinterContentTypes.PwgRaster, Dpi, [new PageRange(1, 1)], "scenario");
+
+    private static void AssertFitted(PwgRasterReader.RasterPage fitted)
+    {
+        // The printer receives the media, not the page: that is what the composition is for.
+        Assert.Equal(LabelWidthPixels, fitted.Width);
+        Assert.Equal(LabelHeightPixels, fitted.Height);
+
+        // A4 is narrower than four by six is, so the fit is decided by the width and the
+        // page leaves white above and below rather than beside.
+        var scale = (double)LabelWidthPixels / RasterDocuments.WidthPoints;
+        var covered = (int)(RasterDocuments.HeightPoints * scale);
+        Assert.True(covered < LabelHeightPixels, "The fitted page should not fill the label.");
+
+        var margin = (LabelHeightPixels - covered) / 2;
+        Assert.True(IsWhite(PixelAt(fitted, LabelWidthPixels / 2, margin / 2)), "The top margin is not the stock.");
+        Assert.True(IsWhite(PixelAt(fitted, LabelWidthPixels / 2, LabelHeightPixels - (margin / 2) - 1)), "The bottom margin is not the stock.");
+
+        // The band is the top of the page, so it is inside the fitted rectangle and not in
+        // the margin above it.
+        Assert.False(IsWhite(PixelAt(fitted, LabelWidthPixels / 2, margin + 10)), "The fitted page did not start below the margin.");
+    }
+
+    private static void AssertAnchored(PwgRasterReader.RasterPage anchored, PwgRasterReader.RasterPage page)
+    {
+        Assert.Equal(page.Width + 200, anchored.Width);
+        Assert.Equal(page.Height + 200, anchored.Height);
+
+        var offsetX = PrintLength.FromMillimeters(5).ToPixels(Dpi);
+        var offsetY = PrintLength.FromMillimeters(3).ToPixels(Dpi);
+
+        // Everything above and left of the offset is stock, which is what the anchor and the
+        // offset together mean.
+        Assert.True(IsWhite(PixelAt(anchored, offsetX / 2, offsetY / 2)), "The corner before the offset is not the stock.");
+
+        // And the page starts exactly there: its first line is the band, which is not white.
+        Assert.False(IsWhite(PixelAt(anchored, offsetX + 10, offsetY + 10)), "The page did not start at the offset.");
+
+        // The barcode moved with it. It is measured rather than looked for, because a symbol
+        // one pixel out is a symbol a scanner reads and a person does not notice.
+        var moved = ScanBarcode(anchored, page.Height, offsetY);
+        var still = ScanBarcode(page, page.Height, 0);
+        Assert.Equal(still.DarkRuns, moved.DarkRuns);
+        Assert.Equal(still.FirstDarkPixel + offsetX, moved.FirstDarkPixel);
+    }
+
+    private static void AssertSmoothing(PwgRasterReader.RasterPage smoothed, PwgRasterReader.RasterPage sharp, string engine)
+    {
+        Assert.Equal(smoothed.Width, sharp.Width);
+
+        var bars = Barcode.BarCount(RasterDocuments.BarcodeDigits(0));
+        var withSmoothing = ScanBarcode(smoothed, smoothed.Height, 0);
+        var without = ScanBarcode(sharp, sharp.Height, 0);
+
+        // Both read the symbol: the switch changes the edges and never the bars.
+        Assert.Equal(bars, withSmoothing.DarkRuns);
+        Assert.Equal(bars, without.DarkRuns);
+
+        // The bars themselves are hard either way. Worth stating rather than assuming: a
+        // page rendered for printing is already drawn without path anti-aliasing, so the
+        // switch is not what makes a bar edge sharp -- rendering at the size it prints at is.
+        Assert.Equal(0, withSmoothing.SoftPixels);
+        Assert.Equal(0, without.SoftPixels);
+
+        if (engine != RasterCatalogue.Pdfium)
+        {
+            // The in-box Windows engine takes no smoothing flag, so there is nothing more to
+            // assert about it. The sheet still shows both, which is the comparison.
+            return;
+        }
+
+        // Where the switch does show is the text, and this is the whole measurement: with
+        // smoothing off not one pixel of the page is left between ink and stock, so the
+        // printer has nothing to halftone and a thermal head nothing to guess at.
+        var pageWithSmoothing = BarcodeScan.SoftPixels(smoothed.Pixels, smoothed.Width, smoothed.Height, smoothed.BytesPerPixel);
+        var pageWithout = BarcodeScan.SoftPixels(sharp.Pixels, sharp.Width, sharp.Height, sharp.BytesPerPixel);
+
+        Assert.Equal(0, pageWithout);
+        Assert.True(pageWithSmoothing > 0, "Smoothing on should leave grey pixels somewhere on the page, and this one has none.");
+    }
+
+    // The line through the middle of the barcode. The symbol is placed in points from the
+    // bottom of the page, so the row is measured from the top and scaled by how tall the page
+    // rendered, which is not always the resolution asked for. A page composed onto a larger
+    // media is the same page shifted down, so the shift is added and not scaled.
+    private static ScanLine ScanBarcode(PwgRasterReader.RasterPage scanned, int pageHeight, int shiftDown)
+    {
+        var fromTopPoints = RasterDocuments.HeightPoints
+            - RasterDocuments.BarcodeBottomPoints
+            - (Barcode.HeightPoints / 2);
+        var row = shiftDown + (int)(pageHeight * fromTopPoints / RasterDocuments.HeightPoints);
+        return BarcodeScan.Read(scanned.Pixels, scanned.Width, scanned.BytesPerPixel, row);
+    }
+
+    private static bool IsWhite(byte[] pixel) => Array.TrueForAll(pixel, value => value > 240);
 
     private static PrintConversionContext Context() =>
         new(PrinterContentTypes.Pdf, PrinterContentTypes.PwgRaster, Dpi, null, "scenario");

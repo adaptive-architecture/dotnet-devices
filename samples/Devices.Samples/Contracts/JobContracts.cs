@@ -40,6 +40,29 @@ internal sealed class PrintOptionsDto
 
     public int? NumberUp { get; set; }
 
+    // Where the page lands on the stock. The anchor says what the offsets are measured from,
+    // and without one an offset means nothing. Millimetres, because that is what a person
+    // measures on a label with a ruler; the library holds them as a physical length so a
+    // change of resolution does not move the print.
+    public string Anchor { get; set; }
+
+    public double? OffsetXMillimeters { get; set; }
+
+    public double? OffsetYMillimeters { get; set; }
+
+    // Off keeps the edge of a barcode hard. Null is the engine default, which smooths.
+    public bool? Smoothing { get; set; }
+
+    // A media size the printer has no name for, in millimetres. Ignored when MediaSize names
+    // one the printer knows.
+    public double? MediaWidthMillimeters { get; set; }
+
+    public double? MediaHeightMillimeters { get; set; }
+
+    // "Printer" or "Document". Document is the label generator's case: the page is its own
+    // media, so nothing is fitted, moved or resampled.
+    public string MediaSizeSource { get; set; }
+
     public string JobName { get; set; }
 
     // Throws FormatException with the name of the property that is wrong. The caller turns
@@ -63,9 +86,48 @@ internal sealed class PrintOptionsDto
             PageRanges = ParseRanges(PageRanges),
             ConverterName = Trim(Converter),
             JobName = Trim(JobName) ?? jobName,
+            Smoothing = Smoothing,
+            Placement = ParsePlacement(),
+            MediaDimensions = ParseMediaDimensions(),
+            MediaSizeSource = ParseEnum<MediaSizeSource>(MediaSizeSource, nameof(MediaSizeSource)) ?? AdaptArch.Devices.Printing.MediaSizeSource.Printer,
         };
 
         return options;
+    }
+
+    // Nothing set means no placement at all, so a job that says nothing keeps the centred
+    // layout every page has had until now.
+    private PrintPlacement ParsePlacement()
+    {
+        var anchor = ParseEnum<PrintAnchor>(Anchor, nameof(Anchor));
+        if (anchor is null && OffsetXMillimeters is null && OffsetYMillimeters is null)
+        {
+            return null;
+        }
+
+        return new PrintPlacement
+        {
+            Anchor = anchor ?? PrintAnchor.Center,
+            OffsetX = PrintLength.FromMillimeters(OffsetXMillimeters ?? 0),
+            OffsetY = PrintLength.FromMillimeters(OffsetYMillimeters ?? 0),
+        };
+    }
+
+    // Both sides or neither: half a media size is not a media size.
+    private MediaDimensions ParseMediaDimensions()
+    {
+        if (MediaWidthMillimeters is null && MediaHeightMillimeters is null)
+        {
+            return null;
+        }
+
+        if (MediaWidthMillimeters is not double width || MediaHeightMillimeters is not double height || width <= 0 || height <= 0)
+        {
+            throw new FormatException(
+                $"'{nameof(MediaWidthMillimeters)}' and '{nameof(MediaHeightMillimeters)}' are set together, and both are more than zero.");
+        }
+
+        return new MediaDimensions(PrintLength.FromMillimeters(width), PrintLength.FromMillimeters(height));
     }
 
     private static string Trim(string value) => String.IsNullOrWhiteSpace(value) ? null : value.Trim();

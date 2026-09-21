@@ -1,0 +1,83 @@
+{
+  "name": "PDF placement",
+  "description": "Where a PDF page lands on the media, and how sharply it is drawn. None of these four is a print option in the protocol sense: each is geometry applied while the page becomes pixels, so each job here is converted even where the printer reads PDF itself. Print the set on the stock you actually use and measure it with a ruler: the first job is the reference, the next four move the same page into each corner, and the last three change what is drawn rather than where. On a printer that reads PWG Raster the placement is already in the bytes; on a Windows spooler queue the page is placed as it is drawn.",
+  "mode": "queue",
+  "jobs": [
+    {
+      "file": "pages.pdf",
+      "description": "page 1 centred, which is what every job did before there was a placement: the reference sheet to measure the others against",
+      "options": {
+        "pageRanges": "1",
+        "scaling": "Fit"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "the same page against the top left corner of the stock, which is how a label is registered",
+      "options": {
+        "pageRanges": "1",
+        "scaling": "Fit",
+        "anchor": "TopLeft"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "top left, then 5 mm right and 3 mm down: the correction a printer that lays its stock off its own origin needs",
+      "options": {
+        "pageRanges": "1",
+        "scaling": "Fit",
+        "anchor": "TopLeft",
+        "offsetXMillimeters": 5,
+        "offsetYMillimeters": 3
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "bottom right, to show the anchor is the corner and not a direction: the same offset now moves the page off the stock, and what fits is printed",
+      "options": {
+        "pageRanges": "1",
+        "scaling": "Fit",
+        "anchor": "BottomRight",
+        "offsetXMillimeters": 5,
+        "offsetYMillimeters": 3
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "the page at its own size, not fitted, so the fit mode and the placement can be told apart on the sheet",
+      "options": {
+        "pageRanges": "1",
+        "scaling": "None",
+        "anchor": "TopLeft"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "smoothing off: the barcode edges arrive hard rather than as a grey ramp the printer has to halftone",
+      "options": {
+        "pageRanges": "1",
+        "scaling": "Fit",
+        "smoothing": false
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "the media taken from the document: the page is its own media, so nothing is fitted, moved or resampled and the bars are as sharp as the engine can draw them",
+      "options": {
+        "pageRanges": "1",
+        "mediaSizeSource": "Document"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "a media size the printer has no name for: 100 by 150 mm, which is the four by six inch label in millimetres",
+      "options": {
+        "pageRanges": "1",
+        "scaling": "Fit",
+        "anchor": "TopLeft",
+        "mediaWidthMillimeters": 100,
+        "mediaHeightMillimeters": 150
+      }
+    }
+  ]
+}

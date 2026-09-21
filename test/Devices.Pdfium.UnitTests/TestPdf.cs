@@ -19,6 +19,27 @@ internal static class TestPdf
     /// </remarks>
     public static byte[] RedSquare() => Build("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 72 72] /Contents 4 0 R >>", "1 0 0 rg 0 0 72 72 re f");
 
+    /// <summary>
+    /// One page of four inches by two, with a barcode on it and nothing else.
+    /// </summary>
+    /// <remarks>
+    /// The size is label stock, and the symbol is what a test measures: its bars have known
+    /// widths, so how sharp an edge is and where the first bar landed are both arithmetic.
+    /// <see cref="Rasterization.Barcode"/> says why it is Interleaved 2 of 5.
+    /// </remarks>
+    public static byte[] Barcode(string digits = "0042")
+    {
+        // 288 by 144 points is 4 by 2 inches, the commonest shipping label.
+        var content = Rasterization.Barcode.Draw(digits, BarcodeLeftPoints, BarcodeBottomPoints);
+        return Build("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 288 144] /Contents 4 0 R >>", content);
+    }
+
+    /// <summary>The left edge of the barcode <see cref="Barcode"/> draws, in points.</summary>
+    public const double BarcodeLeftPoints = 24;
+
+    /// <summary>The bottom edge of the barcode <see cref="Barcode"/> draws, in points.</summary>
+    public const double BarcodeBottomPoints = 36;
+
     /// <summary>US Letter, 612 by 792 points, with a line of text on each page.</summary>
     public static byte[] WithPages(int pageCount)
     {

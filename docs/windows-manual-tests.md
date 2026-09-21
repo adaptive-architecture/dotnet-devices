@@ -392,3 +392,35 @@ turns on. Get it wrong and every second page is upside down or mirrored, with no
   before the IPP request is built, so the failure is the same `InvalidOperationException`
   as on the spooler — but it is worth confirming on this path as well, because it is the
   path where a half-written document would be sent rather than dropped.
+
+### 11. Placement, on the stock the customer uses
+
+**Why by hand.** The fit, the anchor and the offset are arithmetic with unit tests, and the
+composition has its own. What no test on any machine can tell you is whether the page came out
+where a ruler says it should: a label a millimetre out is a rejected parcel, and the only
+instrument for that is a ruler on the real stock.
+
+Print `PrintJobs/pdf-placement.json` through a spooler queue, and the same set through an IPP
+queue if one is reachable. The two paths place a page by different means — GDI draws it on
+Windows, a composed raster carries it over IPP — so agreeing on paper is the thing worth
+proving.
+
+- **The reference sheet** is the first job, centred. Measure the margins on all four sides;
+  they are what every other sheet is compared against.
+- **The anchored sheet** must sit against the top left corner of the printable area, with the
+  two margins there as small as the printer allows and the slack on the other two sides.
+- **The offset sheet** must be exactly 5 mm right and 3 mm down of the anchored one. Measure
+  it, do not judge it. This is the number a customer will send you when it is wrong.
+- **The bottom right sheet** proves the anchor is a corner and not a direction: the same
+  offset now pushes the page off the stock, and what fits must print with no error.
+- **The smoothing sheet** must show hard bar edges. Scan the barcode with a real scanner, at
+  the distance an operator would. Compare against the job before it.
+- **The document media sheet** must print the page at exactly the size the PDF declares. This
+  is the one where a wrong answer is obvious with a ruler: an A4 page must measure 210 by
+  297 mm.
+- **The custom media sheet** asks for 100 by 150 mm. Confirm the driver took it, and write
+  down what the queue reported afterwards. On a queue whose driver refuses custom sizes the
+  option is reported in `DroppedOptions`, which is the right answer and not a failure.
+
+Write down the printer, the stock and every measurement. A sheet without its measurements
+proves nothing a photograph would not.

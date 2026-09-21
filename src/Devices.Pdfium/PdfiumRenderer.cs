@@ -17,9 +17,15 @@ internal static class PdfiumRenderer
     private const int GrayFormat = 1;
     private const int BgrFormat = 2;
 
-    // public/fpdfview.h FPDF_PRINTING: render as the page would print rather than as it
-    // would appear on screen, which is what this library is for.
-    private const int PrintingFlag = 0x800;
+    // Render as the page would print rather than as it would appear on screen, which is what
+    // this library is for. The names are PDFiumCore's for the FPDF_* flags of fpdfview.h.
+    private const int PrintingFlags = (int)RenderFlags.RenderForPrinting;
+
+    // Everything PDFium smooths. Text also loses its LCD optimization, which is a screen
+    // trick that means nothing on paper.
+    private const int NoSmoothingFlags = (int)RenderFlags.DisableTextAntialiasing
+        | (int)RenderFlags.DisableImageAntialiasing
+        | (int)RenderFlags.DisablePathAntialiasing;
 
     // Opaque white, as FPDFBitmapFillRect takes it: alpha, red, green, blue.
     private const ulong White = 0xFFFFFFFF;
@@ -32,24 +38,20 @@ internal static class PdfiumRenderer
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static bool s_initialized;
 
-    // One page of raw pixels, packed with no padding between the lines.
-    internal readonly record struct RasterPage(byte[] Pixels, int Width, int Height);
-
     // Renders the selected pages in document order. PageRanges is the 1-based option the
     // caller set; null renders the whole document.
-    internal static async Task<IReadOnlyList<RasterPage>> RenderAsync(
+    internal static async Task<IReadOnlyList<PdfPage>> RenderAsync(
         byte[] pdf,
-        int dpi,
-        IReadOnlyList<PageRange>? ranges,
-        PwgRasterColorSpace colorSpace,
+        PdfRenderOptions options,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(pdf);
+        ArgumentNullException.ThrowIfNull(options);
 
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return Render(pdf, dpi, ranges, colorSpace, cancellationToken);
+            return Render(pdf, options, cancellationToken);
         }
         finally
         {
@@ -57,12 +59,7 @@ internal static class PdfiumRenderer
         }
     }
 
-    private static List<RasterPage> Render(
-        byte[] pdf,
-        int dpi,
-        IReadOnlyList<PageRange>? ranges,
-        PwgRasterColorSpace colorSpace,
-        CancellationToken cancellationToken)
+    private static List<PdfPage> Render(byte[] pdf, PdfRenderOptions options, CancellationToken cancellationToken)
     {
         if (!s_initialized)
         {
@@ -73,7 +70,8 @@ internal static class PdfiumRenderer
             s_initialized = true;
         }
 
-        dpi = PdfiumLimits.ClampDpi(dpi);
+        var dpi = PdfiumLimits.ClampDpi(options.Dpi);
+        var flags = options.Smoothing ? PrintingFlags : PrintingFlags | NoSmoothingFlags;
 
         // FPDF_LoadMemDocument64 does not copy, and PDFium reads the buffer for as long as
         // the document is open, so the bytes stay pinned until it is closed.
@@ -94,17 +92,17 @@ internal static class PdfiumRenderer
                 throw new InvalidOperationException("The PDF has no pages to print.");
             }
 
-            var selected = PageRange.Select(pageCount, ranges);
+            var selected = PageRange.Select(pageCount, options.PageRanges);
             if (selected.Count == 0)
             {
                 throw new InvalidOperationException("The page ranges select no page of this PDF.");
             }
 
-            List<RasterPage> rendered = new(selected.Count);
+            List<PdfPage> rendered = new(selected.Count);
             foreach (var index in selected)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                rendered.Add(RenderPage(document, index, dpi, colorSpace));
+                rendered.Add(RenderPage(document, index, dpi, options.ColorSpace, flags));
             }
 
             return rendered;
@@ -120,7 +118,7 @@ internal static class PdfiumRenderer
         }
     }
 
-    private static RasterPage RenderPage(FpdfDocumentT document, int index, int dpi, PwgRasterColorSpace colorSpace)
+    private static PdfPage RenderPage(FpdfDocumentT document, int index, int dpi, PwgRasterColorSpace colorSpace, int flags)
     {
         using FS_SIZEF_ size = new();
         if (fpdfview.FPDF_GetPageSizeByIndexF(document, index, size) == 0)
@@ -156,7 +154,7 @@ internal static class PdfiumRenderer
                     $"The PDF page {index + 1} could not be read. PDFium reported error {fpdfview.FPDF_GetLastError()}.");
             }
 
-            fpdfview.FPDF_RenderPageBitmap(bitmap, page, 0, 0, width, height, NoRotation, PrintingFlag);
+            fpdfview.FPDF_RenderPageBitmap(bitmap, page, 0, 0, width, height, NoRotation, flags);
         }
         finally
         {
@@ -178,7 +176,7 @@ internal static class PdfiumRenderer
             SwapBlueAndRed(pixels);
         }
 
-        return new RasterPage(pixels, width, height);
+        return new PdfPage(pixels, width, height, colorSpace, size.Width, size.Height);
     }
 
     // PDFium writes blue, green, red; both encoders read red, green, blue. The green stays

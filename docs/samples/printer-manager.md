@@ -25,8 +25,9 @@ The four tabs are:
   `PrinterDevice.Accepts` and warns when the channel says it does not read the format.
 - **Job sets** — the scripted hardware test. A job set is a JSON file; the sample ships
   `PrintJobs/queue-sweep.json` (five documents through one queue, each changing one option
-  from the job before it) and `PrintJobs/raw-sweep.json` (a JPEG, a ZPL label and an EPL
-  label, unchanged). A set can also be uploaded, so the same test runs on Windows, Linux and
+  from the job before it), `PrintJobs/raw-sweep.json` (a JPEG, a ZPL label and an EPL
+  label, unchanged) and `PrintJobs/pdf-placement.json` (where a page lands on the media, one
+  option a sheet, to be measured rather than judged). A set can also be uploaded, so the same test runs on Windows, Linux and
   macOS and the results compare job by job. The run ends with a summary of what became of
   each job. The set is edited in the browser: one tab per job, named by the file it prints,
   with the same option controls the print tab builds from what the channel reported, and jobs
@@ -67,6 +68,23 @@ its warnings, so what scrolls past is the address, and then what the library say
 written as its name and `pageRanges` written as `"1-3,5"`. `contentType` overrides what the
 file extension says. The target printer is not in the set: the printer is what differs
 between two machines, so the person selects it in the browser.
+
+The placement options are written in millimetres, because that is what a person measures on a
+label: `anchor` is one of the nine positions on the sheet, `offsetXMillimeters` and
+`offsetYMillimeters` move the page from there, `smoothing` is `false` for a hard barcode edge,
+`mediaWidthMillimeters` and `mediaHeightMillimeters` give a size the printer has no name for,
+and `mediaSizeSource` is `Document` to make the page its own media. The shipped
+**PDF placement** set prints them one per sheet, to be measured with a ruler on real stock:
+
+```json
+{ "file": "pages.pdf",
+  "description": "top left, then 5 mm right and 3 mm down",
+  "options": { "pageRanges": "1", "scaling": "Fit", "anchor": "TopLeft",
+               "offsetXMillimeters": 5, "offsetYMillimeters": 3 } }
+```
+
+A job that carries a placement or asks for the document's own media size is converted even
+where the printer reads the file itself, because a page nobody renders cannot be moved.
 
 `converter` names the engine that renders a document, where the build registered more than
 one. It maps to `PrintOptions.ConverterName`, which also forces the conversion: an IPP printer

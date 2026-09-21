@@ -42,6 +42,28 @@
         "colorMode": "Monochrome",
         "duplex": "ShortEdge"
       }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "PDFium: page 1 anchored top left with smoothing off, which is the comparison sheet for the placement",
+      "options": {
+        "converter": "PDFium",
+        "pageRanges": "1",
+        "scaling": "Fit",
+        "anchor": "TopLeft",
+        "smoothing": false
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "Windows in-box engine: the same page and the same placement. The placement is the library's and matches; the smoothing switch is the engine's and this one has none, so its bars stay smoothed.",
+      "options": {
+        "converter": "Windows",
+        "pageRanges": "1",
+        "scaling": "Fit",
+        "anchor": "TopLeft",
+        "smoothing": false
+      }
     }
   ]
 }

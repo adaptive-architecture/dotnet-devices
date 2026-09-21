@@ -49,6 +49,10 @@ internal interface IWindowsGdiInterop
 
     int SetPageUnit(nint graphics, int unit);
 
+    int SetInterpolationMode(nint graphics, int mode);
+
+    int SetPixelOffsetMode(nint graphics, int mode);
+
     int DeleteGraphics(nint graphics);
 
     int DrawImageRect(nint graphics, nint image, int x, int y, int width, int height);

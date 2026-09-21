@@ -80,6 +80,14 @@ internal sealed class WindowsGdiInteropAdapter : IWindowsGdiInterop
         WindowsGdiInterop.SetPageUnit(graphics, unit);
 
     [SupportedOSPlatform("windows")]
+    public int SetInterpolationMode(nint graphics, int mode) =>
+        WindowsGdiInterop.SetInterpolationMode(graphics, mode);
+
+    [SupportedOSPlatform("windows")]
+    public int SetPixelOffsetMode(nint graphics, int mode) =>
+        WindowsGdiInterop.SetPixelOffsetMode(graphics, mode);
+
+    [SupportedOSPlatform("windows")]
     public int DeleteGraphics(nint graphics) =>
         WindowsGdiInterop.DeleteGraphics(graphics);
 

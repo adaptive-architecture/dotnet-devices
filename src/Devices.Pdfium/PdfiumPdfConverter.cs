@@ -9,6 +9,9 @@ namespace AdaptArch.Devices.Pdfium;
 // It writes two formats, because the two channels that convert want different things: the
 // Windows spooler draws PNG pages through GDI, and an IPP printer reads PWG Raster and
 // never PNG. The target the context names decides which.
+//
+// It renders through PdfiumDocument, the package's public entry point, so that the surface
+// an application places a page with is proved by a caller inside the library.
 internal sealed class PdfiumPdfConverter : IPrintPayloadConverter
 {
     // The engine, not the package: a job names what renders it, and this reads the same
@@ -40,15 +43,16 @@ internal sealed class PdfiumPdfConverter : IPrintPayloadConverter
         CancellationToken cancellationToken)
     {
         var dpi = PdfiumLimits.ClampDpi(context.Dpi);
-        var pages = await PdfiumRenderer
-            .RenderAsync(data, dpi, context.PageRanges, PwgRasterColorSpace.Srgb8, cancellationToken)
+        var pages = await PdfiumDocument
+            .RenderAsync(data, Options(context, dpi, PwgRasterColorSpace.Srgb8), cancellationToken)
             .ConfigureAwait(false);
 
         List<byte[]> images = new(pages.Count);
         foreach (var page in pages)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            images.Add(PngWriter.Encode(page.Pixels, page.Width, page.Height, PngColorType.Rgb8, dpi));
+            var placed = Place(page, context);
+            images.Add(PngWriter.Encode(placed.Pixels, placed.Width, placed.Height, PngColorType.Rgb8, dpi));
         }
 
         return images;
@@ -64,8 +68,8 @@ internal sealed class PdfiumPdfConverter : IPrintPayloadConverter
     {
         var dpi = PdfiumLimits.ClampDpi(context.Dpi);
         var colorSpace = PwgRaster.ColorSpaceFor(context.RasterType);
-        var pages = await PdfiumRenderer
-            .RenderAsync(data, dpi, context.PageRanges, colorSpace, cancellationToken)
+        var pages = await PdfiumDocument
+            .RenderAsync(data, Options(context, dpi, colorSpace), cancellationToken)
             .ConfigureAwait(false);
 
         await using MemoryStream document = new();
@@ -76,14 +80,32 @@ internal sealed class PdfiumPdfConverter : IPrintPayloadConverter
             TotalPageCount = pages.Count,
             Duplex = context.Duplex,
             SheetBack = PwgRaster.SheetBackFor(context.SheetBack),
+            MediaName = context.MediaName,
         });
 
         foreach (var page in pages)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            writer.WritePage(page.Pixels, page.Width, page.Height);
+            var placed = Place(page, context);
+            writer.WritePage(placed.Pixels, placed.Width, placed.Height);
         }
 
         return [document.ToArray()];
     }
+
+    private static PdfRenderOptions Options(PrintConversionContext context, int dpi, PwgRasterColorSpace colorSpace) =>
+        new()
+        {
+            Dpi = dpi,
+            PageRanges = context.PageRanges,
+            ColorSpace = colorSpace,
+            Smoothing = context.Smoothing != false,
+        };
+
+    // A channel that named its media gets a page the size of that media, with the fit, the
+    // anchor and the offset already in the pixels. One that named none gets the page as it
+    // was rendered, and places it itself.
+    private static ComposedPage Place(PdfPage page, PrintConversionContext context) =>
+        RasterPlacement.Place(page.Pixels, page.Width, page.Height, page.BytesPerPixel, context)
+        ?? new ComposedPage(page.Pixels, page.Width, page.Height);
 }

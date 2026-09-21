@@ -186,7 +186,10 @@ internal sealed class WindowsGdiImagePrinter : IWindowsGdiImagePrinter
                 page.Height,
                 job.Orientation,
                 job.Scaling,
-                page.Borderless);
+                page.Borderless,
+                job.Placement,
+                page.DpiX,
+                page.DpiY);
             if (layout.IsEmpty)
             {
                 throw new InvalidOperationException(
@@ -201,6 +204,16 @@ internal sealed class WindowsGdiImagePrinter : IWindowsGdiImagePrinter
             pageStarted = true;
             _ = CheckGdiplus(_gdi.CreateGraphics(deviceContext, out graphics), queueName);
             _ = CheckGdiplus(_gdi.SetPageUnit(graphics, WindowsGdiInterop.UnitPixel), queueName);
+
+            // A job that asked for no smoothing takes the nearest source pixel, which is what
+            // keeps the edge of a bar hard when the driver scales the page.
+            if (job.Smoothing == false)
+            {
+                _ = CheckGdiplus(
+                    _gdi.SetInterpolationMode(graphics, WindowsGdiInterop.InterpolationNearestNeighbor),
+                    queueName);
+                _ = CheckGdiplus(_gdi.SetPixelOffsetMode(graphics, WindowsGdiInterop.PixelOffsetHalf), queueName);
+            }
 
             var angle = WindowsGdiImageLayout.RotationDegrees(job.Orientation);
             if (angle != 0f)
@@ -309,7 +322,14 @@ internal sealed record WindowsGdiJob(
 
     // The resolution every page was rendered at, for a job whose pages a converter
     // made. Null for a file the caller sent, whose own resolution GDI+ reads instead.
-    int? SourceDpi = null);
+    int? SourceDpi = null,
+
+    // Where the page lands on the sheet. The offsets are physical, so they are turned into
+    // pixels against the resolution the device reports and not the one the page was made at.
+    PrintPlacement? Placement = null,
+
+    // Whether GDI+ smooths the page as it scales it. Null is the GDI+ default, which smooths.
+    bool? Smoothing = null);
 
 // The printable area of one device page: its size in device pixels, and the dots an
 // inch those pixels stand for. Both are read once a job, because a device mode does

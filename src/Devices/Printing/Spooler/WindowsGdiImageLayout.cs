@@ -1,7 +1,8 @@
 ﻿namespace AdaptArch.Devices.Printing.Spooler;
 
-// Sizes and positions one image on one GDI printer page, in device pixels.
-// P/Invoke-free on purpose, so the fit math is testable on any platform.
+// What GDI+ itself needs to know about an orientation. The sizing and the positioning live
+// in ImagePlacement, which is public and platform-free, so the spooler path and a converter
+// place a page with one arithmetic instead of two that drift.
 internal static class WindowsGdiImageLayout
 {
     // GDI+ world-transform rotation is clockwise. IPP orientation-requested is
@@ -26,30 +27,11 @@ internal static class WindowsGdiImageLayout
         return 0f;
     }
 
-    // A 90-degree turn swaps the axes the fit is judged on.
-    internal static bool IsSideways(PrintOrientation? orientation) =>
-        orientation is PrintOrientation.Landscape or PrintOrientation.ReverseLandscape;
+    internal static bool IsSideways(PrintOrientation? orientation) => ImagePlacement.IsSideways(orientation);
 
-    // How many device pixels one side of the image covers when it prints at its own
-    // size: its pixels read at the resolution the source declares, and written at the
-    // resolution of the device. Every mode takes this size, because the shape it gives
-    // is the shape the source really has, which a pixel count alone does not carry,
-    // and because Auto and AutoFit decide on whether that size fits the page.
-    //
-    // CUPS does the same on the Linux side, but it assumes 200 dots an inch for a file
-    // that declares nothing, while GDI+ answers 96 for such a file and cannot tell it
-    // apart from one that declares 96. So the same bare file prints smaller here.
     internal static int NaturalPixels(int imagePixels, double sourceDpi, int deviceDpi) =>
-        imagePixels > 0 && sourceDpi > 0 && deviceDpi > 0
-            ? Math.Max(1, (int)Math.Round(imagePixels * deviceDpi / sourceDpi))
-            : imagePixels;
+        ImagePlacement.NaturalPixels(imagePixels, sourceDpi, deviceDpi);
 
-    // The destination rectangle of the image, centered, in the frame the caller draws
-    // in: that is, after the rotation, where the image keeps its own axes. The page is
-    // the printable area from GetDeviceCaps(HORZRES, VERTRES), so no margin math
-    // lives here; borderless says whether that area is the whole sheet, which is the
-    // one thing Auto needs of the margins. Returns empty when either side has no size
-    // to fit.
     internal static ImageRectangle Compute(
         int imageWidth,
         int imageHeight,
@@ -57,87 +39,24 @@ internal static class WindowsGdiImageLayout
         int pageHeight,
         PrintOrientation? orientation,
         PrintScaling? scaling,
-        bool borderless = false)
-    {
-        if (imageWidth <= 0 || imageHeight <= 0 || pageWidth <= 0 || pageHeight <= 0)
-        {
-            return ImageRectangle.Empty;
-        }
+        bool borderless = false,
+        PrintPlacement? placement = null,
+        int dpiX = 0,
+        int dpiY = 0) =>
+        ImagePlacement.Compute(
+            imageWidth,
+            imageHeight,
+            pageWidth,
+            pageHeight,
+            orientation,
+            scaling,
+            borderless,
+            placement?.Anchor ?? PrintAnchor.Center,
+            Pixels(placement?.OffsetX, dpiX),
+            Pixels(placement?.OffsetY, dpiY));
 
-        var sideways = IsSideways(orientation);
-        var fittedWidth = sideways ? imageHeight : imageWidth;
-        var fittedHeight = sideways ? imageWidth : imageHeight;
-        var fits = fittedWidth <= pageWidth && fittedHeight <= pageHeight;
-
-        // An unset option means the printer default, and PWG 5100.16 names Auto as
-        // that default.
-        var mode = Resolve(scaling ?? PrintScaling.Auto, fits, borderless);
-        (var width, var height) = Size(mode, fits, fittedWidth, fittedHeight, pageWidth, pageHeight);
-
-        // The fit above judged the footprint the turned image leaves on the page. The
-        // draw happens after the rotation, where the image keeps its own axes, so the
-        // sides go back. Drawing the page-side footprint instead would squeeze the
-        // image into an inverted aspect ratio.
-        var drawWidth = sideways ? height : width;
-        var drawHeight = sideways ? width : height;
-
-        // The page center is the fixed point of the rotation, so a rectangle centered
-        // there stays centered on the page.
-        var x = (pageWidth - drawWidth) / 2.0;
-        var y = (pageHeight - drawHeight) / 2.0;
-        return new ImageRectangle((int)Math.Round(x), (int)Math.Round(y), (int)Math.Round(drawWidth), (int)Math.Round(drawHeight));
-    }
-
-    // PWG 5100.16: a document smaller than the media keeps its own size, and a larger
-    // one fits inside the margins, or fills a sheet that has none. Every other mode
-    // says what it wants and passes through.
-    private static PrintScaling Resolve(PrintScaling mode, bool fits, bool borderless)
-    {
-        if (mode != PrintScaling.Auto)
-        {
-            return mode;
-        }
-
-        if (fits)
-        {
-            return PrintScaling.None;
-        }
-
-        return borderless ? PrintScaling.Fill : PrintScaling.Fit;
-    }
-
-    // What the image measures on the page, before the rotation puts its axes back.
-    // None is the natural size, centered, and a larger image is clipped by the driver;
-    // AutoFit is None for an image that fits and Fit for one that does not.
-    private static (double Width, double Height) Size(
-        PrintScaling mode,
-        bool fits,
-        int fittedWidth,
-        int fittedHeight,
-        int pageWidth,
-        int pageHeight)
-    {
-        if (mode == PrintScaling.Fill)
-        {
-            var fill = Math.Max((double)pageWidth / fittedWidth, (double)pageHeight / fittedHeight);
-            return (fittedWidth * fill, fittedHeight * fill);
-        }
-
-        if (mode == PrintScaling.Fit || (mode == PrintScaling.AutoFit && !fits))
-        {
-            var fit = Math.Min((double)pageWidth / fittedWidth, (double)pageHeight / fittedHeight);
-            return (fittedWidth * fit, fittedHeight * fit);
-        }
-
-        return (fittedWidth, fittedHeight);
-    }
-}
-
-// A device-pixel rectangle. X and Y can be negative when the image is larger
-// than the page, which is how clipping is expressed to GDI+.
-internal readonly record struct ImageRectangle(int X, int Y, int Width, int Height)
-{
-    internal static readonly ImageRectangle Empty = new(0, 0, 0, 0);
-
-    internal bool IsEmpty => Width <= 0 || Height <= 0;
+    // A placement with no resolution to measure against moves nothing: the caller has the
+    // device context, and a page that shifted by a guess is worse than one that did not.
+    private static int Pixels(PrintLength? offset, int dpi) =>
+        offset is PrintLength length && dpi > 0 ? length.ToPixels(dpi) : 0;
 }

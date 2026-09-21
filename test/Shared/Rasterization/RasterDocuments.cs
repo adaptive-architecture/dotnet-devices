@@ -32,6 +32,19 @@ internal static class RasterDocuments
     /// <summary>How wide the black corner block is, in points.</summary>
     internal const double CornerPoints = 60;
 
+    /// <summary>The left edge of the barcode on every page, in points.</summary>
+    internal const double BarcodeLeftPoints = 300;
+
+    /// <summary>The bottom edge of the barcode on every page, in points.</summary>
+    internal const double BarcodeBottomPoints = 150;
+
+    /// <summary>
+    /// The digits each page's barcode carries: the page number, in four digits.
+    /// </summary>
+    /// <param name="page">The 0-based page.</param>
+    /// <returns>The digits.</returns>
+    internal static string BarcodeDigits(int page) => (page + 1).ToString("D4", CultureInfo.InvariantCulture);
+
     /// <summary>
     /// The colour of each page's band, in red, green, blue order.
     /// </summary>
@@ -52,7 +65,7 @@ internal static class RasterDocuments
 
     /// <summary>
     /// Four A4 pages, each with a coloured band along the top, a black block in the
-    /// bottom-left corner and its own page number.
+    /// bottom-left corner, its own page number and a barcode carrying that number.
     /// </summary>
     internal static byte[] FourPages()
     {
@@ -160,6 +173,7 @@ internal static class RasterDocuments
             CultureInfo.InvariantCulture,
             $"{colour} 0 {HeightPoints - BandPoints} {WidthPoints} {BandPoints} re f\n"
             + $"0 0 0 rg 0 0 {CornerPoints} {CornerPoints} re f\n"
-            + $"BT /F1 300 Tf 200 350 Td ({page + 1}) Tj ET");
+            + $"BT /F1 300 Tf 200 350 Td ({page + 1}) Tj ET\n")
+            + Barcode.Draw(BarcodeDigits(page), BarcodeLeftPoints, BarcodeBottomPoints);
     }
 }

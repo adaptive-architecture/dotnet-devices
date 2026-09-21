@@ -238,6 +238,24 @@ internal sealed class FakeWindowsGdiInterop : IWindowsGdiInterop
 
     public int? PageUnit { get; private set; }
 
+    public int SetInterpolationMode(nint graphics, int mode)
+    {
+        Calls.Add(nameof(SetInterpolationMode));
+        InterpolationMode = mode;
+        return Fails(nameof(SetInterpolationMode)) ? GdiplusFailure : 0;
+    }
+
+    public int? InterpolationMode { get; private set; }
+
+    public int SetPixelOffsetMode(nint graphics, int mode)
+    {
+        Calls.Add(nameof(SetPixelOffsetMode));
+        PixelOffsetMode = mode;
+        return Fails(nameof(SetPixelOffsetMode)) ? GdiplusFailure : 0;
+    }
+
+    public int? PixelOffsetMode { get; private set; }
+
     public int DeleteGraphics(nint graphics)
     {
         Calls.Add(nameof(DeleteGraphics));
