@@ -90,7 +90,11 @@ internal sealed class WindowsGdiImagePrinter : IWindowsGdiImagePrinter
                 _gdi.GetDeviceCaps(deviceContext, WindowsGdiInterop.LogPixelsY),
                 // A driver that reports no sheet keeps its margins, which is the answer
                 // every printer but a borderless one gives anyway.
-                sheetWidth > 0 && sheetHeight > 0 && sheetWidth <= printableWidth && sheetHeight <= printableHeight);
+                sheetWidth > 0 && sheetHeight > 0 && sheetWidth <= printableWidth && sheetHeight <= printableHeight,
+                sheetWidth,
+                sheetHeight,
+                _gdi.GetDeviceCaps(deviceContext, WindowsGdiInterop.PhysicalOffsetX),
+                _gdi.GetDeviceCaps(deviceContext, WindowsGdiInterop.PhysicalOffsetY));
             if (page.Width <= 0 || page.Height <= 0)
             {
                 throw new InvalidOperationException(
@@ -179,17 +183,23 @@ internal sealed class WindowsGdiImagePrinter : IWindowsGdiImagePrinter
             // caller sent keeps what its own file declares.
             var sourceX = job.SourceDpi ?? sourceDpiX;
             var sourceY = job.SourceDpi ?? sourceDpiY;
-            var layout = WindowsGdiImageLayout.Compute(
+
+            // The area the page is fitted into and anchored against, in the coordinates the
+            // device context draws in: those start at the printable corner, so the whole
+            // sheet begins at minus the offset of that corner inside it.
+            var area = page.AreaFor(job.FitArea);
+            var placed = WindowsGdiImageLayout.Compute(
                 WindowsGdiImageLayout.NaturalPixels((int)width, sourceX, page.DpiX),
                 WindowsGdiImageLayout.NaturalPixels((int)height, sourceY, page.DpiY),
-                page.Width,
-                page.Height,
+                area.Width,
+                area.Height,
                 job.Orientation,
                 job.Scaling,
-                page.Borderless,
+                page.Borderless || job.FitArea == PrintFitArea.Physical,
                 job.Placement,
                 page.DpiX,
                 page.DpiY);
+            var layout = new ImageRectangle(placed.X + area.X, placed.Y + area.Y, placed.Width, placed.Height);
             if (layout.IsEmpty)
             {
                 throw new InvalidOperationException(
@@ -218,14 +228,19 @@ internal sealed class WindowsGdiImagePrinter : IWindowsGdiImagePrinter
             var angle = WindowsGdiImageLayout.RotationDegrees(job.Orientation);
             if (angle != 0f)
             {
+                // The turn is about the centre of the area the page was fitted to, which is
+                // the same fixed point the layout measured its anchor from. Turning about
+                // anything else would move an anchored page as soon as it was rotated.
+                var centerX = area.X + (area.Width / 2f);
+                var centerY = area.Y + (area.Height / 2f);
                 _ = CheckGdiplus(
-                    _gdi.TranslateWorldTransform(graphics, page.Width / 2f, page.Height / 2f, WindowsGdiInterop.MatrixOrderPrepend),
+                    _gdi.TranslateWorldTransform(graphics, centerX, centerY, WindowsGdiInterop.MatrixOrderPrepend),
                     queueName);
                 _ = CheckGdiplus(
                     _gdi.RotateWorldTransform(graphics, angle, WindowsGdiInterop.MatrixOrderPrepend),
                     queueName);
                 _ = CheckGdiplus(
-                    _gdi.TranslateWorldTransform(graphics, -page.Width / 2f, -page.Height / 2f, WindowsGdiInterop.MatrixOrderPrepend),
+                    _gdi.TranslateWorldTransform(graphics, -centerX, -centerY, WindowsGdiInterop.MatrixOrderPrepend),
                     queueName);
             }
 
@@ -329,9 +344,31 @@ internal sealed record WindowsGdiJob(
     PrintPlacement? Placement = null,
 
     // Whether GDI+ smooths the page as it scales it. Null is the GDI+ default, which smooths.
-    bool? Smoothing = null);
+    bool? Smoothing = null,
+
+    // Which rectangle of the sheet the page is fitted into: what the printer can mark, or all
+    // of it.
+    PrintFitArea FitArea = PrintFitArea.Printable);
 
 // The printable area of one device page: its size in device pixels, and the dots an
 // inch those pixels stand for. Both are read once a job, because a device mode does
-// not change between the pages of one document.
-internal readonly record struct PrinterPage(int Width, int Height, int DpiX, int DpiY, bool Borderless);
+// not change between the pages of one document. The sheet and the offset of the printable
+// area inside it come along for a job fitted to the whole sheet.
+internal readonly record struct PrinterPage(
+    int Width,
+    int Height,
+    int DpiX,
+    int DpiY,
+    bool Borderless,
+    int SheetWidth = 0,
+    int SheetHeight = 0,
+    int OffsetX = 0,
+    int OffsetY = 0)
+{
+    // In the coordinates the device context draws in, which start at the printable corner. A
+    // driver that reports no sheet leaves the printable area as the only rectangle there is.
+    internal ImageRectangle AreaFor(PrintFitArea area) =>
+        area == PrintFitArea.Physical && SheetWidth > 0 && SheetHeight > 0
+            ? new ImageRectangle(-OffsetX, -OffsetY, SheetWidth, SheetHeight)
+            : new ImageRectangle(0, 0, Width, Height);
+}

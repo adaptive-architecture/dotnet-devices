@@ -63,6 +63,14 @@ internal sealed class PrintOptionsDto
     // media, so nothing is fitted, moved or resampled.
     public string MediaSizeSource { get; set; }
 
+    // "Printable" or "Physical": which rectangle of the sheet the fit and the anchor are
+    // measured against. They differ by the strip the printer cannot mark.
+    public string FitArea { get; set; }
+
+    // Opens a protected PDF. A secret on an object a job set is serialized from, so the
+    // browser never writes it back into a downloaded set.
+    public string DocumentPassword { get; set; }
+
     public string JobName { get; set; }
 
     // Throws FormatException with the name of the property that is wrong. The caller turns
@@ -90,6 +98,8 @@ internal sealed class PrintOptionsDto
             Placement = ParsePlacement(),
             MediaDimensions = ParseMediaDimensions(),
             MediaSizeSource = ParseEnum<MediaSizeSource>(MediaSizeSource, nameof(MediaSizeSource)) ?? AdaptArch.Devices.Printing.MediaSizeSource.Printer,
+            FitArea = ParseEnum<PrintFitArea>(FitArea, nameof(FitArea)) ?? PrintFitArea.Printable,
+            DocumentPassword = Trim(DocumentPassword),
         };
 
         return options;

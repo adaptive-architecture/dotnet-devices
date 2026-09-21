@@ -111,6 +111,29 @@ public sealed record PrintConversionContext(
     public bool? Smoothing { get; init; }
 
     /// <summary>
+    /// Gets the part of that media a page is fitted into and anchored against, in pixels at
+    /// <see cref="Dpi"/>, or <c>null</c> for the whole of it.
+    /// </summary>
+    /// <remarks>
+    /// The rectangle is the media minus the margins the printer cannot mark, for a job that
+    /// asked for <see cref="PrintFitArea.Printable"/> and a printer that reported them. It
+    /// lies inside <see cref="MediaWidthPixels"/> by <see cref="MediaHeightPixels"/>, which
+    /// stays the size of the page a converter answers with: the margins are part of the sheet
+    /// and the printer expects to receive them.
+    /// </remarks>
+    public ImageRectangle? FitArea { get; init; }
+
+    /// <summary>
+    /// Gets the password that opens the document, or <c>null</c> for one that needs none.
+    /// </summary>
+    /// <remarks>
+    /// A converter passes it to its engine and does nothing else with it. It is a secret: it
+    /// belongs in no log line and in no message, which is why the failure a wrong one causes
+    /// names the document and never the password.
+    /// </remarks>
+    public string? DocumentPassword { get; init; }
+
+    /// <summary>
     /// Gets what decides the media size. <see cref="MediaSizeSource.Document"/> asks the
     /// converter to make the media the size of the page itself, whatever
     /// <see cref="MediaWidthPixels"/> says.

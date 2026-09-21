@@ -340,4 +340,57 @@ public class PrintOptionValidatorTests
         Assert.Equal(PrintScaling.Fill, applied.Scaling);
         Assert.Empty(dropped);
     }
+
+    [Fact]
+    public void WithoutPlacedGeometry_TellsThePrinterNotToFitThePageAgain()
+    {
+        PrintOptions options = new()
+        {
+            Scaling = PrintScaling.Fit,
+            PageRanges = [new PageRange(1, 2)],
+            Copies = 3,
+            ConverterName = "PDFium",
+            Placement = new PrintPlacement { Anchor = PrintAnchor.TopLeft },
+        };
+
+        var stripped = PrintOptionValidator.WithoutPlacedGeometry(options);
+
+        // "None" and not "unset": a printer given nothing falls back to "auto", which shrinks
+        // a page that already covers its media exactly as "fit" would.
+        Assert.Equal(PrintScaling.None, stripped.Scaling);
+        Assert.Null(stripped.PageRanges);
+
+        // Everything else survives, or the job loses what the caller asked for.
+        Assert.Equal(3, stripped.Copies);
+        Assert.Equal("PDFium", stripped.ConverterName);
+        Assert.Equal(PrintAnchor.TopLeft, stripped.Placement!.Anchor);
+    }
+
+    [Fact]
+    public void Copy_KeepsEveryOptionADropDoesNotRemove()
+    {
+        // A copy that lost an option would drop it silently, which is the one thing this
+        // class must never do.
+        PrintOptions options = new()
+        {
+            ConverterName = "PDFium",
+            Placement = new PrintPlacement { Anchor = PrintAnchor.BottomRight },
+            Smoothing = false,
+            MediaDimensions = new MediaDimensions(PrintLength.FromMillimeters(100), PrintLength.FromMillimeters(150)),
+            MediaSizeSource = MediaSizeSource.Document,
+            FitArea = PrintFitArea.Physical,
+            DocumentPassword = "secret",
+            PageRanges = [new PageRange(1, 1)],
+        };
+
+        var copy = PrintOptionValidator.WithoutPageRanges(options);
+
+        Assert.Equal("PDFium", copy.ConverterName);
+        Assert.Equal(PrintAnchor.BottomRight, copy.Placement!.Anchor);
+        Assert.False(copy.Smoothing);
+        Assert.Equal(PrintLength.FromMillimeters(100), copy.MediaDimensions!.Width);
+        Assert.Equal(MediaSizeSource.Document, copy.MediaSizeSource);
+        Assert.Equal(PrintFitArea.Physical, copy.FitArea);
+        Assert.Equal("secret", copy.DocumentPassword);
+    }
 }

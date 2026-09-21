@@ -57,6 +57,12 @@ internal static partial class WindowsGdiInterop
     internal const int PhysicalWidth = 110;
     internal const int PhysicalHeight = 111;
 
+    // PHYSICALOFFSETX and PHYSICALOFFSETY: where the printable area starts inside the sheet,
+    // in pixels. The device context draws from the printable corner, so a page fitted to the
+    // whole sheet is drawn at minus these.
+    internal const int PhysicalOffsetX = 112;
+    internal const int PhysicalOffsetY = 113;
+
     // LOGPIXELSX and LOGPIXELSY: the dots an inch of the device holds. A job that
     // asks for its own size needs them, because a device pixel is not a length.
     internal const int LogPixelsX = 88;

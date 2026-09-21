@@ -178,6 +178,28 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
         return PwgMediaNames.TryParse(mediaName, out var parsed) ? parsed : null;
     }
 
+    // The part of the sheet the page is fitted into. A job that asked for the physical page,
+    // a printer that reported no margins, and a margin set that would leave nothing to print
+    // on all answer null, which is the whole sheet.
+    internal static ImageRectangle? ResolveFitArea(PrintOptions? options, MediaDimensions? media, MediaMargins? margins, int dpi)
+    {
+        if (media is null || margins is null || margins.IsEmpty)
+        {
+            return null;
+        }
+
+        if (options?.FitArea == PrintFitArea.Physical)
+        {
+            return null;
+        }
+
+        var left = margins.Left.ToPixels(dpi);
+        var top = margins.Top.ToPixels(dpi);
+        var width = media.Width.ToPixels(dpi) - left - margins.Right.ToPixels(dpi);
+        var height = media.Height.ToPixels(dpi) - top - margins.Bottom.ToPixels(dpi);
+        return width > 0 && height > 0 ? new ImageRectangle(left, top, width, height) : null;
+    }
+
     // Grayscale for a job that asked for it and a printer that offers it, and colour
     // otherwise. A printer that named no type leaves the choice to the converter.
     private static string? ResolveRasterType(IReadOnlyList<string> types, PrintColorMode? colorMode)
@@ -281,11 +303,13 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
             MediaName = mediaName,
             MediaWidthPixels = media?.Width.ToPixels(dpi),
             MediaHeightPixels = media?.Height.ToPixels(dpi),
+            FitArea = ResolveFitArea(options, media, configuration.DefaultMediaMargins, dpi),
             Scaling = options?.Scaling,
             Orientation = options?.Orientation,
             Placement = options?.Placement,
             Smoothing = options?.Smoothing,
             MediaSizeSource = options?.MediaSizeSource ?? MediaSizeSource.Printer,
+            DocumentPassword = options?.DocumentPassword,
         };
 
         var documents = await converter.ConvertAsync(payload.Data.ToArray(), context, cancellationToken).ConfigureAwait(false);
@@ -303,8 +327,13 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
         IppLog.DocumentConverted(_context.Logger, payload.ContentType, endpoint, target);
         IppLog.DocumentConversionSize(_context.Logger, payload.ContentType, endpoint, documents[0].Length, target);
 
-        // The converter selected the pages, so the printer must not select them again.
-        var converted = options is null ? null : PrintOptionValidator.WithoutPageRanges(options);
+        // The converter selected the pages, so the printer must not select them again -- and
+        // where it also placed the page on its media, the printer must not fit it again.
+        var converted = options is null
+            ? null
+            : converter.PlacesOnMedia(context)
+                ? PrintOptionValidator.WithoutPlacedGeometry(options)
+                : PrintOptionValidator.WithoutPageRanges(options);
         return (PrinterPayload.FromBytes(documents[0], target), target, converted);
     }
 

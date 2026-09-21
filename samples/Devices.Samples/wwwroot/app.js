@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 // State the page keeps: what the last discovery found, what the person selected, and the
 // working copy of the job set that the form edits.
@@ -502,6 +502,17 @@ function placement(host, type, values) {
 
   host.appendChild(field('mediaWidthMillimeters', 'Media width (mm)', 'number', values, { step: 'any' }));
   host.appendChild(field('mediaHeightMillimeters', 'Media height (mm)', 'number', values, { step: 'any' }));
+
+  // The two rectangles differ by the strip the printer cannot mark, which is nothing on
+  // label stock and a few millimetres on office paper.
+  host.appendChild(choice('fitArea', 'Fit to', [
+    { value: 'Printable', label: 'What the printer can mark' },
+    { value: 'Physical', label: 'The whole sheet' },
+  ], values, 'What the printer can mark'));
+
+  if (type === 'application/pdf') {
+    host.appendChild(field('documentPassword', 'Document password', 'password', values));
+  }
 }
 
 // A value a job carries that this channel never offered is still shown, so editing a set on
@@ -599,6 +610,10 @@ const numbers = ['copies', 'numberUp', 'resolutionDpi'];
 // The smoothing switch is a select, so it reads back as text and has to be sent as the
 // boolean the job carries.
 const booleans = ['smoothing'];
+
+// Everything a job set may hold on disk. The document password is deliberately absent: it
+// opens one document on one run, and a set is a file people mail to each other.
+const secrets = ['documentPassword'];
 
 function readOptions(host) {
   const result = {};
@@ -868,8 +883,22 @@ function setPayload() {
   };
 }
 
+// What the set looks like as a file: the same payload the run sends, minus the secrets. A
+// job set is a file people mail to each other, and a document password has no business
+// travelling in one.
+function savedSetPayload() {
+  const payload = setPayload();
+  for (const job of payload.jobs) {
+    if (!job.options) { continue; }
+    const kept = { ...job.options };
+    for (const name of secrets) { delete kept[name]; }
+    job.options = Object.keys(kept).length ? kept : undefined;
+  }
+  return payload;
+}
+
 function showSetJson() {
-  $('set-json').textContent = JSON.stringify(setPayload(), null, 2);
+  $('set-json').textContent = JSON.stringify(savedSetPayload(), null, 2);
 }
 
 $('set').addEventListener('change', () => loadSet(shippedSet()));
@@ -882,11 +911,11 @@ $('reset-set').addEventListener('click', () => {
 });
 $('download-set').addEventListener('click', () => {
   const name = ($('set-name').value.trim() || 'job-set').toLowerCase().replace(/[^a-z0-9]+/g, '-');
-  download(new Blob([JSON.stringify(setPayload(), null, 2)], { type: 'application/json' }), `${name}.json`);
+  download(new Blob([JSON.stringify(savedSetPayload(), null, 2)], { type: 'application/json' }), `${name}.json`);
 });
 $('copy-set').addEventListener('click', async () => {
   try {
-    await navigator.clipboard.writeText(JSON.stringify(setPayload(), null, 2));
+    await navigator.clipboard.writeText(JSON.stringify(savedSetPayload(), null, 2));
     $('copy-set').textContent = 'Copied';
     setTimeout(() => { $('copy-set').textContent = 'Copy the JSON'; }, 1500);
   } catch (error) {

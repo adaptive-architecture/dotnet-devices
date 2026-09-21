@@ -124,6 +124,17 @@ public sealed class PrinterConfiguration
     public string? DefaultMediaSource { get; init; }
 
     /// <summary>
+    /// Gets the margins the printer cannot mark on the media it uses by default, or
+    /// <c>null</c> when it reported none.
+    /// </summary>
+    /// <remarks>
+    /// Read from <c>media-col-default</c>. Nothing reported is not the same as none: a
+    /// printer that says nothing is fitted to as though it marked the whole sheet, which is
+    /// what it did before these were read at all.
+    /// </remarks>
+    public MediaMargins? DefaultMediaMargins { get; init; }
+
+    /// <summary>
     /// Gets the orientation the printer uses when a job names none, when known.
     /// </summary>
     public PrintOrientation? DefaultOrientation { get; init; }

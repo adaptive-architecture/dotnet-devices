@@ -14,6 +14,7 @@ internal static class IppConfigurationMapper
         "color-supported",
         "media-supported",
         "media-default",
+        "media-col-default",
         "media-source-supported",
         "media-source-default",
         "media-type-supported",
@@ -30,6 +31,29 @@ internal static class IppConfigurationMapper
         "pwg-raster-document-resolution-supported",
         "pwg-raster-document-sheet-back",
     ];
+
+    // The four margins of "media-col-default", in the hundredths of a millimetre both IPP and
+    // PrintLength count in. A printer that reported no media-col, or one that left every
+    // margin out, answers null: "not reported" is not "marks the whole sheet".
+    private static MediaMargins? ReadMargins(MediaCol? media)
+    {
+        if (media is null)
+        {
+            return null;
+        }
+
+        if (media.MediaTopMargin is null && media.MediaBottomMargin is null
+            && media.MediaLeftMargin is null && media.MediaRightMargin is null)
+        {
+            return null;
+        }
+
+        return new MediaMargins(
+            PrintLength.FromHundredthsOfMillimeter(media.MediaTopMargin ?? 0),
+            PrintLength.FromHundredthsOfMillimeter(media.MediaBottomMargin ?? 0),
+            PrintLength.FromHundredthsOfMillimeter(media.MediaLeftMargin ?? 0),
+            PrintLength.FromHundredthsOfMillimeter(media.MediaRightMargin ?? 0));
+    }
 
     public static PrinterConfiguration Map(PrinterId id, PrinterDescriptionAttributes? attributes, IIppResponseMessage? raw)
     {
@@ -57,6 +81,7 @@ internal static class IppConfigurationMapper
             DefaultMediaSize = attributes.MediaDefault?.Value,
             // SharpIppNext does not carry "media-source-default", so it is read raw.
             DefaultMediaSource = IppRawAttributes.ReadText(raw, 0, "media-source-default"),
+            DefaultMediaMargins = ReadMargins(attributes.MediaColDefault),
             DefaultOrientation = MapOrientation(attributes.OrientationRequestedDefault),
             DefaultResolutionDpi = ReadDpi(attributes.PrinterResolutionDefault),
             SupportedResolutionsDpi = ReadResolutions(attributes.PrinterResolutionSupported),

@@ -27,6 +27,15 @@ public sealed record PdfRenderOptions
     public PwgRasterColorSpace ColorSpace { get; init; } = PwgRasterColorSpace.Srgb8;
 
     /// <summary>
+    /// Gets the password that opens the document, or <c>null</c> for one that needs none.
+    /// </summary>
+    /// <remarks>
+    /// It opens the document and goes no further: no printer protocol carries it, nothing
+    /// logs it, and it is not part of any job the library sends.
+    /// </remarks>
+    public string? Password { get; init; }
+
+    /// <summary>
     /// Gets whether the engine smooths the text, the images and the paths it draws.
     /// Defaults to <c>true</c>, which is what PDFium does when nothing says otherwise.
     /// </summary>

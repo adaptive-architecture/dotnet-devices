@@ -32,6 +32,11 @@ internal static class PdfiumRenderer
 
     private const int NoRotation = 0;
 
+    // public/fpdfview.h FPDF_ERR_PASSWORD: the document opened with the wrong password, or
+    // with none where one was needed. It is worth telling apart from a corrupt file, because
+    // only one of the two is something the caller can do anything about.
+    private const int PasswordError = 4;
+
     // PDFium is not thread-safe, and PrinterManager may call a converter for two jobs at
     // once. One gate around every call serializes the whole library, including the one-time
     // initialization below, which therefore needs no lock of its own.
@@ -79,11 +84,20 @@ internal static class PdfiumRenderer
         FpdfDocumentT? document = null;
         try
         {
-            document = fpdfview.FPDF_LoadMemDocument64(pinned.AddrOfPinnedObject(), (ulong)pdf.Length, null);
+            document = fpdfview.FPDF_LoadMemDocument64(pinned.AddrOfPinnedObject(), (ulong)pdf.Length, options.Password);
             if (document is null)
             {
+                var error = fpdfview.FPDF_GetLastError();
+                if (error == PasswordError)
+                {
+                    throw new InvalidOperationException(
+                        options.Password is null
+                            ? "The PDF is password-protected and the job carried no password."
+                            : "The password the job carried does not open this PDF.");
+                }
+
                 throw new InvalidOperationException(
-                    $"The PDF could not be read. It may be corrupt or password-protected. PDFium reported error {fpdfview.FPDF_GetLastError()}.");
+                    $"The PDF could not be read. It may be corrupt. PDFium reported error {error}.");
             }
 
             var pageCount = fpdfview.FPDF_GetPageCount(document);

@@ -24,13 +24,17 @@ internal sealed class WindowsPdfConverter : IPrintPayloadConverter
         String.Equals(targetContentType, PrinterContentTypes.Png, StringComparison.OrdinalIgnoreCase)
         || String.Equals(targetContentType, PrinterContentTypes.PwgRaster, StringComparison.OrdinalIgnoreCase);
 
+    // This converter composes onto the media when the channel names one, so the fit is in the
+    // pixels and the printer must not apply it a second time.
+    public bool PlacesOnMedia(PrintConversionContext context) => RasterPlacement.PlacesOnMedia(context);
+
     public Task<IReadOnlyList<byte[]>> ConvertAsync(byte[] data, PrintConversionContext context, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
 
         return String.Equals(context.TargetContentType, PrinterContentTypes.PwgRaster, StringComparison.OrdinalIgnoreCase)
             ? ConvertToRasterAsync(data, context, cancellationToken)
-            : WindowsPdfRenderer.RenderAsync(data, context.Dpi, context.PageRanges, cancellationToken);
+            : WindowsPdfRenderer.RenderAsync(data, context.Dpi, context.PageRanges, context.DocumentPassword, cancellationToken);
     }
 
     // One PWG Raster stream carries every page, so this answers with a single document and
@@ -43,7 +47,7 @@ internal sealed class WindowsPdfConverter : IPrintPayloadConverter
     {
         var colorSpace = PwgRaster.ColorSpaceFor(context.RasterType);
         var pages = await WindowsPdfRenderer
-            .RenderRasterAsync(data, context.Dpi, context.PageRanges, colorSpace, cancellationToken)
+            .RenderRasterAsync(data, context.Dpi, context.PageRanges, colorSpace, context.DocumentPassword, cancellationToken)
             .ConfigureAwait(false);
 
         await using MemoryStream document = new();

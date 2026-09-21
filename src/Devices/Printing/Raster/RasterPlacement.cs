@@ -55,19 +55,32 @@ public static class RasterPlacement
 
         var placement = context.Placement;
 
+        // The page is fitted into, and anchored against, the part of the media the job asked
+        // for: the whole sheet, or the part of it the printer can mark. The canvas stays the
+        // sheet either way, because that is what the printer expects to receive.
+        var area = context.FitArea ?? new ImageRectangle(0, 0, canvasWidth, canvasHeight);
+        if (area.IsEmpty)
+        {
+            area = new ImageRectangle(0, 0, canvasWidth, canvasHeight);
+        }
+
         // Nothing of ours turns these pixels: the printer applies the orientation itself, and
         // turning them here would apply it twice.
-        var destination = ImagePlacement.Compute(
+        var placed = ImagePlacement.Compute(
             width,
             height,
-            canvasWidth,
-            canvasHeight,
+            area.Width,
+            area.Height,
             null,
             context.Scaling,
-            false,
+            // A fit to the whole sheet is a fit with no margin to clear, which is what
+            // borderless means to the Auto mode.
+            area.Width >= canvasWidth && area.Height >= canvasHeight,
             placement?.Anchor ?? PrintAnchor.Center,
             placement?.OffsetX.ToPixels(context.Dpi) ?? 0,
             placement?.OffsetY.ToPixels(context.Dpi) ?? 0);
+
+        var destination = new ImageRectangle(placed.X + area.X, placed.Y + area.Y, placed.Width, placed.Height);
 
         // A page that already covers its media exactly, with nothing to move it, is the page
         // it was rendered as. Composing it would copy every pixel to say the same thing.
@@ -92,6 +105,25 @@ public static class RasterPlacement
             ResamplingFor(context.Smoothing));
 
         return new ComposedPage(composed, canvasWidth, canvasHeight);
+    }
+
+    /// <summary>
+    /// Tells whether <see cref="Place"/> answers the final geometry for this context.
+    /// </summary>
+    /// <param name="context">What the channel is asking the converter for.</param>
+    /// <returns><c>true</c> when the pages a converter returns are the media, and the printer must fit nothing.</returns>
+    /// <remarks>
+    /// True in three cases, which are one case: the job takes its media from the document, so
+    /// the page is its own media; the channel named the media and the page was composed onto
+    /// it; or the page already covered that media exactly and needed no composing. In each the
+    /// pixels are what should reach the paper.
+    /// </remarks>
+    public static bool PlacesOnMedia(PrintConversionContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        return context.MediaSizeSource == MediaSizeSource.Document
+            || (context.MediaWidthPixels > 0 && context.MediaHeightPixels > 0);
     }
 
     /// <summary>

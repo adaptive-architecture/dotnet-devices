@@ -25,6 +25,10 @@ internal sealed class PdfiumPdfConverter : IPrintPayloadConverter
         String.Equals(targetContentType, PrinterContentTypes.Png, StringComparison.OrdinalIgnoreCase)
         || String.Equals(targetContentType, PrinterContentTypes.PwgRaster, StringComparison.OrdinalIgnoreCase);
 
+    // This converter composes onto the media when the channel names one, so the fit is in the
+    // pixels and the printer must not apply it a second time.
+    public bool PlacesOnMedia(PrintConversionContext context) => RasterPlacement.PlacesOnMedia(context);
+
     public Task<IReadOnlyList<byte[]>> ConvertAsync(byte[] data, PrintConversionContext context, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -100,6 +104,7 @@ internal sealed class PdfiumPdfConverter : IPrintPayloadConverter
             PageRanges = context.PageRanges,
             ColorSpace = colorSpace,
             Smoothing = context.Smoothing != false,
+            Password = context.DocumentPassword,
         };
 
     // A channel that named its media gets a page the size of that media, with the fit, the

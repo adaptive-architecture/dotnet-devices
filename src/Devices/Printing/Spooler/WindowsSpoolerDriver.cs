@@ -259,7 +259,8 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                     options?.Scaling,
                     renderDpi,
                     options?.Placement,
-                    options?.Smoothing),
+                    options?.Smoothing,
+                    options?.FitArea ?? PrintFitArea.Printable),
                 rendered);
 
             SpoolerLog.JobSpooled(_logger, queueName, jobId, bytes.Length, payload.ContentType);
@@ -306,7 +307,8 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                     options?.Scaling,
                     null,
                     options?.Placement,
-                    options?.Smoothing),
+                    options?.Smoothing,
+                    options?.FitArea ?? PrintFitArea.Printable),
                 bytes);
 
             SpoolerLog.JobSpooled(_logger, queueName, jobId, bytes.Length, payload.ContentType);
@@ -417,6 +419,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             Orientation = options?.Orientation,
             Smoothing = options?.Smoothing,
             MediaSizeSource = options?.MediaSizeSource ?? MediaSizeSource.Printer,
+            DocumentPassword = options?.DocumentPassword,
         };
         var pages = await converter.ConvertAsync(data, context, cancellationToken).ConfigureAwait(false);
         if (pages.Count == 0)

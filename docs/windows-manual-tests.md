@@ -19,15 +19,25 @@ tests already prove.
 
 ## What has been run
 
-The five-job `queue-sweep` set — `document.pdf` with the printer defaults, two PNG jobs and
-two JPEG jobs varying the colour mode, the orientation and the scaling — printed correctly
-through a spooler queue on real Windows hardware. That covers the submission path end to
-end: the device mode built from the options, the GDI page, the PDF rendered to PNG and drawn,
-and a job that reaches `Completed`.
+Each session is written up in [windows-manual-tests-resuls/](windows-manual-tests-resuls/),
+one file a run, and that folder is the record. The summary below is only the state it leaves
+this page in.
 
-It does **not** cover the rest of this page. In particular it cannot cover test 10: a
-`spooler://` queue never converts to PWG Raster, so that path has still never run anywhere.
-Each test below says what it needs.
+**2026-09-19, Windows 11, AOT publish of the sample, against Microsoft Print to PDF and a
+real Epson driver.** Passed: the printer status bits that a WSD monitor raises at all (T2.1,
+T2.4), the full print cycle with its four dropped options (T3), a native AOT publish
+exercising every `ISpoolerDriver` method (T4), the error paths including a stopped spooler
+(T5), the configuration against both drivers and its defaults following the driver dialog
+(T6), the access level (T7), two identity cases, PDF through the spooler including the
+corrupt file and the page range (T9), and PWG Raster over IPP (T10) — the path that had
+never run anywhere. The session also found and fixed a discovery bug: one queue with a `/`
+in its name aborted the whole enumeration.
+
+Left open by that session: the T3 variants the sample button skips, identity cases 2 and
+4–7, and a T10 re-run for the duplex back-side fix it produced.
+
+**The placement work of 2026-09-21 postdates that session**, so test 11 below has never run.
+Everything in it is exercised through the seams on Linux, and none of it has met a ruler.
 
 ## What the automated tests already prove
 

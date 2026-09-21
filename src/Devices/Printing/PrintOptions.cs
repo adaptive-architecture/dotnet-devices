@@ -68,6 +68,19 @@ public sealed class PrintOptions
     public PrintScaling? Scaling { get; set; }
 
     /// <summary>
+    /// Gets or sets which rectangle of the media <see cref="Scaling"/> fits the page into and
+    /// <see cref="Placement"/> anchors it against. Defaults to
+    /// <see cref="PrintFitArea.Printable"/>, which is what PWG 5100.16 fits to.
+    /// </summary>
+    /// <remarks>
+    /// A printer that reports no margins has none to subtract, so the two areas are the same
+    /// and this changes nothing. Where they differ — office paper in a driver that holds a
+    /// few millimetres along each edge — this decides whether a page is shrunk to clear the
+    /// strip or printed at its size with the strip lost.
+    /// </remarks>
+    public PrintFitArea FitArea { get; set; }
+
+    /// <summary>
     /// Gets or sets the media source (tray) name.
     /// </summary>
     public string? MediaSource { get; set; }
@@ -118,6 +131,22 @@ public sealed class PrintOptions
     /// </para>
     /// </remarks>
     public bool? Smoothing { get; set; }
+
+    /// <summary>
+    /// Gets or sets the password that opens a protected document, or <c>null</c> for one that
+    /// needs none.
+    /// </summary>
+    /// <remarks>
+    /// Library-only, and it goes no further than the renderer: no printer protocol carries a
+    /// document password, nothing in this library logs it, and it is never named in
+    /// <see cref="PrintJobInfo.DroppedOptions"/>. A channel that renders nothing ignores it,
+    /// and the job fails on the document it could not open rather than on the option.
+    /// <para>
+    /// It is a secret on an options object an application may well persist. Treat it as one:
+    /// set it for the job and keep it out of whatever the job is stored as.
+    /// </para>
+    /// </remarks>
+    public string? DocumentPassword { get; set; }
 
     /// <summary>
     /// Gets or sets the media type name, such as <c>stationery</c> or <c>labels</c>.

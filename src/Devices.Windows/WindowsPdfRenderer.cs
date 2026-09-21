@@ -23,8 +23,9 @@ internal static class WindowsPdfRenderer
         byte[] pdf,
         int dpi,
         IReadOnlyList<PageRange>? ranges,
+        string? password,
         CancellationToken cancellationToken) =>
-        RenderAsync(pdf, dpi, ranges, RenderPageAsync, cancellationToken);
+        RenderAsync(pdf, dpi, ranges, password, RenderPageAsync, cancellationToken);
 
     // The same pages as raw pixels, for a caller that encodes them itself.
     internal static Task<IReadOnlyList<RasterPage>> RenderRasterAsync(
@@ -32,11 +33,13 @@ internal static class WindowsPdfRenderer
         int dpi,
         IReadOnlyList<PageRange>? ranges,
         PwgRasterColorSpace colorSpace,
+        string? password,
         CancellationToken cancellationToken) =>
         RenderAsync(
             pdf,
             dpi,
             ranges,
+            password,
             (page, resolution, index, token) => RenderRasterPageAsync(page, resolution, index, colorSpace, token),
             cancellationToken);
 
@@ -44,6 +47,7 @@ internal static class WindowsPdfRenderer
         byte[] pdf,
         int dpi,
         IReadOnlyList<PageRange>? ranges,
+        string? password,
         Func<PdfPage, int, int, CancellationToken, Task<TPage>> render,
         CancellationToken cancellationToken)
     {
@@ -69,7 +73,11 @@ internal static class WindowsPdfRenderer
             await source.WriteAsync(pdf.AsBuffer()).AsTask(cancellationToken).ConfigureAwait(false);
             source.Seek(0);
 
-            var document = await PdfDocument.LoadFromStreamAsync(source).AsTask(cancellationToken).ConfigureAwait(false);
+            // The engine takes the password on the load and reports a wrong one the same way
+            // it reports a corrupt file, so the two are told apart by what the job carried.
+            var document = password is null
+                ? await PdfDocument.LoadFromStreamAsync(source).AsTask(cancellationToken).ConfigureAwait(false)
+                : await PdfDocument.LoadFromStreamAsync(source, password).AsTask(cancellationToken).ConfigureAwait(false);
             if (document.PageCount == 0)
             {
                 throw new InvalidOperationException("The PDF has no pages to print.");
@@ -96,10 +104,14 @@ internal static class WindowsPdfRenderer
         }
         catch (Exception exception) when (exception is not InvalidOperationException)
         {
-            // WinRT reports a corrupt or password-protected file as a COM fault, which
-            // names nothing the caller can act on.
+            // WinRT reports a corrupt file and a wrong password as the same COM fault, which
+            // names nothing the caller can act on. What the job carried is the only thing that
+            // separates them here, so it is what the message goes on.
             throw new InvalidOperationException(
-                "The PDF could not be read. It may be corrupt or password-protected.", exception);
+                password is null
+                    ? "The PDF could not be read. It may be corrupt, or password-protected and the job carried no password."
+                    : "The PDF could not be read. It may be corrupt, or the password the job carried does not open it.",
+                exception);
         }
     }
 

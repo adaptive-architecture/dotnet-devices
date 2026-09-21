@@ -947,6 +947,7 @@ raster — which is this library.
 | Option | What it decides |
 | --- | --- |
 | `Scaling` | How the page is fitted to the media. PWG 5100.16, five values, and the one of the four that a printer can also apply itself. |
+| `FitArea` | Which rectangle of the sheet that fit and that anchor are measured against: the part the printer can mark, or all of it. |
 | `Placement` | An anchor — one of the nine positions on the sheet — and an offset from it, as a physical length. Label stock is registered from a corner, and an offset with no anchor means nothing, so the two travel together. |
 | `Smoothing` | Whether the renderer smooths what it draws, and whether a page that has to be resampled takes the nearest pixel or a mix of four. Off is what keeps the edge of a barcode hard on a thermal head. |
 | `MediaDimensions`, `MediaSizeSource` | A media size the printer has no name for, or the size of the document's own page. |
@@ -968,6 +969,24 @@ the media for that, and `RasterCanvas` does the composing.
 Both call `ImagePlacement`, which is public, platform-free arithmetic: one fit, one anchor,
 one offset, on every path. An application with its own rasterizer places a page with the same
 code rather than a second implementation that drifts.
+
+### Printable or physical
+
+Most printers cannot mark the whole sheet, and the two rectangles differ by the strip the
+paper path holds. `PrintFitArea` says which one a job means, and it decides two things at
+once: whether a full-bleed page is shrunk to clear the strip, and which corner
+`PrintAnchor.TopLeft` is.
+
+The margins come from the device on the Windows spooler (`PHYSICALOFFSETX`, `PHYSICALOFFSETY`
+and the physical sheet beside the printable area), and from `media-col-default` over IPP,
+where they reach `PrinterConfiguration.DefaultMediaMargins`. A printer that reports none has
+none to subtract, so both areas are the same and the option changes nothing — which is the
+case on most label stock.
+
+`Printable` is the default, because that is what PWG 5100.16 means by fitting a document to
+the media. `Physical` is what a label generator that already sized its output to the stock
+wants: the page is the stock, and shrinking it to clear a margin would move every barcode on
+it.
 
 Two consequences worth stating. A payload that would otherwise be sent unchanged is
 **converted** when a job carries a placement or asks for the document's own media size,

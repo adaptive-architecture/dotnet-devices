@@ -54,6 +54,10 @@ internal sealed class FakeWindowsGdiInterop : IWindowsGdiInterop
 
     public int SheetHeight { get; set; } = 3508;
 
+    public int OffsetX { get; set; }
+
+    public int OffsetY { get; set; }
+
     public int DpiX { get; set; } = 300;
 
     public int DpiY { get; set; } = 300;
@@ -134,6 +138,8 @@ internal sealed class FakeWindowsGdiInterop : IWindowsGdiInterop
             WindowsGdiInterop.VertRes => PrintableHeight,
             WindowsGdiInterop.PhysicalWidth => SheetWidth,
             WindowsGdiInterop.PhysicalHeight => SheetHeight,
+            WindowsGdiInterop.PhysicalOffsetX => OffsetX,
+            WindowsGdiInterop.PhysicalOffsetY => OffsetY,
             WindowsGdiInterop.LogPixelsX => DpiX,
             WindowsGdiInterop.LogPixelsY => DpiY,
             _ => 0,
