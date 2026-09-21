@@ -1,9 +1,7 @@
-﻿using AdaptArch.Devices.Printing.Raster;
-
-namespace AdaptArch.Devices.Pdfium;
+﻿namespace AdaptArch.Devices.Printing.Raster;
 
 /// <summary>
-/// One rendered page: its pixels, and the size the document gave it.
+/// One page a PDF engine rendered: its pixels, and the size the document gave it.
 /// </summary>
 /// <param name="Pixels">The pixels, packed with no padding between the lines.</param>
 /// <param name="Width">The width in pixels.</param>
@@ -14,9 +12,11 @@ namespace AdaptArch.Devices.Pdfium;
 /// <remarks>
 /// The page box is carried because it is the media size for a job that takes its size from
 /// the document, and because a caller that lays the page out needs to know the shape the
-/// document asked for rather than the shape a resolution cap left it with.
+/// document asked for rather than the shape a resolution cap left it with. It is stated in
+/// points whichever unit the engine measured it in, so that two engines describe one page
+/// the same way.
 /// </remarks>
-public sealed record PdfPage(
+public sealed record RenderedPdfPage(
     byte[] Pixels,
     int Width,
     int Height,

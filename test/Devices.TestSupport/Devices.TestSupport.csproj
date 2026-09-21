@@ -1,0 +1,39 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A library, not a test project. test/Directory.Build.props makes everything under
+    test/ an MTP test executable, which this is not: it holds what more than one test
+    project needs and has no test of its own. -->
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <IsTestProject>false</IsTestProject>
+    <UseMicrosoftTestingPlatformRunner>false</UseMicrosoftTestingPlatformRunner>
+    <GenerateProgramFile>false</GenerateProgramFile>
+  </PropertyGroup>
+
+  <!-- The rasterization harness asserts, so it needs xunit's assertions and nothing else.
+    xunit.v3 itself carries the runner and refuses to be referenced by a library; the
+    runner, the coverage collector and the mocking library belong to a project that runs
+    tests, so test/Directory.Build.props's references are dropped here. -->
+  <ItemGroup>
+    <PackageReference Remove="xunit.v3" />
+    <PackageReference Remove="coverlet.MTP" />
+    <PackageReference Remove="NSubstitute" />
+    <PackageReference Remove="NSubstitute.Analyzers.CSharp" />
+    <PackageReference Include="xunit.v3.assert" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(CONFIGURATION)' == 'Debug' Or '$(BuildDocFx)' == 'true'">
+    <ProjectReference Include="..\..\src\Devices\Devices.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(CONFIGURATION)' == 'Release' And '$(BuildDocFx)' != 'true'">
+    <PackageReference Include="AdaptArch.Devices" />
+  </ItemGroup>
+
+  <!-- The fixture embeds this font rather than naming one, so every engine on every platform
+    draws the same glyphs. Rasterization/fonts/README.md says why it is checked in. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Rasterization\fonts\LiberationSans-Regular.ttf" LogicalName="LiberationSans-Regular.ttf" />
+  </ItemGroup>
+
+</Project>

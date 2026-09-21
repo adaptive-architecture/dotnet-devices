@@ -45,7 +45,7 @@ internal static class PdfiumRenderer
 
     // Renders the selected pages in document order. PageRanges is the 1-based option the
     // caller set; null renders the whole document.
-    internal static async Task<IReadOnlyList<PdfPage>> RenderAsync(
+    internal static async Task<IReadOnlyList<RenderedPdfPage>> RenderAsync(
         byte[] pdf,
         PdfRenderOptions options,
         CancellationToken cancellationToken)
@@ -64,7 +64,7 @@ internal static class PdfiumRenderer
         }
     }
 
-    private static List<PdfPage> Render(byte[] pdf, PdfRenderOptions options, CancellationToken cancellationToken)
+    private static List<RenderedPdfPage> Render(byte[] pdf, PdfRenderOptions options, CancellationToken cancellationToken)
     {
         if (!s_initialized)
         {
@@ -75,7 +75,7 @@ internal static class PdfiumRenderer
             s_initialized = true;
         }
 
-        var dpi = PdfiumLimits.ClampDpi(options.Dpi);
+        var dpi = PdfRenderLimits.ClampDpi(options.Dpi);
         var flags = options.Smoothing ? PrintingFlags : PrintingFlags | NoSmoothingFlags;
 
         // FPDF_LoadMemDocument64 does not copy, and PDFium reads the buffer for as long as
@@ -112,7 +112,7 @@ internal static class PdfiumRenderer
                 throw new InvalidOperationException("The page ranges select no page of this PDF.");
             }
 
-            List<PdfPage> rendered = new(selected.Count);
+            List<RenderedPdfPage> rendered = new(selected.Count);
             foreach (var index in selected)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -132,7 +132,7 @@ internal static class PdfiumRenderer
         }
     }
 
-    private static PdfPage RenderPage(FpdfDocumentT document, int index, int dpi, PwgRasterColorSpace colorSpace, int flags)
+    private static RenderedPdfPage RenderPage(FpdfDocumentT document, int index, int dpi, PwgRasterColorSpace colorSpace, int flags)
     {
         using FS_SIZEF_ size = new();
         if (fpdfview.FPDF_GetPageSizeByIndexF(document, index, size) == 0)
@@ -140,7 +140,7 @@ internal static class PdfiumRenderer
             throw new InvalidOperationException($"The PDF page {index + 1} has no size to render.");
         }
 
-        (var width, var height) = PdfiumLimits.RenderPixels(size.Width, size.Height, dpi);
+        (var width, var height) = PdfRenderLimits.RenderPixels(size.Width, size.Height, dpi, PdfRenderLimits.PointsPerInch);
         var isColor = colorSpace == PwgRasterColorSpace.Srgb8;
         var stride = width * (isColor ? 3 : 1);
         var pixels = new byte[stride * height];
@@ -190,7 +190,7 @@ internal static class PdfiumRenderer
             SwapBlueAndRed(pixels);
         }
 
-        return new PdfPage(pixels, width, height, colorSpace, size.Width, size.Height);
+        return new RenderedPdfPage(pixels, width, height, colorSpace, size.Width, size.Height);
     }
 
     // PDFium writes blue, green, red; both encoders read red, green, blue. The green stays

@@ -22,7 +22,7 @@ namespace AdaptArch.Devices.Rasterization;
 /// geometry of a rendered page arithmetic a test can do.
 /// </para>
 /// </remarks>
-internal static class Barcode
+public static class Barcode
 {
     /// <summary>
     /// The five elements of each digit. A set bit is a wide element, and every digit has
@@ -35,7 +35,7 @@ internal static class Barcode
     ];
 
     /// <summary>How much wider a wide element is than a narrow one.</summary>
-    internal const double WideRatio = 2.0;
+    public const double WideRatio = 2.0;
 
     /// <summary>The narrow element width the fixture draws with, in points.</summary>
     /// <remarks>
@@ -44,10 +44,10 @@ internal static class Barcode
     /// survive any resampling, and a test that did not say so would read like an engine
     /// defect.
     /// </remarks>
-    internal const double NarrowPoints = 1.5;
+    public const double NarrowPoints = 1.5;
 
     /// <summary>The height of the symbol the fixture draws, in points.</summary>
-    internal const double HeightPoints = 70;
+    public const double HeightPoints = 70;
 
     /// <summary>
     /// The content stream operators that draw the symbol, in black.
@@ -56,7 +56,7 @@ internal static class Barcode
     /// <param name="x">The left edge, in points from the left of the page.</param>
     /// <param name="y">The bottom edge, in points from the bottom of the page.</param>
     /// <returns>PDF operators that draw one rectangle for each bar.</returns>
-    internal static string Draw(string digits, double x, double y)
+    public static string Draw(string digits, double x, double y)
     {
         StringBuilder operators = new();
         _ = operators.Append("0 0 0 rg\n");
@@ -85,7 +85,7 @@ internal static class Barcode
     /// </summary>
     /// <param name="digits">An even number of digits.</param>
     /// <returns>The width from the first bar to the last.</returns>
-    internal static double WidthPoints(string digits)
+    public static double WidthPoints(string digits)
     {
         var width = 0.0;
         foreach (var element in Elements(digits))
@@ -101,7 +101,7 @@ internal static class Barcode
     /// </summary>
     /// <param name="digits">An even number of digits.</param>
     /// <returns>The number of bars.</returns>
-    internal static int BarCount(string digits)
+    public static int BarCount(string digits)
     {
         var bars = 0;
         var isBar = true;

@@ -15,5 +15,6 @@
     <Project Path="test/Devices.Pdfium.UnitTests/Devices.Pdfium.UnitTests.csproj" />
     <Project Path="test/Devices.Windows.UnitTests/Devices.Windows.UnitTests.csproj" />
     <Project Path="test/Devices.InteropTests/Devices.InteropTests.csproj" />
+    <Project Path="test/Devices.TestSupport/Devices.TestSupport.csproj" />
   </Folder>
 </Solution>

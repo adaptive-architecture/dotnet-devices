@@ -22,7 +22,7 @@ namespace AdaptArch.Devices.Rasterization;
 /// platform substituting its own Helvetica -- is gone.
 /// </para>
 /// </remarks>
-internal static class RasterScenarios
+public static class RasterScenarios
 {
     // Inside the band the fixture draws across the top of every page, and clear of the
     // black corner block at the bottom.
@@ -40,7 +40,7 @@ internal static class RasterScenarios
     /// <param name="engine">What to call it on disk. Normally <see cref="IPrintPayloadConverter.Name"/>.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>Where the contact sheet was written.</returns>
-    internal static async Task<string> RunAsync(
+    public static async Task<string> RunAsync(
         IPrintPayloadConverter converter,
         string engine,
         CancellationToken cancellationToken)

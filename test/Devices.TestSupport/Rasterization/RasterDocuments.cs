@@ -19,31 +19,31 @@ namespace AdaptArch.Devices.Rasterization;
 /// numeral says the same thing again for a person rather than for an assertion.
 /// </para>
 /// </remarks>
-internal static class RasterDocuments
+public static class RasterDocuments
 {
     /// <summary>A4, in the points a PDF is authored in.</summary>
-    internal const double WidthPoints = 595;
+    public const double WidthPoints = 595;
 
-    internal const double HeightPoints = 842;
+    public const double HeightPoints = 842;
 
     /// <summary>How tall the colour band across the top of each page is, in points.</summary>
-    internal const double BandPoints = 100;
+    public const double BandPoints = 100;
 
     /// <summary>How wide the black corner block is, in points.</summary>
-    internal const double CornerPoints = 60;
+    public const double CornerPoints = 60;
 
     /// <summary>The left edge of the barcode on every page, in points.</summary>
-    internal const double BarcodeLeftPoints = 300;
+    public const double BarcodeLeftPoints = 300;
 
     /// <summary>The bottom edge of the barcode on every page, in points.</summary>
-    internal const double BarcodeBottomPoints = 150;
+    public const double BarcodeBottomPoints = 150;
 
     /// <summary>
     /// The digits each page's barcode carries: the page number, in four digits.
     /// </summary>
     /// <param name="page">The 0-based page.</param>
     /// <returns>The digits.</returns>
-    internal static string BarcodeDigits(int page) => (page + 1).ToString("D4", CultureInfo.InvariantCulture);
+    public static string BarcodeDigits(int page) => (page + 1).ToString("D4", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// The colour of each page's band, in red, green, blue order.
@@ -52,7 +52,7 @@ internal static class RasterDocuments
     /// Saturated and all different in every channel, so a swapped pair of channels changes
     /// the answer rather than only the shade.
     /// </remarks>
-    internal static readonly IReadOnlyList<(byte Red, byte Green, byte Blue)> BandColors =
+    public static readonly IReadOnlyList<(byte Red, byte Green, byte Blue)> BandColors =
     [
         (255, 0, 0),
         (0, 255, 0),
@@ -61,13 +61,13 @@ internal static class RasterDocuments
     ];
 
     /// <summary>The number of pages <see cref="FourPages"/> writes.</summary>
-    internal const int PageCount = 4;
+    public const int PageCount = 4;
 
     /// <summary>
     /// Four A4 pages, each with a coloured band along the top, a black block in the
     /// bottom-left corner, its own page number and a barcode carrying that number.
     /// </summary>
-    internal static byte[] FourPages()
+    public static byte[] FourPages()
     {
         // Latin1 and not ASCII, because the font programme below is binary and every octet
         // of it has to survive the round trip through this builder unchanged.
@@ -143,7 +143,7 @@ internal static class RasterDocuments
     }
 
     /// <summary>The name the embedded font programme is referred to by.</summary>
-    internal const string FontName = "LiberationSans";
+    public const string FontName = "LiberationSans";
 
     // Read out of the assembly rather than from beside it, so neither test project has to
     // copy a file to its output and no run depends on a working directory.

@@ -1,4 +1,6 @@
-﻿namespace AdaptArch.Devices.Pdfium;
+﻿using AdaptArch.Devices.Printing.Raster;
+
+namespace AdaptArch.Devices.Pdfium;
 
 /// <summary>
 /// Renders a PDF to pixels with PDFium, the engine behind Chrome and Edge.
@@ -19,12 +21,6 @@
 /// </remarks>
 public static class PdfiumDocument
 {
-    /// <summary>The lowest resolution the engine renders well. Below it a page turns to mush.</summary>
-    public const int MinDpi = PdfiumLimits.MinDpi;
-
-    /// <summary>The highest resolution this library asks for. Above it a page costs more memory than a job should hold.</summary>
-    public const int MaxDpi = PdfiumLimits.MaxDpi;
-
     /// <summary>
     /// Renders the selected pages, in document order.
     /// </summary>
@@ -40,7 +36,7 @@ public static class PdfiumDocument
     /// The page box each answer carries is the size the document asked for, whatever the
     /// pixels ended up being.
     /// </remarks>
-    public static Task<IReadOnlyList<PdfPage>> RenderAsync(
+    public static Task<IReadOnlyList<RenderedPdfPage>> RenderAsync(
         byte[] pdf,
         PdfRenderOptions options,
         CancellationToken cancellationToken = default) =>

@@ -13,9 +13,9 @@ namespace AdaptArch.Devices.Rasterization;
 /// </param>
 /// <param name="FirstDarkPixel">Where the first dark run starts, or -1 when the line has none.</param>
 /// <param name="LastDarkPixel">Where the last dark run ends, or -1 when the line has none.</param>
-internal readonly record struct ScanLine(int DarkRuns, int SoftPixels, int FirstDarkPixel, int LastDarkPixel);
+public readonly record struct ScanLine(int DarkRuns, int SoftPixels, int FirstDarkPixel, int LastDarkPixel);
 
-internal static class BarcodeScan
+public static class BarcodeScan
 {
     // Ink and stock. A rendered edge lands between them, and everything between is what the
     // smoothing switch decides.
@@ -30,7 +30,7 @@ internal static class BarcodeScan
     /// <param name="bytesPerPixel">One for grayscale, three for red, green, blue.</param>
     /// <param name="row">The line to read, counted from the top.</param>
     /// <returns>What the line holds.</returns>
-    internal static ScanLine Read(IReadOnlyList<byte> pixels, int width, int bytesPerPixel, int row)
+    public static ScanLine Read(IReadOnlyList<byte> pixels, int width, int bytesPerPixel, int row)
     {
         var runs = 0;
         var soft = 0;
@@ -80,7 +80,7 @@ internal static class BarcodeScan
     /// the page as a whole arrived as a half-tone the printer has to resolve, which is where
     /// the smoothing switch shows up on text.
     /// </remarks>
-    internal static int SoftPixels(IReadOnlyList<byte> pixels, int width, int height, int bytesPerPixel)
+    public static int SoftPixels(IReadOnlyList<byte> pixels, int width, int height, int bytesPerPixel)
     {
         var soft = 0;
         for (var row = 0; row < height; row++)

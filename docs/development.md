@@ -75,6 +75,14 @@ Linux unaffected.
 [windows-manual-tests.md](windows-manual-tests.md#the-tests-that-run-themselves-on-windows)
 says how to pause the queue and why that matters.
 
+`test/Devices.TestSupport/` holds what more than one test project needs: `Pdf/MinimalPdf.cs`,
+which assembles a PDF around a list of objects so no fixture writes a cross-reference table
+of its own, and `Rasterization/`, the harness described below. It is a library rather than
+linked source, so a consumer takes a `ProjectReference` and everything in it is `public`.
+It is the one project under `test/` that runs no test of its own: `test/Directory.Build.props`
+makes everything there an executable xUnit project, and its own file turns that off and
+takes `xunit.v3.assert` in place of `xunit.v3`, which refuses to be referenced by a library.
+
 `src/Devices.Pdfium` is on neither exclusion list, and must not go on one: PDFium is a native
 library the package carries for every platform, so unlike the in-box Windows engine it runs
 on the Linux runner. `PdfiumPdfConverterTests` renders real PDFs with it and reads the PNG
@@ -83,7 +91,7 @@ and the PWG Raster back.
 ### Looking at what a rasterizer produced
 
 The scenarios of `samples/Devices.Samples/PrintJobs/queue-sweep-pdf.json` can otherwise only
-be judged on paper. One harness in `test/Shared/Rasterization/` renders them without printing
+be judged on paper. One harness in `test/Devices.TestSupport/Rasterization/` renders them without printing
 anything: it converts a generated four-page PDF, decodes the PWG Raster with a reader written
 against PWG 5102.4, asserts the geometry, the colour space and the duplex transforms, and
 writes every page out through the public `PngWriter`.
@@ -114,10 +122,11 @@ backwards from the binding that provoked it. The table there matches CUPS's
 `_cupsRasterInitPWGHeader` exactly.
 
 Each engine is asserted against itself and never against the other. Not for the reason it
-first looks: the two agree about the page size, because `WindowsPdfLimits` counting
-device-independent pixels of 1/96 inch and `PdfiumLimits` counting points of 1/72 are two
-spellings of the same physical size, and the conversion to dots cancels the difference
-exactly. A4 renders 1240 by 1755 at 150 dots an inch on both.
+first looks: the two agree about the page size, because both size a page through
+`PdfRenderLimits.RenderPixels` in the core package and differ only in the unit they hand it
+— device-independent pixels of 1/96 inch for the in-box engine, points of 1/72 for PDFium —
+which are two spellings of the same physical size, and the conversion to dots cancels the
+difference exactly. A4 renders 1240 by 1755 at 150 dots an inch on both.
 
 ### Why the fixture embeds a font
 
@@ -128,7 +137,7 @@ differed by **0.56% of its octets between the two operating systems running the 
 and by 0.11% between the two engines on one machine — every differing pixel inside the
 numeral's bounding box, and none anywhere else. Vector fills were identical throughout.
 
-`test/Shared/Rasterization/fonts/` now holds Liberation Sans and its licence, and the fixture
+`test/Devices.TestSupport/Rasterization/fonts/` now holds Liberation Sans and its licence, and the fixture
 embeds the outlines, so the font is no longer a variable. That folder's `README.md` says why a
 binary asset is checked into a tree whose convention is that nothing depends on one, why this
 font and not Arial, and why the whole file rather than a subset.

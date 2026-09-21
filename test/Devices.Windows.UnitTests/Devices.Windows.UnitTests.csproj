@@ -20,21 +20,13 @@
   </ItemGroup>
 
 
-  <!-- The rasterization scenarios are one harness run by each engine's own project, so the
-    PDFium half runs everywhere and the in-box half runs where that engine exists. -->
-  <ItemGroup>
-    <Compile Include="..\Shared\Rasterization\*.cs" LinkBase="Rasterization" />
-  </ItemGroup>
-
   <ItemGroup>
     <Content Include="..\..\samples\Devices.Samples\PrintFiles\pages.pdf" Link="pages.pdf" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 
-  <!-- The fixture embeds this font rather than naming one, so every engine on every platform
-    draws the same glyphs. test/Shared/Rasterization/fonts/README.md says why it is checked in. -->
   <ItemGroup>
-    <EmbeddedResource Include="..\Shared\Rasterization\fonts\LiberationSans-Regular.ttf" LogicalName="LiberationSans-Regular.ttf" />
+    <ProjectReference Include="..\Devices.TestSupport\Devices.TestSupport.csproj" />
   </ItemGroup>
 
 </Project>

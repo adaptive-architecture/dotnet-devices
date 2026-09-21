@@ -12,21 +12,21 @@ namespace AdaptArch.Devices.Rasterization;
 /// so a page built from what happened would quietly shrink to the half that did. Built from
 /// this, both projects write the same page and a missing engine shows as a gap that says so.
 /// </remarks>
-internal static class RasterCatalogue
+public static class RasterCatalogue
 {
     /// <summary>The converter name of the engine that runs everywhere.</summary>
-    internal const string Pdfium = "PDFium";
+    public const string Pdfium = "PDFium";
 
     /// <summary>The converter name of the engine that ships with Windows.</summary>
-    internal const string Windows = "Windows";
+    public const string Windows = "Windows";
 
-    internal static readonly IReadOnlyList<Engine> Engines =
+    public static readonly IReadOnlyList<Engine> Engines =
     [
         new(Pdfium, "PDFium, the engine in Chrome. Carried by AdaptArch.Devices.Pdfium for every platform."),
         new(Windows, "The in-box WinRT engine. Carried by AdaptArch.Devices.Windows, and present on Windows only."),
     ];
 
-    internal static readonly IReadOnlyList<Scenario> Scenarios =
+    public static readonly IReadOnlyList<Scenario> Scenarios =
     [
         new("four-pages-in-colour", "Four pages in colour", "The raster geometry, and that blue and red did not change places on the way out of the engine.", 4),
         new("four-pages-in-grayscale", "Four pages in grayscale", "The same pages as one octet a pixel instead of three.", 4),
@@ -41,7 +41,7 @@ internal static class RasterCatalogue
         new("media-from-the-document", "Media taken from the document", "The page is its own media, so nothing is fitted, moved or resampled. The sharpest result available.", 1),
     ];
 
-    internal sealed record Engine(string Name, string Note);
+    public sealed record Engine(string Name, string Note);
 
-    internal sealed record Scenario(string Folder, string Title, string Note, int PageCount);
+    public sealed record Scenario(string Folder, string Title, string Note, int PageCount);
 }

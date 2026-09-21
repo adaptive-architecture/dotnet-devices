@@ -10,8 +10,8 @@ public sealed record PdfRenderOptions
 {
     /// <summary>
     /// Gets the resolution to render at, in dots per inch. It is clamped to what the engine
-    /// renders well, which is <see cref="PdfiumDocument.MinDpi"/> to
-    /// <see cref="PdfiumDocument.MaxDpi"/>.
+    /// renders well, which is <see cref="PdfRenderLimits.MinDpi"/> to
+    /// <see cref="PdfRenderLimits.MaxDpi"/>.
     /// </summary>
     public int Dpi { get; init; } = PrintConversionContext.DefaultDpi;
 
