@@ -82,6 +82,17 @@ linked source, so a consumer takes a `ProjectReference` and everything in it is 
 It is the one project under `test/` that runs no test of its own: `test/Directory.Build.props`
 makes everything there an executable xUnit project, and its own file turns that off and
 takes `xunit.v3.assert` in place of `xunit.v3`, which refuses to be referenced by a library.
+It also declares `SonarQubeTestProject` and is excluded from the coverage, because it holds
+no product code and the scanner would otherwise read a fixture as main code.
+
+The coverage reports are named after the project that wrote them. Every test project writes
+into the one results directory, coverlet names a report after the millisecond it was written,
+and two projects finishing in the same millisecond silently overwrite each other — which cost
+the `Devices.UnitTests` report once and turned a 93% into a 43%. `--coverlet-file-prefix` is
+coverlet's answer and can only be set per project, so `test/Directory.Build.props` sets it.
+The floor then checks that there is one report per test project before it reads any of them,
+because a percentage computed from a report that went missing still looks like a coverage
+number.
 
 `src/Devices.Pdfium` is on neither exclusion list, and must not go on one: PDFium is a native
 library the package carries for every platform, so unlike the in-box Windows engine it runs

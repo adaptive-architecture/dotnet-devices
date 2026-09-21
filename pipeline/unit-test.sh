@@ -65,11 +65,16 @@ rm -rf ./artifacts/rasterization
 # tests drag Testcontainers, Docker.DotNet and their dependencies into the numbers: they
 # ship deterministic source paths, so coverlet instruments them and they land in the
 # report as thousands of uncovered lines nobody here can cover.
+# --coverlet-exclude keeps test/Devices.TestSupport out of the numbers. It is a library
+# rather than linked source, so it is not the assembly under test and coverlet would
+# otherwise count a fixture as covered product code. Its report name is prefixed with the
+# project's, which test/Directory.Build.props sets and explains.
 test_status=0
 dotnet_cmd test \
   --no-build \
   --coverlet \
   --coverlet-include "[AdaptArch.*]*" \
+  --coverlet-exclude "[AdaptArch.Devices.TestSupport]*" \
   --coverlet-output-format json \
   --coverlet-output-format lcov \
   --coverlet-output-format opencover \
@@ -81,6 +86,20 @@ dotnet_cmd test \
 if [ "$test_status" -ne 0 ]; then
   echo "Tests failed; not checking the coverage floor."
   exit "$test_status"
+fi
+
+# One report a test project, or the floor is meaningless. A report that went missing takes
+# with it every line only its project covered, and the percentage that comes out still looks
+# like a coverage number: losing the Devices.UnitTests report alone reads as 43% against the
+# 93% the same commit really has. The count is derived rather than written down, so a new
+# test project needs no edit here; test/Devices.TestSupport declares itself out of it.
+expected_reports=$(grep -L "<IsTestProject>false</IsTestProject>" test/*/*.csproj | wc -l)
+actual_reports=$(ls ./coverage/*.info 2>/dev/null | wc -l)
+if [ "$actual_reports" -ne "$expected_reports" ]; then
+  echo "Expected $expected_reports coverage reports, found $actual_reports:"
+  ls -1 ./coverage/*.info 2>/dev/null || echo "  (none)"
+  echo "A report is missing, so the coverage below would understate what ran. Not checking the floor."
+  exit 1
 fi
 
 # The floor. It is computed from the merged LCOV rather than from one project's report,
@@ -113,4 +132,4 @@ awk -v threshold="$THRESHOLD" -v thin="$THIN_LAYER" '
       exit 1
     }
   }
-' ./coverage/coverage.*.info
+' ./coverage/*.info
