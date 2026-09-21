@@ -195,10 +195,13 @@ internal sealed class WindowsGdiImagePrinter : IWindowsGdiImagePrinter
                 area.Height,
                 job.Orientation,
                 job.Scaling,
-                page.Borderless || job.FitArea == PrintFitArea.Physical,
-                job.Placement,
-                page.DpiX,
-                page.DpiY);
+                new WindowsGdiImageLayout.DeviceLayout
+                {
+                    Borderless = page.Borderless || job.FitArea == PrintFitArea.Physical,
+                    Placement = job.Placement,
+                    DpiX = page.DpiX,
+                    DpiY = page.DpiY,
+                });
             var layout = new ImageRectangle(placed.X + area.X, placed.Y + area.Y, placed.Width, placed.Height);
             if (layout.IsEmpty)
             {

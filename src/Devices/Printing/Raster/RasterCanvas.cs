@@ -22,10 +22,7 @@ public static class RasterCanvas
     /// <param name="width">The width of the page in pixels.</param>
     /// <param name="height">The height of the page in pixels.</param>
     /// <param name="bytesPerPixel">One for grayscale, three for red, green, blue.</param>
-    /// <param name="canvasWidth">The width of the canvas in pixels.</param>
-    /// <param name="canvasHeight">The height of the canvas in pixels.</param>
-    /// <param name="destination">Where the page goes, which may leave the canvas.</param>
-    /// <param name="resampling">How a pixel is read when the page is not drawn at its own size.</param>
+    /// <param name="target">The canvas, where on it the page goes, and how its pixels are read.</param>
     /// <returns>The canvas, packed with no padding between its lines.</returns>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when a size is not positive, or the pixels are too few for the page.</exception>
     /// <remarks>
@@ -39,11 +36,15 @@ public static class RasterCanvas
         int width,
         int height,
         int bytesPerPixel,
-        int canvasWidth,
-        int canvasHeight,
-        ImageRectangle destination,
-        RasterResampling resampling)
+        RasterTarget target)
     {
+        ArgumentNullException.ThrowIfNull(target);
+
+        var canvasWidth = target.Width;
+        var canvasHeight = target.Height;
+        var destination = target.Destination;
+        var resampling = target.Resampling;
+
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(canvasWidth);
@@ -88,14 +89,14 @@ public static class RasterCanvas
             for (var x = fromX; x < toX; x++)
             {
                 var sourceX = (x - destination.X + 0.5) * width / destination.Width;
-                var target = (y * canvasStride) + (x * bytesPerPixel);
+                var at = (y * canvasStride) + (x * bytesPerPixel);
                 if (resampling == RasterResampling.Bilinear)
                 {
-                    Bilinear(pixels, width, height, bytesPerPixel, sourceX, sourceY, canvas.AsSpan(target, bytesPerPixel));
+                    Bilinear(pixels, width, height, bytesPerPixel, sourceX, sourceY, canvas.AsSpan(at, bytesPerPixel));
                 }
                 else
                 {
-                    Nearest(pixels, width, height, bytesPerPixel, sourceX, sourceY, canvas.AsSpan(target, bytesPerPixel));
+                    Nearest(pixels, width, height, bytesPerPixel, sourceX, sourceY, canvas.AsSpan(at, bytesPerPixel));
                 }
             }
         }

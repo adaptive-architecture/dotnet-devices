@@ -39,4 +39,11 @@
     <EmbeddedResource Include="Rasterization\fonts\LiberationSans-Regular.ttf" LogicalName="LiberationSans-Regular.ttf" />
   </ItemGroup>
 
+  <!-- The sample label, embedded rather than copied, so the placement scenario has a page
+    genuinely smaller than its media and no test depends on a file beside it at run time.
+    It is the same file the samples print, so the two cannot drift. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\samples\Devices.Samples\PrintFiles\document.pdf" LogicalName="document.pdf" />
+  </ItemGroup>
+
 </Project>

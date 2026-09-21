@@ -183,7 +183,7 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
     // on all answer null, which is the whole sheet.
     internal static ImageRectangle? ResolveFitArea(PrintOptions? options, MediaDimensions? media, MediaMargins? margins, int dpi)
     {
-        if (media is null || margins is null || margins.IsEmpty)
+        if (media is null || margins is null or { IsEmpty: true })
         {
             return null;
         }
@@ -329,11 +329,14 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
 
         // The converter selected the pages, so the printer must not select them again -- and
         // where it also placed the page on its media, the printer must not fit it again.
-        var converted = options is null
-            ? null
-            : converter.PlacesOnMedia(context)
+        PrintOptions? converted = null;
+        if (options is not null)
+        {
+            converted = converter.PlacesOnMedia(context)
                 ? PrintOptionValidator.WithoutPlacedGeometry(options)
                 : PrintOptionValidator.WithoutPageRanges(options);
+        }
+
         return (PrinterPayload.FromBytes(documents[0], target), target, converted);
     }
 

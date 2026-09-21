@@ -121,6 +121,9 @@ public static class Barcode
     // Every element of the symbol in order, starting with a bar and alternating: the start
     // pattern, the digits two at a time with the first drawn as bars and the second as the
     // spaces between them, and the stop pattern.
+    // The check is out here rather than in the iterator below, because an iterator does not
+    // run until it is enumerated, and a caller that passed an odd number of digits would be
+    // told so wherever the sequence happened to be read rather than where it was asked for.
     private static IEnumerable<bool> Elements(string digits)
     {
         if (String.IsNullOrEmpty(digits) || digits.Length % 2 != 0)
@@ -128,6 +131,11 @@ public static class Barcode
             throw new ArgumentException("Interleaved 2 of 5 encodes an even number of digits.", nameof(digits));
         }
 
+        return Encoded(digits);
+    }
+
+    private static IEnumerable<bool> Encoded(string digits)
+    {
         // Start: narrow bar, narrow space, narrow bar, narrow space.
         yield return false;
         yield return false;

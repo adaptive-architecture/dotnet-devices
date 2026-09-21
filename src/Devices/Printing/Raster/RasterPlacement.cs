@@ -73,12 +73,15 @@ public static class RasterPlacement
             area.Height,
             null,
             context.Scaling,
-            // A fit to the whole sheet is a fit with no margin to clear, which is what
-            // borderless means to the Auto mode.
-            area.Width >= canvasWidth && area.Height >= canvasHeight,
-            placement?.Anchor ?? PrintAnchor.Center,
-            placement?.OffsetX.ToPixels(context.Dpi) ?? 0,
-            placement?.OffsetY.ToPixels(context.Dpi) ?? 0);
+            new ImagePlacementOptions
+            {
+                // A fit to the whole sheet is a fit with no margin to clear, which is what
+                // borderless means to the Auto mode.
+                Borderless = area.Width >= canvasWidth && area.Height >= canvasHeight,
+                Anchor = placement?.Anchor ?? PrintAnchor.Center,
+                OffsetX = placement?.OffsetX.ToPixels(context.Dpi) ?? 0,
+                OffsetY = placement?.OffsetY.ToPixels(context.Dpi) ?? 0,
+            });
 
         var destination = new ImageRectangle(placed.X + area.X, placed.Y + area.Y, placed.Width, placed.Height);
 
@@ -99,10 +102,13 @@ public static class RasterPlacement
             width,
             height,
             bytesPerPixel,
-            canvasWidth,
-            canvasHeight,
-            destination,
-            ResamplingFor(context.Smoothing));
+            new RasterTarget
+            {
+                Width = canvasWidth,
+                Height = canvasHeight,
+                Destination = destination,
+                Resampling = ResamplingFor(context.Smoothing),
+            });
 
         return new ComposedPage(composed, canvasWidth, canvasHeight);
     }

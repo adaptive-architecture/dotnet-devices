@@ -15,7 +15,7 @@ public class RasterCanvasTests
     public void Compose_PutsThePageWhereTheRectangleSays()
     {
         // One black pixel, drawn at its own size three across and two down.
-        var canvas = RasterCanvas.Compose([Black], 1, 1, 1, 5, 4, new ImageRectangle(3, 2, 1, 1), RasterResampling.NearestNeighbor);
+        var canvas = Compose([Black], 1, 1, 1, 5, 4, new ImageRectangle(3, 2, 1, 1), RasterResampling.NearestNeighbor);
 
         Assert.Equal(20, canvas.Length);
         Assert.Equal(Black, canvas[(2 * 5) + 3]);
@@ -33,7 +33,7 @@ public class RasterCanvasTests
     [Fact]
     public void Compose_LeavesTheRestOfTheMediaWhite()
     {
-        var canvas = RasterCanvas.Compose([Black], 1, 1, 1, 3, 3, ImageRectangle.Empty, RasterResampling.Bilinear);
+        var canvas = Compose([Black], 1, 1, 1, 3, 3, ImageRectangle.Empty, RasterResampling.Bilinear);
 
         Assert.All(canvas, octet => Assert.Equal(White, octet));
     }
@@ -44,7 +44,7 @@ public class RasterCanvasTests
         // A two-by-two black page whose top left corner sits one pixel off the media: only
         // the quarter of it that lands on the canvas is drawn, and nothing throws.
         byte[] page = [Black, Black, Black, Black];
-        var canvas = RasterCanvas.Compose(page, 2, 2, 1, 3, 3, new ImageRectangle(-1, -1, 2, 2), RasterResampling.NearestNeighbor);
+        var canvas = Compose(page, 2, 2, 1, 3, 3, new ImageRectangle(-1, -1, 2, 2), RasterResampling.NearestNeighbor);
 
         Assert.Equal(Black, canvas[0]);
         Assert.Equal(White, canvas[1]);
@@ -55,7 +55,7 @@ public class RasterCanvasTests
     public void Compose_ClipsAPageThatRunsOffTheFarEdge()
     {
         byte[] page = [Black, Black, Black, Black];
-        var canvas = RasterCanvas.Compose(page, 2, 2, 1, 3, 3, new ImageRectangle(2, 2, 2, 2), RasterResampling.NearestNeighbor);
+        var canvas = Compose(page, 2, 2, 1, 3, 3, new ImageRectangle(2, 2, 2, 2), RasterResampling.NearestNeighbor);
 
         Assert.Equal(Black, canvas[(2 * 3) + 2]);
         Assert.Equal(White, canvas[0]);
@@ -67,7 +67,7 @@ public class RasterCanvasTests
     public void Compose_CopiesAPageDrawnAtItsOwnSizeUnchanged(RasterResampling resampling)
     {
         byte[] page = [0x10, 0x20, 0x30, 0x40];
-        var canvas = RasterCanvas.Compose(page, 2, 2, 1, 2, 2, new ImageRectangle(0, 0, 2, 2), resampling);
+        var canvas = Compose(page, 2, 2, 1, 2, 2, new ImageRectangle(0, 0, 2, 2), resampling);
 
         Assert.Equal(page, canvas);
     }
@@ -78,7 +78,7 @@ public class RasterCanvasTests
         // One black pixel beside one white one, drawn four times as wide. Nearest keeps every
         // pixel one or the other, which is what a bar code needs.
         byte[] page = [Black, White];
-        var canvas = RasterCanvas.Compose(page, 2, 1, 1, 8, 1, new ImageRectangle(0, 0, 8, 1), RasterResampling.NearestNeighbor);
+        var canvas = Compose(page, 2, 1, 1, 8, 1, new ImageRectangle(0, 0, 8, 1), RasterResampling.NearestNeighbor);
 
         Assert.All(canvas, octet => Assert.True(octet is Black or White, $"{octet} is neither black nor white."));
         Assert.Equal(Black, canvas[0]);
@@ -89,7 +89,7 @@ public class RasterCanvasTests
     public void Compose_BilinearRampsAcrossAnEdge()
     {
         byte[] page = [Black, White];
-        var canvas = RasterCanvas.Compose(page, 2, 1, 1, 8, 1, new ImageRectangle(0, 0, 8, 1), RasterResampling.Bilinear);
+        var canvas = Compose(page, 2, 1, 1, 8, 1, new ImageRectangle(0, 0, 8, 1), RasterResampling.Bilinear);
 
         // The ramp is the whole difference between the two: some pixel in the middle is
         // neither, which is exactly what smoothing off exists to prevent.
@@ -102,7 +102,7 @@ public class RasterCanvasTests
     public void Compose_ReadsThreeOctetsAPixel()
     {
         byte[] page = [0x11, 0x22, 0x33];
-        var canvas = RasterCanvas.Compose(page, 1, 1, 3, 2, 1, new ImageRectangle(1, 0, 1, 1), RasterResampling.NearestNeighbor);
+        var canvas = Compose(page, 1, 1, 3, 2, 1, new ImageRectangle(1, 0, 1, 1), RasterResampling.NearestNeighbor);
 
         Assert.Equal(6, canvas.Length);
         Assert.Equal(0x11, canvas[3]);
@@ -121,11 +121,11 @@ public class RasterCanvasTests
         byte[] page = [Black];
 
         _ = Assert.Throws<ArgumentOutOfRangeException>(
-            () => RasterCanvas.Compose(page, 0, 1, 1, 2, 2, new ImageRectangle(0, 0, 1, 1), RasterResampling.Bilinear));
+            () => Compose(page, 0, 1, 1, 2, 2, new ImageRectangle(0, 0, 1, 1), RasterResampling.Bilinear));
         _ = Assert.Throws<ArgumentOutOfRangeException>(
-            () => RasterCanvas.Compose(page, 1, 1, 2, 2, 2, new ImageRectangle(0, 0, 1, 1), RasterResampling.Bilinear));
+            () => Compose(page, 1, 1, 2, 2, 2, new ImageRectangle(0, 0, 1, 1), RasterResampling.Bilinear));
         _ = Assert.Throws<ArgumentOutOfRangeException>(
-            () => RasterCanvas.Compose(page, 4, 4, 1, 2, 2, new ImageRectangle(0, 0, 1, 1), RasterResampling.Bilinear));
+            () => Compose(page, 4, 4, 1, 2, 2, new ImageRectangle(0, 0, 1, 1), RasterResampling.Bilinear));
     }
 
     [Fact]
@@ -194,4 +194,24 @@ public class RasterCanvasTests
     [InlineData(false, RasterResampling.NearestNeighbor)]
     public void ResamplingFor_ReadsTheSmoothingSwitch(bool? smoothing, RasterResampling expected) =>
         Assert.Equal(expected, RasterPlacement.ResamplingFor(smoothing));
+
+    // The positional shape the assertions below read best in. RasterCanvas takes the canvas,
+    // the destination and the resampling as one target, which is right for a caller that
+    // builds them from a job and noise in a test that states them as numbers.
+    private static byte[] Compose(
+        ReadOnlySpan<byte> pixels,
+        int width,
+        int height,
+        int bytesPerPixel,
+        int canvasWidth,
+        int canvasHeight,
+        ImageRectangle destination,
+        RasterResampling resampling) =>
+        RasterCanvas.Compose(pixels, width, height, bytesPerPixel, new RasterTarget
+        {
+            Width = canvasWidth,
+            Height = canvasHeight,
+            Destination = destination,
+            Resampling = resampling,
+        });
 }

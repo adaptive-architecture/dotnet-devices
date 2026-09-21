@@ -36,10 +36,7 @@ public static class ImagePlacement
     /// <param name="pageHeight">The height of the area drawn on.</param>
     /// <param name="orientation">The orientation the page is turned by, or <c>null</c> for none.</param>
     /// <param name="scaling">How the page is fitted, or <c>null</c> for the printer default.</param>
-    /// <param name="borderless">Whether the area drawn on is the whole sheet rather than the printable part of it.</param>
-    /// <param name="anchor">Where the fitted page sits before the offset moves it.</param>
-    /// <param name="offsetX">How far the page moves right on the media, in device pixels.</param>
-    /// <param name="offsetY">How far the page moves down the media, in device pixels.</param>
+    /// <param name="options">Where the fitted page sits and whether the media has a margin to clear, or <c>null</c> for a centred page on a media with margins.</param>
     /// <returns>The rectangle to draw in, or <see cref="ImageRectangle.Empty"/> when either side has no size to fit.</returns>
     /// <remarks>
     /// The rectangle is in the frame the caller draws in, which for a turned page is after
@@ -58,15 +55,17 @@ public static class ImagePlacement
         int pageHeight,
         PrintOrientation? orientation,
         PrintScaling? scaling,
-        bool borderless = false,
-        PrintAnchor anchor = PrintAnchor.Center,
-        int offsetX = 0,
-        int offsetY = 0)
+        ImagePlacementOptions? options = null)
     {
         if (imageWidth <= 0 || imageHeight <= 0 || pageWidth <= 0 || pageHeight <= 0)
         {
             return ImageRectangle.Empty;
         }
+
+        var borderless = options?.Borderless ?? false;
+        var anchor = options?.Anchor ?? PrintAnchor.Center;
+        var offsetX = options?.OffsetX ?? 0;
+        var offsetY = options?.OffsetY ?? 0;
 
         var sideways = IsSideways(orientation);
         var fittedWidth = sideways ? imageHeight : imageWidth;

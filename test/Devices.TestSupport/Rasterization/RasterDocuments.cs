@@ -151,7 +151,7 @@ public static class RasterDocuments
     {
         using var stream = typeof(RasterDocuments).Assembly.GetManifestResourceStream(FontResource)
             ?? throw new InvalidOperationException(
-                $"The assembly carries no '{FontResource}'. See test/Shared/Rasterization/fonts/README.md.");
+                $"The assembly carries no '{FontResource}'. See test/Devices.TestSupport/Rasterization/fonts/README.md.");
 
         using MemoryStream buffer = new();
         stream.CopyTo(buffer);
@@ -159,6 +159,36 @@ public static class RasterDocuments
     }
 
     private const string FontResource = "LiberationSans-Regular.ttf";
+
+    /// <summary>The width of <see cref="Label"/> in points, which is four inches.</summary>
+    public const double LabelWidthPoints = 288;
+
+    /// <summary>The height of <see cref="Label"/> in points, which is six inches.</summary>
+    public const double LabelHeightPoints = 432;
+
+    /// <summary>
+    /// The sample shipping label: four inches by six, so a page genuinely smaller than the
+    /// media it is placed on.
+    /// </summary>
+    /// <remarks>
+    /// The one document here that is not built in code. The placement scenarios need a page
+    /// the media is larger than, and scaling the A4 fixture down to that size is not the
+    /// same test: a narrow bar of this fixture is 3.1 pixels at the scenario resolution, so
+    /// half of one is under two, and what the scenario would then measure is the resampler
+    /// rather than the placement. This is the label the samples print, embedded rather than
+    /// copied so the two cannot drift and no run depends on a file beside the assembly.
+    /// </remarks>
+    public static byte[] Label()
+    {
+        using var stream = typeof(RasterDocuments).Assembly.GetManifestResourceStream(LabelResource)
+            ?? throw new InvalidOperationException($"The assembly carries no '{LabelResource}'.");
+
+        using MemoryStream buffer = new();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
+    }
+
+    private const string LabelResource = "document.pdf";
 
     // PDF user space has its origin at the bottom-left, so the band is drawn at the top of
     // the sheet and the corner block at the bottom.

@@ -30,7 +30,7 @@ public class ImagePlacementTests
     [InlineData(PrintAnchor.BottomRight, 600, 600)]
     public void Compute_AnchorsAgainstTheEdgesOfTheMedia(PrintAnchor anchor, int expectedX, int expectedY)
     {
-        var layout = ImagePlacement.Compute(400, 200, 1000, 800, PrintOrientation.Portrait, PrintScaling.None, false, anchor);
+        var layout = ImagePlacement.Compute(400, 200, 1000, 800, PrintOrientation.Portrait, PrintScaling.None, new ImagePlacementOptions { Anchor = anchor });
 
         Assert.Equal(expectedX, layout.X);
         Assert.Equal(expectedY, layout.Y);
@@ -40,7 +40,8 @@ public class ImagePlacementTests
     public void Compute_OffsetMovesRightAndDownFromTheAnchor()
     {
         var layout = ImagePlacement.Compute(
-            400, 200, 1000, 800, PrintOrientation.Portrait, PrintScaling.None, false, PrintAnchor.TopLeft, 24, 12);
+            400, 200, 1000, 800, PrintOrientation.Portrait, PrintScaling.None,
+            new ImagePlacementOptions { Anchor = PrintAnchor.TopLeft, OffsetX = 24, OffsetY = 12 });
 
         Assert.Equal(24, layout.X);
         Assert.Equal(12, layout.Y);
@@ -50,7 +51,8 @@ public class ImagePlacementTests
     public void Compute_NegativeOffsetMovesTheOtherWayAndIsAllowedOffTheMedia()
     {
         var layout = ImagePlacement.Compute(
-            400, 200, 1000, 800, PrintOrientation.Portrait, PrintScaling.None, false, PrintAnchor.TopLeft, -30, -10);
+            400, 200, 1000, 800, PrintOrientation.Portrait, PrintScaling.None,
+            new ImagePlacementOptions { Anchor = PrintAnchor.TopLeft, OffsetX = -30, OffsetY = -10 });
 
         // Negative is how the clipping is expressed: the page starts outside the sheet.
         Assert.Equal(-30, layout.X);
@@ -62,7 +64,8 @@ public class ImagePlacementTests
     {
         // Fit scales 400x200 onto 1000x800 as 1000x500, so the bottom edge is what moves.
         var layout = ImagePlacement.Compute(
-            400, 200, 1000, 800, PrintOrientation.Portrait, PrintScaling.Fit, false, PrintAnchor.BottomLeft);
+            400, 200, 1000, 800, PrintOrientation.Portrait, PrintScaling.Fit,
+            new ImagePlacementOptions { Anchor = PrintAnchor.BottomLeft });
 
         Assert.Equal(1000, layout.Width);
         Assert.Equal(500, layout.Height);
@@ -81,7 +84,8 @@ public class ImagePlacementTests
         // sheet, so what it has to satisfy is that the footprint lands in that corner once
         // turned.
         var layout = ImagePlacement.Compute(
-            400, 200, 1000, 800, orientation, PrintScaling.None, false, PrintAnchor.TopLeft);
+            400, 200, 1000, 800, orientation, PrintScaling.None,
+            new ImagePlacementOptions { Anchor = PrintAnchor.TopLeft });
 
         // Drawn on its own axes: the sides are the page's, not the footprint's.
         Assert.Equal(400, layout.Width);
@@ -96,7 +100,8 @@ public class ImagePlacementTests
     public void Compute_SidewaysOffsetIsMeasuredOnTheMedia()
     {
         var moved = ImagePlacement.Compute(
-            400, 200, 1000, 800, PrintOrientation.Landscape, PrintScaling.None, false, PrintAnchor.TopLeft, 30, 10);
+            400, 200, 1000, 800, PrintOrientation.Landscape, PrintScaling.None,
+            new ImagePlacementOptions { Anchor = PrintAnchor.TopLeft, OffsetX = 30, OffsetY = 10 });
 
         // An offset is what a person measures on the stock, so it moves the page right and
         // down on the media whichever way the page itself is turned.
@@ -140,7 +145,8 @@ public class ImagePlacementTests
     public void Compute_ReversePortraitTurnsTheOffsetAround()
     {
         var moved = ImagePlacement.Compute(
-            400, 200, 1000, 800, PrintOrientation.ReversePortrait, PrintScaling.None, false, PrintAnchor.TopLeft, 30, 10);
+            400, 200, 1000, 800, PrintOrientation.ReversePortrait, PrintScaling.None,
+            new ImagePlacementOptions { Anchor = PrintAnchor.TopLeft, OffsetX = 30, OffsetY = 10 });
 
         // The page is drawn upside down about the centre of the sheet, so the top left of
         // the media is the bottom right of the draw frame.

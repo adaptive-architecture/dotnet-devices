@@ -39,10 +39,7 @@ internal static class WindowsGdiImageLayout
         int pageHeight,
         PrintOrientation? orientation,
         PrintScaling? scaling,
-        bool borderless = false,
-        PrintPlacement? placement = null,
-        int dpiX = 0,
-        int dpiY = 0) =>
+        DeviceLayout? layout = null) =>
         ImagePlacement.Compute(
             imageWidth,
             imageHeight,
@@ -50,10 +47,26 @@ internal static class WindowsGdiImageLayout
             pageHeight,
             orientation,
             scaling,
-            borderless,
-            placement?.Anchor ?? PrintAnchor.Center,
-            Pixels(placement?.OffsetX, dpiX),
-            Pixels(placement?.OffsetY, dpiY));
+            new ImagePlacementOptions
+            {
+                Borderless = layout?.Borderless ?? false,
+                Anchor = layout?.Placement?.Anchor ?? PrintAnchor.Center,
+                OffsetX = Pixels(layout?.Placement?.OffsetX, layout?.DpiX ?? 0),
+                OffsetY = Pixels(layout?.Placement?.OffsetY, layout?.DpiY ?? 0),
+            });
+
+    // The same tail as ImagePlacementOptions, in the units a device speaks: a placement
+    // measured in real lengths, and the resolutions that turn them into its pixels.
+    internal sealed record DeviceLayout
+    {
+        public bool Borderless { get; init; }
+
+        public PrintPlacement? Placement { get; init; }
+
+        public int DpiX { get; init; }
+
+        public int DpiY { get; init; }
+    }
 
     // A placement with no resolution to measure against moves nothing: the caller has the
     // device context, and a page that shifted by a guess is worse than one that did not.
