@@ -66,7 +66,7 @@ public class WindowsGdiImageLayoutTests
     [Fact]
     public void Compute_AutoFillsBorderlessMediaWithLargeImages()
     {
-        var layout = WindowsGdiImageLayout.Compute(2000, 1000, 1000, 800, PrintOrientation.Portrait, PrintScaling.Auto, borderless: true);
+        var layout = WindowsGdiImageLayout.Compute(2000, 1000, 1000, 800, PrintOrientation.Portrait, PrintScaling.Auto, new WindowsGdiImageLayout.DeviceLayout { Borderless = true });
 
         Assert.Equal(1600, layout.Width);
         Assert.Equal(800, layout.Height);
@@ -76,7 +76,7 @@ public class WindowsGdiImageLayoutTests
     [Fact]
     public void Compute_AutoKeepsSmallImagesAtNaturalSizeOnBorderlessMedia()
     {
-        var layout = WindowsGdiImageLayout.Compute(400, 200, 1000, 800, PrintOrientation.Portrait, PrintScaling.Auto, borderless: true);
+        var layout = WindowsGdiImageLayout.Compute(400, 200, 1000, 800, PrintOrientation.Portrait, PrintScaling.Auto, new WindowsGdiImageLayout.DeviceLayout { Borderless = true });
 
         Assert.Equal(400, layout.Width);
         Assert.Equal(200, layout.Height);

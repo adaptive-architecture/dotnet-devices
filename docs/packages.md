@@ -63,6 +63,12 @@ application that already has a rasterizer can write a conforming document withou
 stays per-platform is turning a document into pixels, and on Windows that is the in-box
 engine the package below already uses.
 
+Only that one call is per-package. `PdfPayloadConverter` in the core package is the whole of
+a PDF converter but the engine: the formats it reads and writes, `PdfRenderLimits` clamping
+the resolution and capping the pixels, `RasterPlacement` composing the page onto its media,
+and `PwgRasterWriter` or `PngWriter` encoding the answer. A rasterizer package derives from
+it and overrides one method, which is what stops a second engine drifting from the first.
+
 Windows image printing deliberately adds no package: PNG and JPEG jobs are drawn with
 GDI+ through `gdi32.dll` and `gdiplus.dll`, which are system components, so there is
 nothing to review.

@@ -53,6 +53,27 @@ public interface IPrintPayloadConverter
         String.Equals(targetContentType, PrinterContentTypes.Png, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Tells whether the pages this converter returns are already the size of the media, with
+    /// the fit, the anchor and the offset in the pixels.
+    /// </summary>
+    /// <param name="context">The same context <see cref="ConvertAsync"/> is given.</param>
+    /// <returns><c>true</c> when the channel must not ask the printer to fit the page again.</returns>
+    /// <remarks>
+    /// A channel that composes nothing itself — an IPP printer, which applies
+    /// <c>print-scaling</c> for us — has to know whether the fit is already in the bytes. A
+    /// page fitted twice is fitted by our arithmetic and then by a printer whose idea of the
+    /// media is its printable area, and every placed offset moves with it.
+    /// <para>
+    /// The default answers <c>false</c>, which keeps the behaviour of every converter written
+    /// before this member: the pages come back at their own size and the printer fits them.
+    /// A converter that honours <see cref="PrintConversionContext.MediaWidthPixels"/> answers
+    /// <see cref="Raster.RasterPlacement.PlacesOnMedia"/>, which is the same question the
+    /// composition itself asks.
+    /// </para>
+    /// </remarks>
+    bool PlacesOnMedia(PrintConversionContext context) => false;
+
+    /// <summary>
     /// Converts the payload into one image per page, in document order.
     /// </summary>
     /// <param name="data">The payload bytes.</param>

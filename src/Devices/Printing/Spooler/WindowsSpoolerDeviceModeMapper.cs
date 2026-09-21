@@ -12,6 +12,18 @@ internal static class WindowsSpoolerDeviceModeMapper
     // dmScale is a percentage of the natural size, so "do not scale" is 100 per cent.
     private const short ScaleNone = 100;
 
+    // wingdi.h DMPAPER_USER: the size is not one of the numbered ones, and dmPaperWidth and
+    // dmPaperLength say what it is instead.
+    private const short PaperUser = 256;
+
+    // dmPaperWidth and dmPaperLength count in tenths of a millimetre, where PrintLength
+    // counts in hundredths.
+    private const int PerTenthMillimeter = 10;
+
+    // The largest size those two fields can hold: they are signed 16-bit, so a little over
+    // three metres. A stock larger than that is not something a Windows queue prints.
+    private const int MaxTenthMillimeters = Int16.MaxValue;
+
     // wingdi.h DMCOLOR_*.
     private const short ColorMonochrome = 1;
     private const short ColorColor = 2;
@@ -42,6 +54,15 @@ internal static class WindowsSpoolerDeviceModeMapper
 
         var orientation = MapOrientation(options.Orientation);
         var paperSize = MediaNumber(media, options.MediaSize);
+
+        // A named size the driver knows wins: it names stock the queue has, where a pair of
+        // numbers only names a rectangle. The custom size is read only when no name applied.
+        var custom = paperSize is null ? MapCustomSize(options.MediaDimensions) : null;
+        if (custom is not null)
+        {
+            paperSize = PaperUser;
+        }
+
         var defaultSource = SourceNumber(sources, options.MediaSource);
         var scale = MapScaling(options.Scaling);
         var color = MapColor(options.ColorMode);
@@ -60,6 +81,7 @@ internal static class WindowsSpoolerDeviceModeMapper
         AddIfDropped(dropped, options.Scaling is not null, scale is not null, nameof(PrintOptions.Scaling));
         AddIfDropped(dropped, options.MediaSource is not null, defaultSource is not null, nameof(PrintOptions.MediaSource));
         AddIfDropped(dropped, options.MediaSize is not null, paperSize is not null, nameof(PrintOptions.MediaSize));
+        AddIfDropped(dropped, options.MediaDimensions is not null, custom is not null, nameof(PrintOptions.MediaDimensions));
         AddIfDropped(dropped, options.MediaType is not null, false, nameof(PrintOptions.MediaType));
         AddIfDropped(dropped, options.OutputBin is not null, false, nameof(PrintOptions.OutputBin));
         AddIfDropped(dropped, options.ResolutionDpi is not null, resolution is not null, nameof(PrintOptions.ResolutionDpi));
@@ -71,13 +93,27 @@ internal static class WindowsSpoolerDeviceModeMapper
         var fields = Bit(orientation, WindowsSpoolerCapabilityParser.DmOrientation)
             | Bit(scale, WindowsSpoolerCapabilityParser.DmScale)
             | Bit(paperSize, WindowsSpoolerCapabilityParser.DmPaperSize)
+            | Bit(custom?.Width, WindowsSpoolerCapabilityParser.DmPaperWidth)
+            | Bit(custom?.Length, WindowsSpoolerCapabilityParser.DmPaperLength)
             | Bit(defaultSource, WindowsSpoolerCapabilityParser.DmDefaultSource)
             | Bit(printQuality, WindowsSpoolerCapabilityParser.DmPrintQuality)
             | Bit(resolution, WindowsSpoolerCapabilityParser.DmYResolution)
             | Bit(color, WindowsSpoolerCapabilityParser.DmColor)
             | Bit(duplex, WindowsSpoolerCapabilityParser.DmDuplex);
 
-        return new DeviceModeRequest(fields, orientation, scale, paperSize, defaultSource, printQuality, resolution, color, duplex, dropped);
+        return new DeviceModeRequest(
+            fields,
+            orientation,
+            scale,
+            paperSize,
+            defaultSource,
+            printQuality,
+            resolution,
+            color,
+            duplex,
+            dropped,
+            custom?.Width,
+            custom?.Length);
     }
 
     private static void AddIfDropped(List<string> dropped, bool isSet, bool isApplied, string name)
@@ -106,6 +142,25 @@ internal static class WindowsSpoolerDeviceModeMapper
     }
 
     private static short? MapScaling(PrintScaling? scaling) => scaling == PrintScaling.None ? ScaleNone : null;
+
+    // A size in tenths of a millimetre, or nothing at all when it would not fit the two
+    // fields. A truncated size would print on the wrong stock without saying so.
+    private static CustomPaperSize? MapCustomSize(MediaDimensions? dimensions)
+    {
+        if (dimensions is null)
+        {
+            return null;
+        }
+
+        var width = dimensions.Width.HundredthsOfMillimeter / PerTenthMillimeter;
+        var length = dimensions.Height.HundredthsOfMillimeter / PerTenthMillimeter;
+        if (width <= 0 || length <= 0 || width > MaxTenthMillimeters || length > MaxTenthMillimeters)
+        {
+            return null;
+        }
+
+        return new CustomPaperSize((short)width, (short)length);
+    }
 
     private static short? MapColor(PrintColorMode? colorMode)
     {
@@ -209,10 +264,18 @@ internal sealed record DeviceModeRequest(
     short? YResolution,
     short? Color,
     short? Duplex,
-    IReadOnlyList<string> Dropped)
+    IReadOnlyList<string> Dropped,
+
+    // The two fields DMPAPER_USER points at, in tenths of a millimetre. Both are null
+    // unless the job gave a size no name covers.
+    short? PaperWidth = null,
+    short? PaperLength = null)
 {
     internal static readonly DeviceModeRequest Empty = new(0, null, null, null, null, null, null, null, null, []);
 
     // No field is set, so the job needs no device mode of its own and the queue default stands.
     internal bool IsEmpty => Fields == 0;
 }
+
+// One media size in the tenths of a millimetre a device mode counts in.
+internal readonly record struct CustomPaperSize(short Width, short Length);

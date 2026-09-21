@@ -35,7 +35,8 @@ public class PrinterSchemesTests
         PrintOptionSupports.JobName | PrintOptionSupports.Copies | PrintOptionSupports.Duplex
         | PrintOptionSupports.ColorMode | PrintOptionSupports.Orientation | PrintOptionSupports.MediaSource
         | PrintOptionSupports.MediaSize | PrintOptionSupports.ResolutionDpi | PrintOptionSupports.Quality
-        | PrintOptionSupports.Scaling)]
+        | PrintOptionSupports.Scaling | PrintOptionSupports.Placement | PrintOptionSupports.Smoothing
+        | PrintOptionSupports.MediaGeometry)]
     public void SupportedOptions_ReadsTheSchemeAndThePlatform(PrinterScheme scheme, bool isWindows, PrintOptionSupports expected) =>
         Assert.Equal(expected, PrinterSchemes.SupportedOptions(scheme, isWindows));
 

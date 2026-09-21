@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 // State the page keeps: what the last discovery found, what the person selected, and the
 // working copy of the job set that the form edits.
@@ -471,7 +471,48 @@ function renderOptions(host, raw, type, values) {
     host.appendChild(choice('duplex', 'Duplex', ['Simplex', 'LongEdge', 'ShortEdge'], values));
   }
 
+  placement(host, type, values);
   keep(host, values);
+}
+
+// Geometry, not a channel capability: no printer advertises a label offset, so these are
+// offered for every format the process can render and applied while the page becomes pixels.
+// The anchor is what the offsets are measured from, which is why it comes first.
+function placement(host, type, values) {
+  if (type !== 'application/pdf' && type !== 'image/png' && type !== 'image/jpeg') {
+    return;
+  }
+
+  host.appendChild(note('Placement is applied while the page is rendered, so a job that sets it is converted even where the printer reads the file itself.'));
+  host.appendChild(choice('anchor', 'Anchor', [
+    'TopLeft', 'TopCenter', 'TopRight',
+    'CenterLeft', 'Center', 'CenterRight',
+    'BottomLeft', 'BottomCenter', 'BottomRight',
+  ], values, 'Centred'));
+  host.appendChild(field('offsetXMillimeters', 'Offset right (mm)', 'number', values, { step: 'any' }));
+  host.appendChild(field('offsetYMillimeters', 'Offset down (mm)', 'number', values, { step: 'any' }));
+  host.appendChild(choice('smoothing', 'Smoothing', [
+    { value: 'true', label: 'On' },
+    { value: 'false', label: 'Off, for a sharp barcode' },
+  ], values, 'Engine default'));
+
+  if (type === 'application/pdf') {
+    host.appendChild(choice('mediaSizeSource', 'Media size from', ['Printer', 'Document'], values, 'Printer'));
+  }
+
+  host.appendChild(field('mediaWidthMillimeters', 'Media width (mm)', 'number', values, { step: 'any' }));
+  host.appendChild(field('mediaHeightMillimeters', 'Media height (mm)', 'number', values, { step: 'any' }));
+
+  // The two rectangles differ by the strip the printer cannot mark, which is nothing on
+  // label stock and a few millimetres on office paper.
+  host.appendChild(choice('fitArea', 'Fit to', [
+    { value: 'Printable', label: 'What the printer can mark' },
+    { value: 'Physical', label: 'The whole sheet' },
+  ], values, 'What the printer can mark'));
+
+  if (type === 'application/pdf') {
+    host.appendChild(field('documentPassword', 'Document password', 'password', values));
+  }
 }
 
 // A value a job carries that this channel never offered is still shown, so editing a set on
@@ -497,13 +538,16 @@ function names(values) {
   return values.map((value) => value.replace(/ \(\d+\)$/, ''));
 }
 
-function field(name, label, type, values) {
+function field(name, label, type, values, attributes) {
   const wrapper = document.createElement('label');
   wrapper.textContent = label;
   const input = document.createElement('input');
   input.type = type;
   input.dataset.option = name;
-  if (type === 'number') { input.min = '1'; }
+  // An offset is signed and a fraction of a millimetre matters, so those fields say so
+  // rather than taking the whole-number minimum every other count here has.
+  if (type === 'number' && !attributes) { input.min = '1'; }
+  for (const [key, value] of Object.entries(attributes || {})) { input.setAttribute(key, value); }
   if (values && values[name] !== undefined && values[name] !== null) { input.value = values[name]; }
   wrapper.appendChild(input);
   return wrapper;
@@ -518,16 +562,18 @@ function choice(name, label, options, values, blankLabel) {
   blank.value = '';
   blank.textContent = blankLabel || 'Printer default';
   select.appendChild(blank);
-  for (const value of options) {
+  for (const entry of options) {
     const option = document.createElement('option');
-    option.value = value;
-    option.textContent = value;
+    // An entry is the value itself, or a value with a label to show instead of it.
+    option.value = entry.value === undefined ? entry : entry.value;
+    option.textContent = entry.label === undefined ? option.value : entry.label;
     select.appendChild(option);
   }
 
   const held = values ? values[name] : undefined;
   if (held !== undefined && held !== null && held !== '') {
-    if (!options.includes(String(held))) {
+    const offered = options.map((entry) => String(entry.value === undefined ? entry : entry.value));
+    if (!offered.includes(String(held))) {
       const extra = document.createElement('option');
       extra.value = held;
       extra.textContent = `${held} (not reported by this channel)`;
@@ -561,11 +607,24 @@ function note(text) {
 
 const numbers = ['copies', 'numberUp', 'resolutionDpi'];
 
+// The smoothing switch is a select, so it reads back as text and has to be sent as the
+// boolean the job carries.
+const booleans = ['smoothing'];
+
+// Everything a job set may hold on disk. The document password is deliberately absent: it
+// opens one document on one run, and a set is a file people mail to each other.
+const secrets = ['documentPassword'];
+
 function readOptions(host) {
   const result = {};
   for (const input of host.querySelectorAll('[data-option]')) {
     const value = input.value.trim();
     if (!value) { continue; }
+    if (booleans.includes(input.dataset.option)) {
+      result[input.dataset.option] = value === 'true';
+      continue;
+    }
+
     result[input.dataset.option] = input.type === 'number' || numbers.includes(input.dataset.option)
       ? Number(value)
       : value;
@@ -824,8 +883,22 @@ function setPayload() {
   };
 }
 
+// What the set looks like as a file: the same payload the run sends, minus the secrets. A
+// job set is a file people mail to each other, and a document password has no business
+// travelling in one.
+function savedSetPayload() {
+  const payload = setPayload();
+  for (const job of payload.jobs) {
+    if (!job.options) { continue; }
+    const kept = { ...job.options };
+    for (const name of secrets) { delete kept[name]; }
+    job.options = Object.keys(kept).length ? kept : undefined;
+  }
+  return payload;
+}
+
 function showSetJson() {
-  $('set-json').textContent = JSON.stringify(setPayload(), null, 2);
+  $('set-json').textContent = JSON.stringify(savedSetPayload(), null, 2);
 }
 
 $('set').addEventListener('change', () => loadSet(shippedSet()));
@@ -838,11 +911,11 @@ $('reset-set').addEventListener('click', () => {
 });
 $('download-set').addEventListener('click', () => {
   const name = ($('set-name').value.trim() || 'job-set').toLowerCase().replace(/[^a-z0-9]+/g, '-');
-  download(new Blob([JSON.stringify(setPayload(), null, 2)], { type: 'application/json' }), `${name}.json`);
+  download(new Blob([JSON.stringify(savedSetPayload(), null, 2)], { type: 'application/json' }), `${name}.json`);
 });
 $('copy-set').addEventListener('click', async () => {
   try {
-    await navigator.clipboard.writeText(JSON.stringify(setPayload(), null, 2));
+    await navigator.clipboard.writeText(JSON.stringify(savedSetPayload(), null, 2));
     $('copy-set').textContent = 'Copied';
     setTimeout(() => { $('copy-set').textContent = 'Copy the JSON'; }, 1500);
   } catch (error) {

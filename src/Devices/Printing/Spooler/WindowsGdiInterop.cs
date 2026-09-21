@@ -57,6 +57,12 @@ internal static partial class WindowsGdiInterop
     internal const int PhysicalWidth = 110;
     internal const int PhysicalHeight = 111;
 
+    // PHYSICALOFFSETX and PHYSICALOFFSETY: where the printable area starts inside the sheet,
+    // in pixels. The device context draws from the printable corner, so a page fitted to the
+    // whole sheet is drawn at minus these.
+    internal const int PhysicalOffsetX = 112;
+    internal const int PhysicalOffsetY = 113;
+
     // LOGPIXELSX and LOGPIXELSY: the dots an inch of the device holds. A job that
     // asks for its own size needs them, because a device pixel is not a length.
     internal const int LogPixelsX = 88;
@@ -114,6 +120,27 @@ internal static partial class WindowsGdiInterop
 
     // GpUnitPixel: one unit is one device pixel.
     internal const int UnitPixel = 2;
+
+    // How GDI+ reads the source when a page is drawn at a size it was not rendered at. The
+    // default mixes neighboring pixels, which turns the edge of a bar into a grey ramp; a
+    // job that asked for no smoothing takes the nearest pixel instead and keeps it hard.
+    [SupportedOSPlatform("windows")]
+    [LibraryImport("gdiplus.dll", EntryPoint = "GdipSetInterpolationMode")]
+    internal static partial int SetInterpolationMode(nint graphics, int mode);
+
+    // InterpolationModeNearestNeighbor and InterpolationModeHighQualityBicubic, from
+    // GdiPlusEnums.h.
+    internal const int InterpolationNearestNeighbor = 5;
+    internal const int InterpolationHighQualityBicubic = 7;
+
+    [SupportedOSPlatform("windows")]
+    [LibraryImport("gdiplus.dll", EntryPoint = "GdipSetPixelOffsetMode")]
+    internal static partial int SetPixelOffsetMode(nint graphics, int mode);
+
+    // PixelOffsetModeHalf: a pixel is sampled at its centre, which is where the nearest
+    // neighbor above is measured from. Without it a nearest-neighbor draw lands half a
+    // pixel off and the bars shift by one dot at some scales.
+    internal const int PixelOffsetHalf = 4;
 
     [SupportedOSPlatform("windows")]
     [LibraryImport("gdiplus.dll", EntryPoint = "GdipDeleteGraphics")]

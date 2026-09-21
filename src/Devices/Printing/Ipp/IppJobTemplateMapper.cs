@@ -56,21 +56,43 @@ internal static class IppJobTemplateMapper
     }
 
     // RFC 8011 forbids "media" and "media-col" in one request, and the media type lives
-    // only inside "media-col". A job that names a type therefore sends the size there too.
+    // only inside "media-col". A job that names a type therefore sends the size there too,
+    // and so does one that gives a size the printer has no name for: PWG 5100.7 puts those
+    // dimensions in "media-size", which lives only there as well.
     private static void MapMedia(JobTemplateAttributes template, PrintOptions options)
     {
         var size = String.IsNullOrWhiteSpace(options.MediaSize) ? (Media?)null : new Media(options.MediaSize, true, false);
-        if (String.IsNullOrWhiteSpace(options.MediaType))
+
+        // A name the printer knows describes stock it has loaded; a pair of numbers does not,
+        // so the name wins and the dimensions are left out.
+        var dimensions = size is null ? options.MediaDimensions : null;
+        if (String.IsNullOrWhiteSpace(options.MediaType) && dimensions is null)
         {
             template.Media = size;
             return;
         }
 
-        template.MediaCol = new MediaCol
+        MediaCol col = new()
         {
-            MediaType = new MediaType(options.MediaType, true),
             MediaSizeName = size,
         };
+
+        if (!String.IsNullOrWhiteSpace(options.MediaType))
+        {
+            col.MediaType = new MediaType(options.MediaType, true);
+        }
+
+        if (dimensions is not null)
+        {
+            // media-size counts in hundredths of a millimetre, which is what PrintLength holds.
+            col.MediaSize = new MediaSize
+            {
+                XDimension = dimensions.Width.HundredthsOfMillimeter,
+                YDimension = dimensions.Height.HundredthsOfMillimeter,
+            };
+        }
+
+        template.MediaCol = col;
     }
 
     private static IppPrintQuality? MapQuality(PrintQuality? quality)

@@ -178,11 +178,16 @@ internal static class PrinterSchemes
     // pair with a name, and OutputBin, PageRanges and NumberUp have no device mode field.
     // Scaling is named here because the scale field carries PrintScaling.None; the fit
     // modes have no field, and the device mode mapper drops them.
+    // The placement, the smoothing switch and the media geometry are named because the
+    // spooler applies them where it renders the page itself, which is every payload it draws
+    // through GDI; a payload it passes through as RAW reaches a firmware that renders it, and
+    // the driver reports them dropped for that job.
     private const PrintOptionSupports WindowsDeviceModeOptions =
         PrintOptionSupports.JobName | PrintOptionSupports.Copies | PrintOptionSupports.Duplex
         | PrintOptionSupports.ColorMode | PrintOptionSupports.Orientation | PrintOptionSupports.MediaSource
         | PrintOptionSupports.MediaSize | PrintOptionSupports.ResolutionDpi | PrintOptionSupports.Quality
-        | PrintOptionSupports.Scaling;
+        | PrintOptionSupports.Scaling | PrintOptionSupports.Placement | PrintOptionSupports.Smoothing
+        | PrintOptionSupports.MediaGeometry;
 
     /// <summary>
     /// The order in which the manager considers the channels of one device. A lower

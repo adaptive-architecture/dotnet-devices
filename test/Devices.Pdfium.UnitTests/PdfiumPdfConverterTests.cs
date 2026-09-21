@@ -122,15 +122,17 @@ public class PdfiumPdfConverterTests
     [Fact]
     public async Task ConvertAsync_ABrokenFile_SaysSoInsteadOfCrashing()
     {
-        // PDFium reports a corrupt or password-protected file through FPDF_GetLastError,
-        // which names nothing the caller can act on, so the message says what to look at.
+        // PDFium reports every failure to open a file through FPDF_GetLastError, which names
+        // nothing the caller can act on, so the message says what to look at. A file that is
+        // not protected is a corrupt one, and the message says that and not both.
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
             () => Converter.ConvertAsync(
                 Encoding.ASCII.GetBytes("%PDF-1.4\nnot a document at all\n"),
                 Context(PrinterContentTypes.Png, 300),
                 TestContext.Current.CancellationToken));
 
-        Assert.Contains("corrupt or password-protected", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("may be corrupt", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("password", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

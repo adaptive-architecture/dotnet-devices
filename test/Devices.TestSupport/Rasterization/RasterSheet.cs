@@ -14,7 +14,7 @@ namespace AdaptArch.Devices.Rasterization;
 /// no assertion covers. It encodes with <see cref="PngWriter"/>, so the files are written by
 /// the encoder this repository ships rather than by a second one that might disagree with it.
 /// </remarks>
-internal sealed class RasterSheet
+public sealed class RasterSheet
 {
     private RasterSheet(string engine, string root)
     {
@@ -22,10 +22,10 @@ internal sealed class RasterSheet
         Root = root;
     }
 
-    internal string Engine { get; }
+    public string Engine { get; }
 
     /// <summary>The folder this engine's PNGs are written to.</summary>
-    internal string Root { get; }
+    public string Root { get; }
 
     /// <summary>
     /// Starts a sheet for one engine, emptying whatever a previous run left behind.
@@ -37,7 +37,7 @@ internal sealed class RasterSheet
     /// other one had just written. <c>pipeline/unit-test.sh</c> empties the tree once before
     /// a run, which is the only place that knows one is starting.
     /// </remarks>
-    internal static RasterSheet For(string engine)
+    public static RasterSheet For(string engine)
     {
         var root = Path.Combine(RepositoryRoot(), "artifacts", "rasterization", engine);
         if (Directory.Exists(root))
@@ -57,7 +57,7 @@ internal sealed class RasterSheet
     /// images, so a scenario that renders a different number would leave a tile claiming the
     /// engine did not run. Mismatched here is a wrong catalogue, not a wrong page.
     /// </remarks>
-    internal void Add(RasterCatalogue.Scenario scenario, IReadOnlyList<PwgRasterReader.RasterPage> pages)
+    public void Add(RasterCatalogue.Scenario scenario, IReadOnlyList<PwgRasterReader.RasterPage> pages)
     {
         Assert.Equal(scenario.PageCount, pages.Count);
 
@@ -86,7 +86,7 @@ internal sealed class RasterSheet
     /// projects produce the same bytes and neither has to run before the other. A page an
     /// engine did not render is a broken image, which the page turns into a tile that says so.
     /// </remarks>
-    internal static string WriteIndex()
+    public static string WriteIndex()
     {
         var root = Path.Combine(RepositoryRoot(), "artifacts", "rasterization");
         _ = Directory.CreateDirectory(root);

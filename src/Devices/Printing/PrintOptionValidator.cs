@@ -160,6 +160,19 @@ internal static class PrintOptionValidator
         return copy;
     }
 
+    // A converter that composed the page onto the media put the fit into the pixels. Asking
+    // the printer for it as well fits the page twice, and a printer that fits to its own
+    // printable area then shrinks a media-sized raster and takes every placed offset with it.
+    // "None" and not "unset": a printer with nothing to go on defaults to "auto", which
+    // shrinks just the same.
+    public static PrintOptions WithoutPlacedGeometry(PrintOptions options)
+    {
+        var copy = Copy(options);
+        copy.PageRanges = null;
+        copy.Scaling = PrintScaling.None;
+        return copy;
+    }
+
     private static PrintOptions Without(PrintOptions options, List<string> unsupported)
     {
         var copy = Copy(options);
@@ -181,6 +194,12 @@ internal static class PrintOptionValidator
             Scaling = options.Scaling,
             MediaSource = options.MediaSource,
             MediaSize = options.MediaSize,
+            MediaDimensions = options.MediaDimensions,
+            MediaSizeSource = options.MediaSizeSource,
+            FitArea = options.FitArea,
+            DocumentPassword = options.DocumentPassword,
+            Placement = options.Placement,
+            Smoothing = options.Smoothing,
             MediaType = options.MediaType,
             OutputBin = options.OutputBin,
             ResolutionDpi = options.ResolutionDpi,
@@ -189,6 +208,9 @@ internal static class PrintOptionValidator
             NumberUp = options.NumberUp,
             JobName = options.JobName,
             RequestingUserName = options.RequestingUserName,
+            // A copy that lost the engine the job named would quietly render with another
+            // one, which is the behaviour naming an engine exists to prevent.
+            ConverterName = options.ConverterName,
             OnUnsupported = options.OnUnsupported,
         };
 

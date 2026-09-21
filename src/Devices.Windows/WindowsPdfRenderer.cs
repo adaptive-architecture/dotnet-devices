@@ -8,43 +8,21 @@ using Windows.Storage.Streams;
 
 namespace AdaptArch.Devices.Windows;
 
-// Renders PDF pages to PNG with the in-box Windows.Data.Pdf engine, so the spooler
-// PDF path needs no extra package. The targeting pack is build-time metadata only,
-// and the platform check on entry guards every call below.
+// Renders PDF pages to raw pixels with the in-box Windows.Data.Pdf engine, so the spooler
+// PDF path needs no extra package. The caller encodes them, which is what keeps this file
+// down to the engine calls and leaves the rest to PdfPayloadConverter. The targeting pack
+// is build-time metadata only, and the platform check on entry guards every call below.
 [SupportedOSPlatform("windows10.0.10240.0")]
 internal static class WindowsPdfRenderer
 {
-    // One page of raw pixels, packed with no padding between the lines.
-    internal readonly record struct RasterPage(byte[] Pixels, int Width, int Height);
-
-    // Renders the selected pages in document order, one PNG per page. PageRanges is
-    // the 1-based option the caller set; null prints the whole document.
-    internal static Task<IReadOnlyList<byte[]>> RenderAsync(
-        byte[] pdf,
-        int dpi,
-        IReadOnlyList<PageRange>? ranges,
-        CancellationToken cancellationToken) =>
-        RenderAsync(pdf, dpi, ranges, RenderPageAsync, cancellationToken);
-
-    // The same pages as raw pixels, for a caller that encodes them itself.
-    internal static Task<IReadOnlyList<RasterPage>> RenderRasterAsync(
+    // Renders the selected pages in document order. Ranges is the 1-based option the
+    // caller set; null renders the whole document.
+    internal static async Task<IReadOnlyList<RenderedPdfPage>> RenderAsync(
         byte[] pdf,
         int dpi,
         IReadOnlyList<PageRange>? ranges,
         PwgRasterColorSpace colorSpace,
-        CancellationToken cancellationToken) =>
-        RenderAsync(
-            pdf,
-            dpi,
-            ranges,
-            (page, resolution, index, token) => RenderRasterPageAsync(page, resolution, index, colorSpace, token),
-            cancellationToken);
-
-    private static async Task<IReadOnlyList<TPage>> RenderAsync<TPage>(
-        byte[] pdf,
-        int dpi,
-        IReadOnlyList<PageRange>? ranges,
-        Func<PdfPage, int, int, CancellationToken, Task<TPage>> render,
+        string? password,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(pdf);
@@ -61,7 +39,7 @@ internal static class WindowsPdfRenderer
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        dpi = WindowsPdfLimits.ClampDpi(dpi);
+        dpi = PdfRenderLimits.ClampDpi(dpi);
 
         try
         {
@@ -69,7 +47,11 @@ internal static class WindowsPdfRenderer
             await source.WriteAsync(pdf.AsBuffer()).AsTask(cancellationToken).ConfigureAwait(false);
             source.Seek(0);
 
-            var document = await PdfDocument.LoadFromStreamAsync(source).AsTask(cancellationToken).ConfigureAwait(false);
+            // The engine takes the password on the load and reports a wrong one the same way
+            // it reports a corrupt file, so the two are told apart by what the job carried.
+            var document = password is null
+                ? await PdfDocument.LoadFromStreamAsync(source).AsTask(cancellationToken).ConfigureAwait(false)
+                : await PdfDocument.LoadFromStreamAsync(source, password).AsTask(cancellationToken).ConfigureAwait(false);
             if (document.PageCount == 0)
             {
                 throw new InvalidOperationException("The PDF has no pages to print.");
@@ -81,11 +63,11 @@ internal static class WindowsPdfRenderer
                 throw new InvalidOperationException("The page ranges select no page of this PDF.");
             }
 
-            List<TPage> rendered = new(selected.Count);
+            List<RenderedPdfPage> rendered = new(selected.Count);
             foreach (var index in selected)
             {
                 using var page = document.GetPage((uint)index);
-                rendered.Add(await render(page, dpi, index, cancellationToken).ConfigureAwait(false));
+                rendered.Add(await RenderPageAsync(page, dpi, index, colorSpace, cancellationToken).ConfigureAwait(false));
             }
 
             return rendered;
@@ -96,36 +78,35 @@ internal static class WindowsPdfRenderer
         }
         catch (Exception exception) when (exception is not InvalidOperationException)
         {
-            // WinRT reports a corrupt or password-protected file as a COM fault, which
-            // names nothing the caller can act on.
+            // WinRT reports a corrupt file and a wrong password as the same COM fault, which
+            // names nothing the caller can act on. What the job carried is the only thing that
+            // separates them here, so it is what the message goes on.
             throw new InvalidOperationException(
-                "The PDF could not be read. It may be corrupt or password-protected.", exception);
+                password is null
+                    ? "The PDF could not be read. It may be corrupt, or password-protected and the job carried no password."
+                    : "The PDF could not be read. It may be corrupt, or the password the job carried does not open it.",
+                exception);
         }
-    }
-
-    private static async Task<byte[]> RenderPageAsync(PdfPage page, int dpi, int index, CancellationToken cancellationToken)
-    {
-        using var output = await RenderToStreamAsync(page, dpi, index, BitmapEncoder.PngEncoderId, cancellationToken).ConfigureAwait(false);
-
-        output.Seek(0);
-        using var reader = new DataReader(output.GetInputStreamAt(0));
-        await reader.LoadAsync((uint)output.Size).AsTask(cancellationToken).ConfigureAwait(false);
-        var bytes = new byte[output.Size];
-        reader.ReadBytes(bytes);
-        return bytes;
     }
 
     // The engine only writes encoded bitmaps, so the page is rendered to an uncompressed
     // BMP and read straight back. GetPixelDataAsync answers with tightly packed pixels,
-    // which is what the raster encoders need and what a locked buffer does not promise.
-    private static async Task<RasterPage> RenderRasterPageAsync(
+    // which is what the encoders need and what a locked buffer does not promise.
+    private static async Task<RenderedPdfPage> RenderPageAsync(
         PdfPage page,
         int dpi,
         int index,
         PwgRasterColorSpace colorSpace,
         CancellationToken cancellationToken)
     {
-        using var output = await RenderToStreamAsync(page, dpi, index, BitmapEncoder.BmpEncoderId, cancellationToken).ConfigureAwait(false);
+        var size = page.Size;
+        if (size.Width <= 0 || size.Height <= 0)
+        {
+            throw new InvalidOperationException($"The PDF page {index + 1} has no size to render.");
+        }
+
+        var (width, height) = PdfRenderLimits.RenderPixels(size.Width, size.Height, dpi, PdfRenderLimits.DipsPerInch);
+        using var output = await RenderToStreamAsync(page, width, height, index, cancellationToken).ConfigureAwait(false);
 
         output.Seek(0);
         var decoder = await BitmapDecoder.CreateAsync(output).AsTask(cancellationToken).ConfigureAwait(false);
@@ -136,9 +117,19 @@ internal static class WindowsPdfRenderer
             ExifOrientationMode.IgnoreExifOrientation,
             ColorManagementMode.DoNotColorManage).AsTask(cancellationToken).ConfigureAwait(false);
 
-        var width = (int)decoder.PixelWidth;
-        var height = (int)decoder.PixelHeight;
-        return new RasterPage(Repack(pixels.DetachPixelData(), width * height, colorSpace), width, height);
+        var decodedWidth = (int)decoder.PixelWidth;
+        var decodedHeight = (int)decoder.PixelHeight;
+
+        // The page box goes out in points whatever the engine measured it in, because a
+        // rendered page describes itself the same way whichever engine drew it.
+        const double PointsPerDip = PdfRenderLimits.PointsPerInch / PdfRenderLimits.DipsPerInch;
+        return new RenderedPdfPage(
+            Repack(pixels.DetachPixelData(), decodedWidth * decodedHeight, colorSpace),
+            decodedWidth,
+            decodedHeight,
+            colorSpace,
+            size.Width * PointsPerDip,
+            size.Height * PointsPerDip);
     }
 
     // BGRA to the chunky layout PWG Raster wants: three octets a pixel in red, green, blue
@@ -171,24 +162,17 @@ internal static class WindowsPdfRenderer
 
     private static async Task<InMemoryRandomAccessStream> RenderToStreamAsync(
         PdfPage page,
-        int dpi,
+        int width,
+        int height,
         int index,
-        Guid encoderId,
         CancellationToken cancellationToken)
     {
-        var size = page.Size;
-        if (size.Width <= 0 || size.Height <= 0)
-        {
-            throw new InvalidOperationException($"The PDF page {index + 1} has no size to render.");
-        }
-
-        var (width, height) = WindowsPdfLimits.RenderPixels(size.Width, size.Height, dpi);
         var output = new InMemoryRandomAccessStream();
         PdfPageRenderOptions options = new()
         {
-            BitmapEncoderId = encoderId,
-            DestinationWidth = width,
-            DestinationHeight = height,
+            BitmapEncoderId = BitmapEncoder.BmpEncoderId,
+            DestinationWidth = (uint)width,
+            DestinationHeight = (uint)height,
         };
 
         await page.RenderToStreamAsync(output, options).AsTask(cancellationToken).ConfigureAwait(false);
@@ -200,5 +184,4 @@ internal static class WindowsPdfRenderer
 
         return output;
     }
-
 }

@@ -19,18 +19,31 @@ namespace AdaptArch.Devices.Rasterization;
 /// numeral says the same thing again for a person rather than for an assertion.
 /// </para>
 /// </remarks>
-internal static class RasterDocuments
+public static class RasterDocuments
 {
     /// <summary>A4, in the points a PDF is authored in.</summary>
-    internal const double WidthPoints = 595;
+    public const double WidthPoints = 595;
 
-    internal const double HeightPoints = 842;
+    public const double HeightPoints = 842;
 
     /// <summary>How tall the colour band across the top of each page is, in points.</summary>
-    internal const double BandPoints = 100;
+    public const double BandPoints = 100;
 
     /// <summary>How wide the black corner block is, in points.</summary>
-    internal const double CornerPoints = 60;
+    public const double CornerPoints = 60;
+
+    /// <summary>The left edge of the barcode on every page, in points.</summary>
+    public const double BarcodeLeftPoints = 300;
+
+    /// <summary>The bottom edge of the barcode on every page, in points.</summary>
+    public const double BarcodeBottomPoints = 150;
+
+    /// <summary>
+    /// The digits each page's barcode carries: the page number, in four digits.
+    /// </summary>
+    /// <param name="page">The 0-based page.</param>
+    /// <returns>The digits.</returns>
+    public static string BarcodeDigits(int page) => (page + 1).ToString("D4", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// The colour of each page's band, in red, green, blue order.
@@ -39,7 +52,7 @@ internal static class RasterDocuments
     /// Saturated and all different in every channel, so a swapped pair of channels changes
     /// the answer rather than only the shade.
     /// </remarks>
-    internal static readonly IReadOnlyList<(byte Red, byte Green, byte Blue)> BandColors =
+    public static readonly IReadOnlyList<(byte Red, byte Green, byte Blue)> BandColors =
     [
         (255, 0, 0),
         (0, 255, 0),
@@ -48,13 +61,13 @@ internal static class RasterDocuments
     ];
 
     /// <summary>The number of pages <see cref="FourPages"/> writes.</summary>
-    internal const int PageCount = 4;
+    public const int PageCount = 4;
 
     /// <summary>
     /// Four A4 pages, each with a coloured band along the top, a black block in the
-    /// bottom-left corner and its own page number.
+    /// bottom-left corner, its own page number and a barcode carrying that number.
     /// </summary>
-    internal static byte[] FourPages()
+    public static byte[] FourPages()
     {
         // Latin1 and not ASCII, because the font programme below is binary and every octet
         // of it has to survive the round trip through this builder unchanged.
@@ -130,7 +143,7 @@ internal static class RasterDocuments
     }
 
     /// <summary>The name the embedded font programme is referred to by.</summary>
-    internal const string FontName = "LiberationSans";
+    public const string FontName = "LiberationSans";
 
     // Read out of the assembly rather than from beside it, so neither test project has to
     // copy a file to its output and no run depends on a working directory.
@@ -138,7 +151,7 @@ internal static class RasterDocuments
     {
         using var stream = typeof(RasterDocuments).Assembly.GetManifestResourceStream(FontResource)
             ?? throw new InvalidOperationException(
-                $"The assembly carries no '{FontResource}'. See test/Shared/Rasterization/fonts/README.md.");
+                $"The assembly carries no '{FontResource}'. See test/Devices.TestSupport/Rasterization/fonts/README.md.");
 
         using MemoryStream buffer = new();
         stream.CopyTo(buffer);
@@ -146,6 +159,36 @@ internal static class RasterDocuments
     }
 
     private const string FontResource = "LiberationSans-Regular.ttf";
+
+    /// <summary>The width of <see cref="Label"/> in points, which is four inches.</summary>
+    public const double LabelWidthPoints = 288;
+
+    /// <summary>The height of <see cref="Label"/> in points, which is six inches.</summary>
+    public const double LabelHeightPoints = 432;
+
+    /// <summary>
+    /// The sample shipping label: four inches by six, so a page genuinely smaller than the
+    /// media it is placed on.
+    /// </summary>
+    /// <remarks>
+    /// The one document here that is not built in code. The placement scenarios need a page
+    /// the media is larger than, and scaling the A4 fixture down to that size is not the
+    /// same test: a narrow bar of this fixture is 3.1 pixels at the scenario resolution, so
+    /// half of one is under two, and what the scenario would then measure is the resampler
+    /// rather than the placement. This is the label the samples print, embedded rather than
+    /// copied so the two cannot drift and no run depends on a file beside the assembly.
+    /// </remarks>
+    public static byte[] Label()
+    {
+        using var stream = typeof(RasterDocuments).Assembly.GetManifestResourceStream(LabelResource)
+            ?? throw new InvalidOperationException($"The assembly carries no '{LabelResource}'.");
+
+        using MemoryStream buffer = new();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
+    }
+
+    private const string LabelResource = "document.pdf";
 
     // PDF user space has its origin at the bottom-left, so the band is drawn at the top of
     // the sheet and the corner block at the bottom.
@@ -160,6 +203,7 @@ internal static class RasterDocuments
             CultureInfo.InvariantCulture,
             $"{colour} 0 {HeightPoints - BandPoints} {WidthPoints} {BandPoints} re f\n"
             + $"0 0 0 rg 0 0 {CornerPoints} {CornerPoints} re f\n"
-            + $"BT /F1 300 Tf 200 350 Td ({page + 1}) Tj ET");
+            + $"BT /F1 300 Tf 200 350 Td ({page + 1}) Tj ET\n")
+            + Barcode.Draw(BarcodeDigits(page), BarcodeLeftPoints, BarcodeBottomPoints);
     }
 }

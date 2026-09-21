@@ -5,6 +5,13 @@
     <Nullable>disable</Nullable>
     <IsPackable>false</IsPackable>
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <!-- Every test project writes its coverage into the one results directory that
+      pipeline/unit-test.sh names, and coverlet names a report after the millisecond it was
+      written. Two projects finishing in the same millisecond overwrite each other, which
+      costs the whole report of whichever lost, and the floor then reads a number that says
+      nothing about the code. The file prefix is coverlet's own answer to that, and it can
+      only be set per project, so it is set here. -->
+    <TestingPlatformCommandLineArguments>--coverlet-file-prefix $(MSBuildProjectName)</TestingPlatformCommandLineArguments>
   </PropertyGroup>
 
   <ItemGroup>

@@ -17,4 +17,8 @@
     <PackageReference Include="AdaptArch.Devices.Pdfium" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Devices.TestSupport\Devices.TestSupport.csproj" />
+  </ItemGroup>
+
 </Project>

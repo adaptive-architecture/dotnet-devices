@@ -14,6 +14,8 @@ internal static class WindowsSpoolerCapabilityParser
     // tests run on Linux. WindowsSpoolerDeviceModeMapper reads them for the write side.
     internal const uint DmOrientation = 0x00000001;
     internal const uint DmPaperSize = 0x00000002;
+    internal const uint DmPaperLength = 0x00000004;
+    internal const uint DmPaperWidth = 0x00000008;
     internal const uint DmScale = 0x00000010;
     internal const uint DmDefaultSource = 0x00000200;
     internal const uint DmPrintQuality = 0x00000400;

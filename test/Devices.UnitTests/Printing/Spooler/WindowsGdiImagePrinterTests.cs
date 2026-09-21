@@ -26,8 +26,11 @@ public class WindowsGdiImagePrinterTests
         int copies = 1,
         PrintOrientation? orientation = null,
         PrintScaling? scaling = null,
-        int? sourceDpi = null) =>
-        new("lobby", ".png", "photo", deviceMode, copies, orientation, scaling, sourceDpi);
+        int? sourceDpi = null,
+        PrintPlacement? placement = null,
+        bool? smoothing = null,
+        PrintFitArea fitArea = PrintFitArea.Printable) =>
+        new("lobby", ".png", "photo", deviceMode, copies, orientation, scaling, sourceDpi, placement, smoothing, fitArea);
 
     [Fact]
     public void Print_DrawsOnePageAndReportsTheJobIdOfTheDocument()
@@ -289,6 +292,115 @@ public class WindowsGdiImagePrinterTests
         {
             Marshal.FreeHGlobal(deviceMode);
         }
+    }
+
+    [Fact]
+    public void PrintPages_FittedToTheSheet_CoversTheMarginTheDriverHolds()
+    {
+        // A driver with a 50-pixel margin all round: the printable area is smaller than the
+        // sheet, and the device context draws from the printable corner.
+        FakeWindowsGdiInterop gdi = new()
+        {
+            PrintableWidth = 2380,
+            PrintableHeight = 3408,
+            SheetWidth = 2480,
+            SheetHeight = 3508,
+            OffsetX = 50,
+            OffsetY = 50,
+            ImageWidth = 2480,
+            ImageHeight = 3508,
+            ImageDpiX = 300f,
+            ImageDpiY = 300f,
+        };
+        WindowsGdiImagePrinter printer = new(gdi);
+
+        _ = printer.PrintPages(JobFor(scaling: PrintScaling.Fit, fitArea: PrintFitArea.Physical), [Png]);
+
+        // Fitted to the whole sheet, the page keeps its size and starts before the printable
+        // corner: the strip the driver holds is where the page bleeds off.
+        var drawn = Assert.Single(gdi.Drawn);
+        Assert.Equal(-50, drawn.X);
+        Assert.Equal(-50, drawn.Y);
+        Assert.Equal(2480, drawn.Width);
+        Assert.Equal(3508, drawn.Height);
+    }
+
+    [Fact]
+    public void PrintPages_FittedToThePrintableArea_StaysInsideTheMargin()
+    {
+        FakeWindowsGdiInterop gdi = new()
+        {
+            PrintableWidth = 2380,
+            PrintableHeight = 3408,
+            SheetWidth = 2480,
+            SheetHeight = 3508,
+            OffsetX = 50,
+            OffsetY = 50,
+            ImageWidth = 2480,
+            ImageHeight = 3508,
+            ImageDpiX = 300f,
+            ImageDpiY = 300f,
+        };
+        WindowsGdiImagePrinter printer = new(gdi);
+
+        // The default, and what PWG 5100.16 means by fitting to the media.
+        _ = printer.PrintPages(JobFor(scaling: PrintScaling.Fit), [Png]);
+
+        var drawn = Assert.Single(gdi.Drawn);
+        Assert.True(drawn.X >= 0 && drawn.Y >= 0, $"The page started at {drawn.X},{drawn.Y}, outside the printable area.");
+        Assert.True(drawn.Width <= 2380, $"The page is {drawn.Width} wide, which leaves the printable area.");
+    }
+
+    [Fact]
+    public void PrintPages_AnAnchoredPage_SitsInTheCornerOfThePrintableArea()
+    {
+        FakeWindowsGdiInterop gdi = new()
+        {
+            ImageWidth = 1240,
+            ImageHeight = 1754,
+            ImageDpiX = 300f,
+            ImageDpiY = 300f,
+            DpiX = 300,
+            DpiY = 300,
+        };
+        WindowsGdiImagePrinter printer = new(gdi);
+
+        PrintPlacement placement = new()
+        {
+            Anchor = PrintAnchor.TopLeft,
+            OffsetX = PrintLength.FromInches(0.1),
+            OffsetY = PrintLength.FromInches(0.2),
+        };
+
+        _ = printer.PrintPages(JobFor(scaling: PrintScaling.None, placement: placement), [Png]);
+
+        // A tenth of an inch at 300 dots an inch is 30 pixels, and a fifth is 60.
+        var drawn = Assert.Single(gdi.Drawn);
+        Assert.Equal(30, drawn.X);
+        Assert.Equal(60, drawn.Y);
+    }
+
+    [Fact]
+    public void PrintPages_WithoutSmoothing_TellsGdiToTakeTheNearestPixel()
+    {
+        FakeWindowsGdiInterop gdi = new();
+        WindowsGdiImagePrinter printer = new(gdi);
+
+        _ = printer.PrintPages(JobFor(smoothing: false), [Png]);
+
+        Assert.Equal(WindowsGdiInterop.InterpolationNearestNeighbor, gdi.InterpolationMode);
+        Assert.Equal(WindowsGdiInterop.PixelOffsetHalf, gdi.PixelOffsetMode);
+    }
+
+    [Fact]
+    public void PrintPages_WithSmoothing_LeavesGdiOnItsOwnDefault()
+    {
+        FakeWindowsGdiInterop gdi = new();
+        WindowsGdiImagePrinter printer = new(gdi);
+
+        _ = printer.PrintPages(JobFor(), [Png]);
+
+        Assert.Null(gdi.InterpolationMode);
     }
 
     [Fact]

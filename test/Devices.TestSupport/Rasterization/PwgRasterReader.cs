@@ -17,7 +17,7 @@ namespace AdaptArch.Devices.Rasterization;
 /// else.
 /// </para>
 /// </remarks>
-internal static class PwgRasterReader
+public static class PwgRasterReader
 {
     // Section 4.2: the file begins with "RaS2", then one header and one bitmap a page.
     private const int SyncLength = 4;
@@ -35,7 +35,7 @@ internal static class PwgRasterReader
     private const int FeedTransformOffset = 460;
 
     /// <summary>One page of a document, as the printer would read it.</summary>
-    internal sealed record RasterPage(
+    public sealed record RasterPage(
         byte[] Pixels,
         int Width,
         int Height,
@@ -45,7 +45,7 @@ internal static class PwgRasterReader
         int CrossFeedTransform,
         int FeedTransform)
     {
-        internal int BytesPerPixel => BitsPerPixel / 8;
+        public int BytesPerPixel => BitsPerPixel / 8;
     }
 
     /// <summary>
@@ -53,7 +53,7 @@ internal static class PwgRasterReader
     /// </summary>
     /// <param name="document">The whole PWG Raster stream, synchronization word included.</param>
     /// <returns>The pages, in the order the document carries them.</returns>
-    internal static IReadOnlyList<RasterPage> Read(byte[] document)
+    public static IReadOnlyList<RasterPage> Read(byte[] document)
     {
         if (document.Length < SyncLength || System.Text.Encoding.ASCII.GetString(document, 0, SyncLength) != "RaS2")
         {

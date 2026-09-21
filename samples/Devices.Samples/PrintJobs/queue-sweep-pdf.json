@@ -30,6 +30,18 @@
       "options": {
         "duplex": "LongEdge"
       }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "page 1 against the top left of the stock, 5 mm right and 3 mm down, with smoothing off: the placement is composed into the raster, so the printer applies none of it",
+      "options": {
+        "pageRanges": "1",
+        "scaling": "Fit",
+        "anchor": "TopLeft",
+        "offsetXMillimeters": 5,
+        "offsetYMillimeters": 3,
+        "smoothing": false
+      }
     }
   ]
 }

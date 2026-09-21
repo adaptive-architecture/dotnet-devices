@@ -241,8 +241,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             payload.ContentType,
             bytes,
             renderDpi,
-            options?.PageRanges,
-            options?.ConverterName,
+            options,
             cancellationToken).ConfigureAwait(false);
 
         var deviceMode = IntPtr.Zero;
@@ -250,7 +249,18 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         {
             deviceMode = BuildDeviceMode(queueName, imageRequest);
             var jobId = _images.PrintPages(
-                new WindowsGdiJob(queueName, WindowsSpoolerContent.FileExtension(PrinterContentTypes.Png), jobName, deviceMode, copies, options?.Orientation, options?.Scaling, renderDpi),
+                new WindowsGdiJob(
+                    queueName,
+                    WindowsSpoolerContent.FileExtension(PrinterContentTypes.Png),
+                    jobName,
+                    deviceMode,
+                    copies,
+                    options?.Orientation,
+                    options?.Scaling,
+                    renderDpi,
+                    options?.Placement,
+                    options?.Smoothing,
+                    options?.FitArea ?? PrintFitArea.Printable),
                 rendered);
 
             SpoolerLog.JobSpooled(_logger, queueName, jobId, bytes.Length, payload.ContentType);
@@ -287,7 +297,18 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         {
             deviceMode = BuildDeviceMode(queueName, imageRequest);
             var jobId = _images.Print(
-                new WindowsGdiJob(queueName, WindowsSpoolerContent.FileExtension(payload.ContentType), jobName, deviceMode, copies, options?.Orientation, options?.Scaling),
+                new WindowsGdiJob(
+                    queueName,
+                    WindowsSpoolerContent.FileExtension(payload.ContentType),
+                    jobName,
+                    deviceMode,
+                    copies,
+                    options?.Orientation,
+                    options?.Scaling,
+                    null,
+                    options?.Placement,
+                    options?.Smoothing,
+                    options?.FitArea ?? PrintFitArea.Printable),
                 bytes);
 
             SpoolerLog.JobSpooled(_logger, queueName, jobId, bytes.Length, payload.ContentType);
@@ -317,7 +338,9 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             request.YResolution,
             request.Color,
             request.Duplex,
-            WithoutGdiDropped(request.Dropped, false));
+            WithoutGdiDropped(request.Dropped, false),
+            request.PaperWidth,
+            request.PaperLength);
 
     // Orientation and scaling are laid out on the GDI page, never in the device
     // mode. PageRanges is additionally honoured by the PDF render, which selects
@@ -361,10 +384,10 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         string contentType,
         byte[] data,
         int dpi,
-        IReadOnlyList<PageRange>? ranges,
-        string? converterName,
+        PrintOptions? options,
         CancellationToken cancellationToken)
     {
+        var converterName = options?.ConverterName;
         var converter = _formats.ConverterFor(contentType, converterName);
         if (converter is null)
         {
@@ -387,7 +410,17 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 $"register one that does. Queue '{queueName}' spooled nothing.");
         }
 
-        PrintConversionContext context = new(contentType, PrinterContentTypes.Png, dpi, ranges, queueName);
+        // The media is deliberately absent: this path builds the device mode after it
+        // converts, so it does not yet know the sheet, and it places the page itself at the
+        // draw step. What the converter can still act on is how sharply it renders.
+        PrintConversionContext context = new(contentType, PrinterContentTypes.Png, dpi, options?.PageRanges, queueName)
+        {
+            Scaling = options?.Scaling,
+            Orientation = options?.Orientation,
+            Smoothing = options?.Smoothing,
+            MediaSizeSource = options?.MediaSizeSource ?? MediaSizeSource.Printer,
+            DocumentPassword = options?.DocumentPassword,
+        };
         var pages = await converter.ConvertAsync(data, context, cancellationToken).ConfigureAwait(false);
         if (pages.Count == 0)
         {
@@ -600,6 +633,8 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         deviceMode.Orientation = request.Orientation ?? deviceMode.Orientation;
         deviceMode.Scale = request.Scale ?? deviceMode.Scale;
         deviceMode.PaperSize = request.PaperSize ?? deviceMode.PaperSize;
+        deviceMode.PaperWidth = request.PaperWidth ?? deviceMode.PaperWidth;
+        deviceMode.PaperLength = request.PaperLength ?? deviceMode.PaperLength;
         deviceMode.DefaultSource = request.DefaultSource ?? deviceMode.DefaultSource;
         deviceMode.PrintQuality = request.PrintQuality ?? deviceMode.PrintQuality;
         deviceMode.YResolution = request.YResolution ?? deviceMode.YResolution;

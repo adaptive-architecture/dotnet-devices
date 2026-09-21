@@ -19,15 +19,25 @@ tests already prove.
 
 ## What has been run
 
-The five-job `queue-sweep` set — `document.pdf` with the printer defaults, two PNG jobs and
-two JPEG jobs varying the colour mode, the orientation and the scaling — printed correctly
-through a spooler queue on real Windows hardware. That covers the submission path end to
-end: the device mode built from the options, the GDI page, the PDF rendered to PNG and drawn,
-and a job that reaches `Completed`.
+Each session is written up in [windows-manual-tests-resuls/](windows-manual-tests-resuls/),
+one file a run, and that folder is the record. The summary below is only the state it leaves
+this page in.
 
-It does **not** cover the rest of this page. In particular it cannot cover test 10: a
-`spooler://` queue never converts to PWG Raster, so that path has still never run anywhere.
-Each test below says what it needs.
+**2026-09-19, Windows 11, AOT publish of the sample, against Microsoft Print to PDF and a
+real Epson driver.** Passed: the printer status bits that a WSD monitor raises at all (T2.1,
+T2.4), the full print cycle with its four dropped options (T3), a native AOT publish
+exercising every `ISpoolerDriver` method (T4), the error paths including a stopped spooler
+(T5), the configuration against both drivers and its defaults following the driver dialog
+(T6), the access level (T7), two identity cases, PDF through the spooler including the
+corrupt file and the page range (T9), and PWG Raster over IPP (T10) — the path that had
+never run anywhere. The session also found and fixed a discovery bug: one queue with a `/`
+in its name aborted the whole enumeration.
+
+Left open by that session: the T3 variants the sample button skips, identity cases 2 and
+4–7, and a T10 re-run for the duplex back-side fix it produced.
+
+**The placement work of 2026-09-21 postdates that session**, so test 11 below has never run.
+Everything in it is exercised through the seams on Linux, and none of it has met a ruler.
 
 ## What the automated tests already prove
 
@@ -47,7 +57,7 @@ keeps the native calls behind a seam, so everything around them is testable.
 | Spooler error paths | `WindowsSpoolerDriverSeamTests` | A short `WritePrinter` keeps writing until the document is whole and a failed one deletes the job with `JOB_CONTROL_DELETE`, so no truncated label commits; a write that makes no progress fails instead of looping; `ERROR_INVALID_PARAMETER` from `SetJob` is a `false` and any other code is an exception; a failed `OpenPrinter` closes nothing, because it leaves the handle undefined; a device mode shorter than `DEVMODEW` is refused rather than written over. |
 | Spooler job routing | `WindowsSpoolerDriverSeamTests` | A printer language goes out raw, an image and a document go through GDI, a copy count loops on the raw path and rides the device mode on the GDI path, and a page range reaches the converter on the document path only. |
 | GDI page loop | `WindowsGdiImagePrinterTests` | Every page of a job is in one document; each page is written to its own temporary file, which is read back intact and deleted afterwards; a page that fails aborts the document rather than ending it and leaves no graphics, image or device context open; the resolution arithmetic reaches GDI+ as the rectangle it drew, and a page from a converter uses the resolution it was rendered at rather than the 96 the encoder left behind. |
-| Windows PDF limits | `WindowsPdfLimitsTests` | The resolution is clamped to what the in-box engine renders well, and a page over the pixel cap keeps its shape because the cap belongs to the longer side. |
+| PDF render limits | `PdfRenderLimitsTests` | The resolution is clamped to what an engine renders well, and a page over the pixel cap keeps its shape because the cap belongs to the longer side. It is one suite for both engines, in `Devices.UnitTests`, so it runs on any operating system. |
 | Windows package surface | `WindowsPrintingTests` | `PdfConverter` reads PDF only and writes both PNG and PWG Raster, and adding it to `PrinterManagerOptions.Converters` enables PDF for one manager without touching the process. |
 | Driver selection | `SpoolerDriverFactoryTests` | The factory gives a CUPS driver on Linux and macOS. |
 | PWG Raster encoding | `PwgRasterWriterTests` | The synchronization word, a page header of exactly 1796 octets, the field offsets of PWG 5102.4 Table 1, and the PackBits encoding read back through a decoder written against the specification. The sample bitmap the specification works through in section 4.4.1 is reproduced octet for octet, and all eight sides and sheet-back combinations of Table 9 give the transforms the table names. |
@@ -392,3 +402,35 @@ turns on. Get it wrong and every second page is upside down or mirrored, with no
   before the IPP request is built, so the failure is the same `InvalidOperationException`
   as on the spooler — but it is worth confirming on this path as well, because it is the
   path where a half-written document would be sent rather than dropped.
+
+### 11. Placement, on the stock the customer uses
+
+**Why by hand.** The fit, the anchor and the offset are arithmetic with unit tests, and the
+composition has its own. What no test on any machine can tell you is whether the page came out
+where a ruler says it should: a label a millimetre out is a rejected parcel, and the only
+instrument for that is a ruler on the real stock.
+
+Print `PrintJobs/pdf-placement.json` through a spooler queue, and the same set through an IPP
+queue if one is reachable. The two paths place a page by different means — GDI draws it on
+Windows, a composed raster carries it over IPP — so agreeing on paper is the thing worth
+proving.
+
+- **The reference sheet** is the first job, centred. Measure the margins on all four sides;
+  they are what every other sheet is compared against.
+- **The anchored sheet** must sit against the top left corner of the printable area, with the
+  two margins there as small as the printer allows and the slack on the other two sides.
+- **The offset sheet** must be exactly 5 mm right and 3 mm down of the anchored one. Measure
+  it, do not judge it. This is the number a customer will send you when it is wrong.
+- **The bottom right sheet** proves the anchor is a corner and not a direction: the same
+  offset now pushes the page off the stock, and what fits must print with no error.
+- **The smoothing sheet** must show hard bar edges. Scan the barcode with a real scanner, at
+  the distance an operator would. Compare against the job before it.
+- **The document media sheet** must print the page at exactly the size the PDF declares. This
+  is the one where a wrong answer is obvious with a ruler: an A4 page must measure 210 by
+  297 mm.
+- **The custom media sheet** asks for 100 by 150 mm. Confirm the driver took it, and write
+  down what the queue reported afterwards. On a queue whose driver refuses custom sizes the
+  option is reported in `DroppedOptions`, which is the right answer and not a failure.
+
+Write down the printer, the stock and every measurement. A sheet without its measurements
+proves nothing a photograph would not.

@@ -22,7 +22,7 @@ namespace AdaptArch.Devices.Rasterization;
 /// platform substituting its own Helvetica -- is gone.
 /// </para>
 /// </remarks>
-internal static class RasterScenarios
+public static class RasterScenarios
 {
     // Inside the band the fixture draws across the top of every page, and clear of the
     // black corner block at the bottom.
@@ -40,7 +40,7 @@ internal static class RasterScenarios
     /// <param name="engine">What to call it on disk. Normally <see cref="IPrintPayloadConverter.Name"/>.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>Where the contact sheet was written.</returns>
-    internal static async Task<string> RunAsync(
+    public static async Task<string> RunAsync(
         IPrintPayloadConverter converter,
         string engine,
         CancellationToken cancellationToken)
@@ -99,8 +99,236 @@ internal static class RasterScenarios
         AssertSelectedDuplex(backsInGrey, grey, 1, 3, crossFeed: -1, feed: 1);
         sheet.Add(RasterCatalogue.Scenarios[5], backsInGrey);
 
+        await RunPlacementAsync(converter, engine, pdf, sheet, colour, cancellationToken);
+
         return RasterSheet.WriteIndex();
     }
+
+    // Four inches by six at the scenario resolution: the commonest shipping label, and small
+    // enough that an A4 page has to be fitted onto it.
+    private const int LabelWidthPixels = 4 * Dpi;
+    private const int LabelHeightPixels = 6 * Dpi;
+
+    // A4 at the scenario resolution, which is the stock the label is anchored on.
+    private const int SheetWidthPixels = 1240;
+    private const int SheetHeightPixels = 1755;
+
+    // The placement options, each on one page so the sheet stays readable. Every page here is
+    // the first page of the fixture, which carries the barcode every assertion is measured on.
+    private static async Task RunPlacementAsync(
+        IPrintPayloadConverter converter,
+        string engine,
+        byte[] pdf,
+        RasterSheet sheet,
+        IReadOnlyList<PwgRasterReader.RasterPage> colour,
+        CancellationToken cancellationToken)
+    {
+        var fitted = await RenderAsync(
+            converter,
+            pdf,
+            FirstPage() with
+            {
+                RasterType = "srgb_8",
+                MediaWidthPixels = LabelWidthPixels,
+                MediaHeightPixels = LabelHeightPixels,
+                MediaName = "na_index-4x6_4x6in",
+                Scaling = PrintScaling.Fit,
+            },
+            cancellationToken);
+        AssertFitted(Assert.Single(fitted));
+        sheet.Add(RasterCatalogue.Scenarios[6], fitted);
+
+        // The label is the sample four by six, which is smaller than the A4 sheet it is put
+        // on, so both the corner the anchor names and the inset the offset leaves are
+        // visible. It is placed at its own size: a page scaled to get there would be
+        // measuring the resampler instead.
+        var label = RasterDocuments.Label();
+        var loose = await RenderAsync(converter, label, FirstPage() with { RasterType = "srgb_8" }, cancellationToken);
+        var anchored = await RenderAsync(
+            converter,
+            label,
+            FirstPage() with
+            {
+                RasterType = "srgb_8",
+                MediaWidthPixels = SheetWidthPixels,
+                MediaHeightPixels = SheetHeightPixels,
+                MediaName = "iso_a4_210x297mm",
+                Scaling = PrintScaling.None,
+                Placement = new PrintPlacement
+                {
+                    Anchor = PrintAnchor.BottomLeft,
+                    OffsetX = PrintLength.FromMillimeters(5),
+                    OffsetY = PrintLength.FromMillimeters(-3),
+                },
+            },
+            cancellationToken);
+        AssertAnchored(Assert.Single(anchored), Assert.Single(loose));
+        sheet.Add(RasterCatalogue.Scenarios[7], anchored);
+
+        var smoothed = await RenderAsync(converter, pdf, FirstPage() with { RasterType = "srgb_8" }, cancellationToken);
+        var sharp = await RenderAsync(
+            converter,
+            pdf,
+            FirstPage() with { RasterType = "srgb_8", Smoothing = false },
+            cancellationToken);
+        AssertSmoothing(Assert.Single(smoothed), Assert.Single(sharp), engine);
+        sheet.Add(RasterCatalogue.Scenarios[8], smoothed);
+        sheet.Add(RasterCatalogue.Scenarios[9], sharp);
+
+        // The media is named and sized, and the document still wins: the page is its own
+        // media, so it is neither fitted nor moved.
+        var fromDocument = await RenderAsync(
+            converter,
+            pdf,
+            FirstPage() with
+            {
+                RasterType = "srgb_8",
+                MediaWidthPixels = LabelWidthPixels,
+                MediaHeightPixels = LabelHeightPixels,
+                MediaSizeSource = MediaSizeSource.Document,
+            },
+            cancellationToken);
+        var own = Assert.Single(fromDocument);
+        var page = colour[0];
+        Assert.Equal(page.Width, own.Width);
+        Assert.Equal(page.Height, own.Height);
+        Assert.Equal(page.Pixels, own.Pixels);
+        sheet.Add(RasterCatalogue.Scenarios[10], fromDocument);
+    }
+
+    private static PrintConversionContext FirstPage() =>
+        new(PrinterContentTypes.Pdf, PrinterContentTypes.PwgRaster, Dpi, [new PageRange(1, 1)], "scenario");
+
+    private static void AssertFitted(PwgRasterReader.RasterPage fitted)
+    {
+        // The printer receives the media, not the page: that is what the composition is for.
+        Assert.Equal(LabelWidthPixels, fitted.Width);
+        Assert.Equal(LabelHeightPixels, fitted.Height);
+
+        // A4 is narrower than four by six is, so the fit is decided by the width and the
+        // page leaves white above and below rather than beside.
+        const double Scale = LabelWidthPixels / RasterDocuments.WidthPoints;
+        const int Covered = (int)(RasterDocuments.HeightPoints * Scale);
+        Assert.True(Covered < LabelHeightPixels, "The fitted page should not fill the label.");
+
+        const int Margin = (LabelHeightPixels - Covered) / 2;
+        Assert.True(IsWhite(PixelAt(fitted, LabelWidthPixels / 2, Margin / 2)), "The top margin is not the stock.");
+        Assert.True(IsWhite(PixelAt(fitted, LabelWidthPixels / 2, LabelHeightPixels - (Margin / 2) - 1)), "The bottom margin is not the stock.");
+
+        // The band is the top of the page, so it is inside the fitted rectangle and not in
+        // the margin above it.
+        Assert.False(IsWhite(PixelAt(fitted, LabelWidthPixels / 2, Margin + 10)), "The fitted page did not start below the margin.");
+    }
+
+    // The label is anchored against the bottom-left corner of the sheet, and the offset
+    // insets it from there: to the right, and up, which is what a negative OffsetY means.
+    private static void AssertAnchored(PwgRasterReader.RasterPage anchored, PwgRasterReader.RasterPage label)
+    {
+        Assert.Equal(SheetWidthPixels, anchored.Width);
+        Assert.Equal(SheetHeightPixels, anchored.Height);
+
+        // The label is smaller than the sheet, which is the whole point of anchoring it.
+        Assert.True(label.Width < anchored.Width && label.Height < anchored.Height, "The label is not smaller than its sheet.");
+
+        var offsetX = PrintLength.FromMillimeters(5).ToPixels(Dpi);
+        var offsetY = PrintLength.FromMillimeters(-3).ToPixels(Dpi);
+        var left = offsetX;
+        var top = anchored.Height - label.Height + offsetY;
+
+        // Where the ink is, rather than where the paper is: a label is white stock with black
+        // on it, so its edges are not visible and only what it draws can be measured. The
+        // same label placed at its own size says where that ink belongs, and the difference
+        // between the two is the placement and nothing else.
+        var placed = InkBounds(anchored);
+        var own = InkBounds(label);
+        Assert.Equal(own.Left + left, placed.Left);
+        Assert.Equal(own.Top + top, placed.Top);
+        Assert.Equal(own.Right + left, placed.Right);
+        Assert.Equal(own.Bottom + top, placed.Bottom);
+
+        // And nothing of ours reaches the corner the label was moved away from, so the inset
+        // is an inset and not a crop.
+        Assert.True(IsWhite(PixelAt(anchored, left / 2, anchored.Height - 1)), "The bottom-left corner is not the stock.");
+        Assert.True(IsWhite(PixelAt(anchored, anchored.Width - 1, 0)), "The far corner is not the stock.");
+    }
+
+    // The smallest rectangle holding every pixel that is not the stock.
+    private static (int Left, int Top, int Right, int Bottom) InkBounds(PwgRasterReader.RasterPage page)
+    {
+        var left = page.Width;
+        var top = page.Height;
+        var right = -1;
+        var bottom = -1;
+
+        for (var y = 0; y < page.Height; y++)
+        {
+            for (var x = 0; x < page.Width; x++)
+            {
+                if (IsWhite(PixelAt(page, x, y)))
+                {
+                    continue;
+                }
+
+                if (x < left) { left = x; }
+                if (x > right) { right = x; }
+                if (y < top) { top = y; }
+                if (y > bottom) { bottom = y; }
+            }
+        }
+
+        Assert.True(right >= 0 && bottom >= 0, "The page carries no ink to measure.");
+        return (left, top, right, bottom);
+    }
+
+    private static void AssertSmoothing(PwgRasterReader.RasterPage smoothed, PwgRasterReader.RasterPage sharp, string engine)
+    {
+        Assert.Equal(smoothed.Width, sharp.Width);
+
+        var bars = Barcode.BarCount(RasterDocuments.BarcodeDigits(0));
+        var withSmoothing = ScanBarcode(smoothed, smoothed.Height, 0);
+        var without = ScanBarcode(sharp, sharp.Height, 0);
+
+        // Both read the symbol: the switch changes the edges and never the bars.
+        Assert.Equal(bars, withSmoothing.DarkRuns);
+        Assert.Equal(bars, without.DarkRuns);
+
+        // The bars themselves are hard either way. Worth stating rather than assuming: a
+        // page rendered for printing is already drawn without path anti-aliasing, so the
+        // switch is not what makes a bar edge sharp -- rendering at the size it prints at is.
+        Assert.Equal(0, withSmoothing.SoftPixels);
+        Assert.Equal(0, without.SoftPixels);
+
+        if (engine != RasterCatalogue.Pdfium)
+        {
+            // The in-box Windows engine takes no smoothing flag, so there is nothing more to
+            // assert about it. The sheet still shows both, which is the comparison.
+            return;
+        }
+
+        // Where the switch does show is the text, and this is the whole measurement: with
+        // smoothing off not one pixel of the page is left between ink and stock, so the
+        // printer has nothing to halftone and a thermal head nothing to guess at.
+        var pageWithSmoothing = BarcodeScan.SoftPixels(smoothed.Pixels, smoothed.Width, smoothed.Height, smoothed.BytesPerPixel);
+        var pageWithout = BarcodeScan.SoftPixels(sharp.Pixels, sharp.Width, sharp.Height, sharp.BytesPerPixel);
+
+        Assert.Equal(0, pageWithout);
+        Assert.True(pageWithSmoothing > 0, "Smoothing on should leave grey pixels somewhere on the page, and this one has none.");
+    }
+
+    // The line through the middle of the barcode. The symbol is placed in points from the
+    // bottom of the page, so the row is measured from the top and scaled by how tall the page
+    // rendered, which is not always the resolution asked for. A page composed onto a larger
+    // media is the same page shifted down, so the shift is added and not scaled.
+    private static ScanLine ScanBarcode(PwgRasterReader.RasterPage scanned, int pageHeight, int shiftDown)
+    {
+        const double FromTopPoints = RasterDocuments.HeightPoints
+            - RasterDocuments.BarcodeBottomPoints
+            - (Barcode.HeightPoints / 2);
+        var row = shiftDown + (int)(pageHeight * FromTopPoints / RasterDocuments.HeightPoints);
+        return BarcodeScan.Read(scanned.Pixels, scanned.Width, scanned.BytesPerPixel, row);
+    }
+
+    private static bool IsWhite(byte[] pixel) => Array.TrueForAll(pixel, value => value > 240);
 
     private static PrintConversionContext Context() =>
         new(PrinterContentTypes.Pdf, PrinterContentTypes.PwgRaster, Dpi, null, "scenario");
