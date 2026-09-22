@@ -1,211 +1,188 @@
-﻿# Printers
+# Printers
 
 The `AdaptArch.Devices` package holds cross-platform printer abstractions
 (`AdaptArch.Devices.Printing` namespace). They separate *where* a printer is (endpoints)
-from *how* the bytes get there (transports).
+from *how* the bytes get there (transports), and model print data as raw bytes with a
+content type.
 
-## Concepts
+## Identifiers
 
-- **Identifier** — `PrinterId` is a URI, `{scheme}://{authority}`. The scheme names the
-  transport channel (`raw`, `ipp`, `ipps` or `spooler`), and the authority is the identity
-  the device reported or, failing that, the address that opens the channel:
-  `raw://192.168.1.5`, `spooler://EPSON_L6270`,
-  `ipp://e3b0c442-98fc-1c14-9afb-4c8996fb9242`.
-- **Devices and channels** — a printer is usually reachable more than one way, and each way
-  is a `DiscoveredPrinter` channel. `PrinterDevice` is the physical printer, with every
-  channel grouped by transport.
-- **Payloads** — `PrinterPayload` carries bytes plus a content type. `PrinterContentTypes`
-  holds the constants for ZPL, EPL, CPCL, ESC/POS, plain text, PNG and PDF.
-- **Printing** — `IPrinter` gives `PrintAsync`, `GetStatusAsync` and
-  `GetConfigurationAsync`. `PrintOptions` carries the per-job settings, and an unset
-  property falls back to the printer default.
-- **Discovery** — an mDNS browse that needs no host list, a TCP probe of explicit hosts,
-  and the printers installed in the operating system spooler.
-- **Status** — `IppPrinterStatusClient` reads state and supply levels over IPP.
-  `SnmpPrinterStatusClient` reads the Printer MIB over SNMP version 2c, which reaches
-  printers that do not answer IPP and adds the serial number and the page count. Both are
-  read-only.
-- **The printer manager** — `IPrinterManager` is the layer most callers want. It runs every
-  discovery source, reports one `PrinterDevice` for each physical printer, and picks the
-  channel each call needs.
-- **USB printers** — print to one through its operating system queue, with a `spooler://`
-  identifier. There is no `usb` scheme: each operating system claims the device with its
-  own driver, and direct access would break the print path the machine already uses.
+`PrinterId` is a URI, `{scheme}://{authority}`. The scheme names the transport channel, so
+nothing has to guess a channel from a port number.
 
-## Example
+| Scheme | Channel | Default port |
+| :--- | :--- | :--- |
+| `raw` | The raw TCP channel. Sends the payload unchanged, gives back no job identifier. | 9100 |
+| `ipp` | The Internet Printing Protocol. | 631 |
+| `ipps` | IPP over TLS. Advertised separately by DNS-SD, so a caller can demand it. | 631 |
+| `spooler` | A print queue of the operating system. | none |
+| `cups` | A print queue of a CUPS server, reached over the network. | 631 |
+
+The authority is the identity the device reported about itself when there is one, and
+otherwise the address that opens the channel:
+
+```text
+raw://192.168.1.5                                the raw channel, port 9100 implied
+raw://192.168.1.5:9101                           a port that is not the default
+ipp://192.168.1.5                                the IPP channel, port 631 implied
+ipps://[2001:db8::5]:8631                        an IPv6 literal is bracketed
+ipp://e3b0c442-98fc-1c14-9afb-4c8996fb9242       the identity form
+spooler://EPSON_L6270                            a print queue
+spooler://%5C%5Cserver%5Cqueue                   a Windows connection name, escaped
+cups://printsrv/EPSON_L6270                      a queue of a CUPS server
+cups://printsrv:8631/Front%20Desk                a port that is not the default, and an escaped name
+```
+
+**An address form can be opened with no discovery**, because the scheme gives the endpoint
+type and the default port. An **identity form** names no address and has to be resolved
+through `IPrinterManager`, which knows where the device was found. `IsDeviceIdentity` says
+which of the two you hold.
+
+**`DeviceKey` is the authority with any `:port` stripped**, so `raw://192.168.1.5` and
+`ipp://192.168.1.5` are one device. A `cups` key keeps the server *and* the queue, because
+one server holds many queues and its host alone would fuse a whole fleet into one device.
+
+Only a UUID is ever written as an identity authority: a serial number reads exactly like a
+host name or a queue name, so putting one there would make the text ambiguous. A serial
+number still groups the channels of a device, through `PrinterDeviceKey`.
+
+`Parse`, `TryParse` and `ToString` round-trip. `TryGetHost`, `TryGetQueueName`,
+`TryGetDeviceIdentity` and `TryCreateEndpoint` read the parts — and a call site that wants a
+host gets `false` for an identity form, which is exactly the case that needs a discovery.
+
+## Endpoints
+
+`PrinterEndpoint` describes reachability as pure data, and it carries its scheme rather than
+letting the port imply it:
+
+- `NetworkPrinterEndpoint { Host, Scheme, Port }` — built with `NetworkPrinterEndpoint.Raw`,
+  `.Ipp` or `.Ipps`. There is no port-only constructor: reading the channel back out of the
+  port number is how a raw channel and an IPP channel came to be confused with each other.
+- `SpoolerPrinterEndpoint { Name }` — a print queue of the operating system.
+- `CupsPrinterEndpoint { Host, Name, Port }` — one queue of a CUPS server. It carries a host
+  and is still not a `NetworkPrinterEndpoint`: that one addresses a device, and this one
+  addresses one queue of a server that may hold hundreds.
+
+There is no USB endpoint and no `usb` scheme; see [Roadmap](roadmap.md#usb-printers).
+
+## Channels and devices
+
+- `DiscoveredPrinter` is one **channel**, with the capabilities (`null` when they were not
+  read), the print options that channel applies, the devices a source vouched it belongs to,
+  and `HasJobQueue` / `GivesPassthrough`.
+- `PrinterDevice` is one **physical printer**, with `Channels`, `ChannelsByTransport` and
+  `Accepts`, which says whether one of its channels reads a content type.
+  `IPrinterManager.DiscoverAsync` returns these.
+- `PrinterDeviceDetails` merges what every channel reported, plus which discoveries found the
+  device and which read-only protocols answered.
 
 ```csharp
-// Find every reachable printer, with the channels that reach each one.
-IPrinterManager manager = provider.GetRequiredService<IPrinterManager>();
-IReadOnlyList<PrinterDevice> devices = await manager.DiscoverAsync(null, cancellationToken);
-
 foreach (var device in devices)
 {
     Console.WriteLine($"{device.Details.Name} — {device.Key}");
     foreach ((var transport, var channels) in device.ChannelsByTransport)
     {
-        Console.WriteLine($"  {transport}: {String.Join(", ", channels.Select(c => c.Id))}");
+        foreach (var channel in channels)
+        {
+            Console.WriteLine($"  {transport}: {channel.Id} applies {channel.SupportedOptions}");
+        }
     }
 }
-
-// A printer command language needs a channel that sends the bytes unchanged. The
-// content type says so, and the manager picks such a channel from anywhere on the
-// device. There is nothing to switch on.
-PrinterPayload payload = PrinterPayload.FromString("^XA^FO50,50^ADN,36,20^FDHello^FS^XZ", PrinterContentTypes.Zpl);
-await manager.PrintAsync(devices[0].Id, payload, null, cancellationToken);
 ```
 
-Register the services with `services.AddPrinters()` from the
-`AdaptArch.Devices.DependencyInjection` package.
+## Payloads
 
-## Choosing the sources and the channel
-
-`PrinterManagerOptions` controls which discovery sources run. Give it to each
-`DiscoverAsync` call, because the manager does not keep it.
-
-| Source | Property | Default |
-| --- | --- | --- |
-| Operating system spooler | `IncludeSpooler` | On |
-| mDNS browse | `IncludeMdns`, and `Mdns.ServiceTypes` for each service type | On |
-| TCP probe | `Probe`, which lists the hosts to open a connection to | Off |
-
-Two more properties ask each channel for more data. Each one costs one request per channel.
-
-| Property | What it adds |
-| --- | --- |
-| `ReadIdentity` | The UUID, the serial number and the device URI. This data groups a queue and the network channels into one device. |
-| `ReadCapabilities` | The document formats, the media, the resolutions and the duplex support of each channel. |
-
-`Transports` is different from the properties above: it does not change what discovery
-finds, but which channels the manager may open. Give it to the constructor, or to
-`AddPrinters`, because a print carries no options of its own.
+`PrinterPayload` carries bytes plus a `ContentType`, so transports and spoolers can route it
+correctly. `PrinterContentTypes` holds the constants (`Zpl`, `Epl`, `Cpcl`, `EscPos`, `Text`,
+`Png`, `Jpeg`, `Pdf`, `OctetStream`).
 
 ```csharp
-services.AddPrinters(configureManager: options => options.Transports = [PrinterScheme.Spooler]);
+PrinterPayload payload = PrinterPayload.FromString(
+    "^XA^FO50,50^ADN,36,20^FDHello^FS^XZ", PrinterContentTypes.Zpl);
 ```
 
-Membership is permission. Position is preference, but only between the channels that suit
-a call equally: the payload decides first, or an order that put IPP before the raw channel
-would send each label to a channel that converts it.
+## Printing
 
-### Use the printers in the spooler only
+`IPrinter` is the main seam: `PrintAsync`, `GetStatusAsync` and `GetConfigurationAsync`. Mock
+it in a unit test instead of touching hardware. `PrintOptions` carries the optional per-job
+settings, and an unset property falls back to the printer default, which keeps a job portable
+across spoolers with different capabilities.
 
-Switch the other two sources off. The cache then holds spooler channels only, so each call
-uses the spooler.
+Three rules are not obvious from the member names:
+
+- **An empty configuration means "not known", not "nothing supported".** `SupportsDuplex`,
+  `SupportsColor` and `SupportsPageRanges` are `bool?`: `null` means the printer did not
+  report the capability, and `false` means it denied it. A `RawPrinter` always reports an
+  empty configuration, because the raw channel gives no way to ask.
+- **Only SNMP fills `SerialNumber` and `LifetimePageCount`.** A printer with no status channel
+  reports the state `Unknown`.
+- **`Media` and `MediaSources` carry the Windows number beside each name**, because a device
+  mode names a size with a `DMPAPER_*` number and a tray with a `DMBIN_*` number. Every other
+  channel reports a `null` number.
+
+### Sending a job
+
+`IPrinterFactory` turns a channel, or a bare `PrinterId`, into a ready `IPrinter` for the
+transport the scheme names. Nothing is probed: the scheme states the channel.
 
 ```csharp
-PrinterManagerOptions spoolerOnly = new() { IncludeMdns = false };
-IReadOnlyList<PrinterDevice> devices = await manager.DiscoverAsync(spoolerOnly, cancellationToken);
+IPrinterFactory factory = new PrinterFactory();
+IPrinter printer = await factory.OpenAsync(PrinterId.ForIpp("192.168.1.50"), cancellationToken)
+    .ConfigureAwait(false);
+PrintJobInfo job = await printer.PrintAsync(payload, options: null, cancellationToken)
+    .ConfigureAwait(false);
 ```
 
-### Get all the data, but print through the spooler
+`OpenAsync` throws `NotSupportedException` for an identity form, because such an identifier
+names no endpoint. Resolve it through `IPrinterManager` first.
 
-A queue reports little about the hardware. To get more, let each source run, and set both
-`Read*` properties. `ReadIdentity` groups the queue with the network channels of the same
-printer, and `PrinterDevice.Details` then holds what all of them reported.
+Most applications should not open a channel by hand at all. [The printer
+manager](printer-manager.md) picks the channel each call needs, which is usually the right
+one and is never the wrong one for the payload.
 
-```csharp
-PrinterManagerOptions rich = new()
-{
-    Probe = new() { Hosts = NetworkPrinterDiscoveryOptions.LocalSubnetHosts() },
-    ReadIdentity = true,
-    ReadCapabilities = true,
-};
+### An option the printer does not support
 
-IReadOnlyList<PrinterDevice> devices = await manager.DiscoverAsync(rich, cancellationToken);
-```
+`PrintOptions.OnUnsupported` says what to do with one:
 
-Then let the manager open the spooler only:
+- `Send` (the default) — send the option and let the printer decide. This costs no extra
+  request.
+- `Throw` — read the configuration first, then throw `NotSupportedException`.
+- `Drop` — read the configuration first, remove the option, and name it in
+  `PrintJobInfo.DroppedOptions`.
 
-```csharp
-services.AddPrinters(configureManager: options => options.Transports = [PrinterScheme.Spooler]);
-```
+`Throw` and `Drop` need a known configuration to compare against, so both act as `Send` when
+the printer reports an empty one. An explicit `false` is a capability statement, and both
+judge against it.
 
-Each call then uses the queue, for each format and on each operating system. Discovery is
-not affected, so `PrinterDevice.Channels` still lists the raw and the IPP channels, and
-`PrinterDevice.Details` still holds what they reported.
+### Disposal
 
-```csharp
-await manager.PrintAsync(device.Id, payload, null, cancellationToken);
-```
+**A printer from `PrinterFactory` owns nothing and needs no disposal.** The factory keeps one
+`HttpClient` and one of each status client and shares them with every printer it returns.
+Dispose the factory instead; the dependency injection registration does this at shutdown, and
+afterwards both `Open` methods throw `ObjectDisposedException`.
 
-A device that no allowed transport reaches causes a `NotSupportedException`. The message
-gives the transports the manager may open.
+**A directly constructed `IppPrinter` still owns its client.** `IPrinter` does not extend
+`IDisposable`, so nothing reminds you. Check for `IDisposable` and dispose it when present.
 
-### Merge two addresses of one printer
+The model types are read-only after construction, and the manager hands out its cached
+instances, so a caller cannot change what other callers see.
 
-A printer found at an address and at an mDNS host name is two devices when it reports no
-UUID and no usable serial number. `QueueCorrelation` proves they are one by comparing the
-jobs each channel reports: two channels that answer with the same queue read one queue.
+## Transports
 
-Give it to the constructor, or to `AddPrinters`, not to `DiscoverAsync`. It opens a session
-to each candidate channel, and consent for that belongs to whoever built the manager.
+`IPrinterTransport` transmits payloads. `TcpPrinterTransport` sends to a
+`NetworkPrinterEndpoint` over TCP and throws `NotSupportedException` for other endpoints. Its
+timeout defaults to five seconds and applies to the connection, and then again to the write,
+so a printer that accepts the connection but stops reading fails with `TimeoutException`
+instead of blocking the caller. After the write the transport closes its side, which tells the
+printer that the job is complete.
 
-```csharp
-services.AddPrinters(configureManager: options =>
-{
-    options.ReadIdentity = true;
-    options.QueueCorrelation = new QueueCorrelationOptions();
-});
-```
+## Related pages
 
-That stage only reads. An idle printer has nothing in its queue to compare, so nothing is
-proved until `AllowTracerJob` lets the manager put something there:
-
-```csharp
-options.QueueCorrelation = new QueueCorrelationOptions { AllowTracerJob = true };
-```
-
-A tracer is a `Create-Job` that is never given a document, held indefinitely, and cancelled
-again whatever happens, so it prints nothing even on a printer that ignores the hold. It is
-still a write to a real printer, which is why it is a second and separate switch.
-[Printers](https://github.com/adaptive-architecture/dotnet-devices/blob/main/docs/printers.md)
-gives the rules in full.
-
-### Select a channel for one call
-
-To keep the default policy and select a channel for one call, give the identifier of that
-channel instead of `device.Id`:
-
-```csharp
-var queue = device.ChannelsByTransport[PrinterScheme.Spooler][0];
-await manager.PrintAsync(queue.Id, payload, null, cancellationToken);
-```
-
-**The content type decides before the identifier does.** On Windows this prints through the
-spooler for each format, because the spooler sends the bytes unchanged. On Linux and macOS
-a CUPS queue does not send the bytes unchanged, so a printer language (ZPL, EPL, CPCL or
-ESC/POS) goes to the raw channel instead. Set `Transports` when you must have the queue.
-
-To select a channel and obey nothing else, open it with `IPrinterFactory`. This is the same
-abstraction, but the caller selects the channel instead of the manager:
-
-```csharp
-var printer = factory.Open(queue);
-try
-{
-    PrintJobInfo job = await printer.PrintAsync(payload, options, cancellationToken);
-    PrintJobMonitorOptions watch = new() { IdleTimeout = TimeSpan.FromMinutes(2) };
-    await foreach (var reading in monitor.WatchJobAsync(queue.Id, job.JobId, watch, cancellationToken))
-    {
-        Console.WriteLine(reading.State);
-    }
-}
-finally
-{
-    (printer as IDisposable)?.Dispose();
-}
-```
-
-`IdleTimeout` ends the watch quietly once nothing has changed for that long. Prefer it to
-`Timeout`, which caps the whole watch and so also ends a job that is simply long: a printer
-that wakes from sleep may take minutes over the first page and then print steadily. Pass the
-`CancellationToken` only for real cancellation — a deadline passed there throws, because the
-monitor cannot tell it from a caller that wants to stop.
-
-`AddPrinters()` registers `IPrinterFactory` and `IPrintJobMonitor`. Inject them together
-with `IPrinterManager`.
-
-The API reference holds every member. The rules behind these choices — the document format
-sent for each peer, how channels are grouped into devices, and the transport policy — are
-in [the repository documentation](https://github.com/adaptive-architecture/dotnet-devices/blob/main/docs/printers.md).
+- [Document formats](document-formats.md) — what is sent for each content type.
+- [Page placement](page-placement.md) — where a rendered page lands on the media.
+- [Discovery](discovery.md) — finding printers without a host list.
+- [Printer manager](printer-manager.md) — one entry point that runs every source and picks a
+  channel.
+- [Spooler and CUPS](spooler-and-cups.md) — the operating system queue, and a CUPS server over
+  the network.
+- [Status and monitoring](status-and-monitoring.md) — reading state, and watching a job.

@@ -270,7 +270,7 @@ Each fact has one home:
 
 - `docs/` — this documentation: the architecture, the packages, and the rules and reasons
   behind the printing code. Written for a contributor.
-- `docfx/` — the published site: a short page for each device type, plus the API reference
+- `docfx/` — the published site: one page for each capability area, plus the API reference
   DocFX generates from the XML documentation comments. Written for a consumer.
 - XML documentation comments — the per-member reference. Keep a longer explanation in
   `docs/` and link to it, so the same text is not maintained twice.

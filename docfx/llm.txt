@@ -9,9 +9,25 @@
 - [AdaptArch.Devices.Pdfium](https://www.nuget.org/packages/AdaptArch.Devices.Pdfium): Cross-platform PDF rasterization, so a PDF prints on a printer that cannot read one
 - [AdaptArch.Devices.Windows](https://www.nuget.org/packages/AdaptArch.Devices.Windows): Windows-only spooler PDF rendering through the in-box engine
 
-## Documentation
+## Getting Started
 
-- [Overview](https://adaptive-architecture.github.io/dotnet-devices/docs/getting-started.html): Getting started and repository overview
-- [Printers](https://adaptive-architecture.github.io/dotnet-devices/docs/printers.html): Printer device abstractions
-- [Troubleshooting](https://adaptive-architecture.github.io/dotnet-devices/docs/troubleshooting.html): Find why a print job did not print
-- [Scanners](https://adaptive-architecture.github.io/dotnet-devices/docs/scanners.html): Scanner device abstractions
+- [Overview](https://adaptive-architecture.github.io/dotnet-devices/docs/getting-started.html): What each package adds, and the first print
+
+## Printing
+
+- [Printers](https://adaptive-architecture.github.io/dotnet-devices/docs/printers.html): Identifiers, endpoints, channels and devices, payloads, and sending a job
+- [Document Formats](https://adaptive-architecture.github.io/dotnet-devices/docs/document-formats.html): What is sent for each content type, converting a document the printer cannot read, and adding a format
+- [Page Placement](https://adaptive-architecture.github.io/dotnet-devices/docs/page-placement.html): Where a rendered page lands on the media, and how sharply it is drawn
+- [Discovery](https://adaptive-architecture.github.io/dotnet-devices/docs/discovery.html): mDNS browse, TCP probe, and the operating system spooler
+- [Printer Manager](https://adaptive-architecture.github.io/dotnet-devices/docs/printer-manager.html): One entry point that runs every source, groups channels into devices, and picks a channel
+- [Spooler and CUPS](https://adaptive-architecture.github.io/dotnet-devices/docs/spooler-and-cups.html): The operating system queue, a CUPS server over the network, and USB printers
+- [Status and Monitoring](https://adaptive-architecture.github.io/dotnet-devices/docs/status-and-monitoring.html): Printer status over IPP and SNMP, the IPP transport policy, job queues and watching a job
+
+## Integration
+
+- [Dependency Injection](https://adaptive-architecture.github.io/dotnet-devices/docs/dependency-injection.html): AddPrinters, what is registered, and the two configuration callbacks
+
+## Help
+
+- [Troubleshooting](https://adaptive-architecture.github.io/dotnet-devices/docs/troubleshooting.html): Find why a print job did not print, with the full log event table
+- [Roadmap](https://adaptive-architecture.github.io/dotnet-devices/docs/roadmap.html): What is implemented today, what is planned, and why USB is not
