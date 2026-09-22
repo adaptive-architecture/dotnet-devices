@@ -98,6 +98,25 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # The published site is built on release only, so a broken cross-link or a TOC entry
+  # pointing at a renamed file would otherwise surface at release time. This job builds it
+  # on every push and pull request instead, and --warningsAsErrors is what makes it a check
+  # rather than a smoke test. It is deliberately independent of the test job, so a docs
+  # break and a test break report separately.
+  docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup dotnet
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - run: dotnet tool update -g docfx
+      - run: docfx ./docfx/docfx.json --warningsAsErrors
+
   # That the suite is platform-clean: it builds for a -windows target and no test carries a
   # Linux assumption. Its first run found three, one of them a crash in the mDNS browse on
   # any adapter without IPv6 configured.

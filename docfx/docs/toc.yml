@@ -2,13 +2,30 @@
   items:
   - name: Overview
     href: getting-started.md
-- name: Devices
+- name: Printing
   items:
   - name: Printers
     href: printers.md
-  - name: Scanners
-    href: scanners.md
+    items:
+    - name: Document Formats
+      href: document-formats.md
+    - name: Page Placement
+      href: page-placement.md
+  - name: Discovery
+    href: discovery.md
+  - name: Printer Manager
+    href: printer-manager.md
+  - name: Spooler and CUPS
+    href: spooler-and-cups.md
+  - name: Status and Monitoring
+    href: status-and-monitoring.md
+- name: Integration
+  items:
+  - name: Dependency Injection
+    href: dependency-injection.md
 - name: Help
   items:
   - name: Troubleshooting
     href: troubleshooting.md
+  - name: Roadmap
+    href: roadmap.md
