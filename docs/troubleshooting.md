@@ -256,6 +256,22 @@ catch (PrinterConnectionException exception)
 `InnerException` is the **first** failure, for the same reason. Read it for that first
 cause, and not the first entry of `Failures`: a dictionary promises no order.
 
+### The local spooler did not answer
+
+On macOS, `cupsd` starts on demand. launchd watches only its domain socket,
+`/private/var/run/cupsd`, and the daemon exits when idle, so `localhost:631` refuses
+connections until something wakes it. `CupsSpoolerDriver` connects through that socket
+(`/run/cups/cups.sock` on Linux) for this reason, and uses TCP only where no socket exists. If
+discovery still logs `Discovery source Spooler failed`, check the daemon:
+
+```bash
+sh ./pipeline/cups-state.sh       # the socket, launchd or systemd, the process, TCP 631
+sh ./pipeline/cups-state.sh -w    # the same, then wake the daemon and list its queues
+```
+
+Without `-w` the script does not start the daemon. The TCP probe does count as a client,
+though, so running it in a loop keeps an idle daemon awake.
+
 ### The printer reported an error
 
 `PrinterOperationException` carries the cause as data, so you do not match on the message.
