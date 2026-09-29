@@ -15,8 +15,9 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     private static readonly Uri DefaultBaseUri = new("ipp://localhost:631/");
 
     // One client for every driver: the target is fixed, and a client per driver would
-    // leak a connection pool each time the factory makes one.
-    private static readonly Lazy<HttpClient> SharedClient = new(static () => IppHttpClientFactory.Create(new IppTransportOptions()));
+    // leak a connection pool each time the factory makes one. It connects through the
+    // daemon's domain socket where there is one; see CupsLocalSocket.
+    private static readonly Lazy<HttpClient> SharedClient = new(static () => CupsLocalSocket.CreateClient(new IppTransportOptions()));
 
     private readonly IppContext _context;
     private readonly Uri _baseUri;

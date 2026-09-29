@@ -679,8 +679,11 @@ firewall can discard that unicast answer, and the browse then returns nothing ev
 system spooler through one of two drivers, chosen at run time:
 
 - `CupsSpoolerDriver` — Linux and macOS. CUPS runs its own IPP server on `localhost:631`,
-  so this driver sends the same IPP requests, aimed at the local daemon. It needs no native
-  interop, which is also what makes it the driver behind the `cups` scheme below.
+  so this driver sends the same IPP requests, aimed at the local daemon. It connects through
+  the daemon's domain socket (`/private/var/run/cupsd` on macOS, `/run/cups/cups.sock` on
+  Linux) where one exists, because macOS starts `cupsd` on demand from that socket and
+  refuses `localhost:631` while the daemon is idle; it falls back to TCP otherwise. It needs
+  no native interop, which is also what makes it the driver behind the `cups` scheme below.
 - `WindowsSpoolerDriver` — Windows, through `winspool.drv`. Windows has no local IPP
   server, so this driver is the one part of the library that calls native code.
 

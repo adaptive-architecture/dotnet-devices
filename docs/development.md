@@ -211,7 +211,8 @@ dotnetup dotnet test test/Devices.IntegrationTests/Devices.IntegrationTests.cspr
   adaptarch-devices-cups:integration-tests test/Devices.IntegrationTests/docker/cups` (and
   the same for `ippeve`); the tests then reuse them.
 
-`CupsSpoolerDriver` fixes the local daemon at `ipp://localhost:631/`, and binding a container
+`CupsSpoolerDriver` fixes the local daemon at `ipp://localhost:631/` (through its domain
+socket where there is one), and binding a container
 to port 631 of the developer's machine would fight the `cupsd` already there. The
 `spooler://` tests therefore build that one driver on its internal constructor with the
 container's address; everything above it is the shipped code. `Directory.Build.props` grants

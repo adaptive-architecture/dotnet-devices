@@ -20,7 +20,11 @@ public static class IppHttpClientFactory
         "Critical Vulnerability",
         "S4830:Server certificates should be verified during SSL/TLS connections",
         Justification = "Network printers use self-signed certificates in nearly every case, so a validating client reaches almost none of them over IPPS. The accept-all callback is the documented default; a caller that needs trust sets IppTransportOptions.ServerCertificateValidation, and the resolver then refuses the plain IPP fallback. See docs/printers.md.")]
-    public static HttpClient Create(IppTransportOptions options)
+    public static HttpClient Create(IppTransportOptions options) => CreateCore(options, null);
+
+    // A non-null socket path sends every connection of the client to that Unix domain
+    // socket, whatever host the request names: the local CUPS daemon is reached this way.
+    internal static HttpClient CreateCore(IppTransportOptions options, string? unixSocketPath)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.ConnectTimeout, TimeSpan.Zero);
@@ -36,6 +40,11 @@ public static class IppHttpClientFactory
             // sending the whole job twice.
             PreAuthenticate = options.Credentials is not null,
         };
+        if (unixSocketPath is not null)
+        {
+            handler.ConnectCallback = (_, token) => Spooler.CupsLocalSocket.ConnectAsync(unixSocketPath, token);
+        }
+
         handler.SslOptions.RemoteCertificateValidationCallback =
             options.ServerCertificateValidation ?? (static (_, _, _, _) => true);
         return new HttpClient(handler, true);
