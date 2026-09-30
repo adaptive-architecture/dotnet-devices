@@ -262,21 +262,95 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  # One archive holding both runs, so the two engines can be compared without downloading
-  # twice. It checks nothing out: the workspace holds only what the two jobs produced, which
+  # That the suite carries no Linux assumption on the third platform the library targets. Its
+  # first run on a Mac found one: a test built the local CUPS driver and expected PWG Raster,
+  # which the local daemon of a Mac is never offered.
+  #
+  # No Sonar and no coverage, as in the windows job: the Linux job owns the report. No
+  # integration tests either, because a macOS runner has no Docker.
+  macos:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup dotnet
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj', '.config/dotnet-tools.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget
+
+      - name: Install dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-incremental
+
+      # Each project on its own line under bash's -e, so a failing project fails the step even
+      # when a later one passes. Devices.Windows.UnitTests targets -windows and cannot run here.
+      - name: Run tests that do not need a container
+        shell: bash
+        run: |
+          dotnet test test/Devices.UnitTests/Devices.UnitTests.csproj --no-build
+          dotnet test test/Devices.DependencyInjection.UnitTests/Devices.DependencyInjection.UnitTests.csproj --no-build
+          dotnet test test/Devices.Pdfium.UnitTests/Devices.Pdfium.UnitTests.csproj --no-build
+
+      # TEMPORARY: what the runner's own CUPS daemon allows, before any test relies on it. It
+      # cannot fail the job, and it is replaced by a provisioning step once the answer is in.
+      - name: Probe the runner's CUPS daemon
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -x
+          sw_vers; id; cups-config --version || true
+          sh ./pipeline/cups-state.sh || true
+          lpstat -r; lpstat -v || true
+          grep -E '^(DefaultAuthType|Listen)' /etc/cups/cupsd.conf || true
+          lpadmin -p ci-stopped -E -v socket://127.0.0.1:9 && cupsdisable ci-stopped
+          printf '^XA^FO50,50^FDhello^FS^XZ' > "$RUNNER_TEMP/label.zpl"
+          lp -d ci-stopped -o document-format=application/vnd.cups-raw "$RUNNER_TEMP/label.zpl"
+          lpstat -o ci-stopped
+          ippeveprinter -p 8631 -r _print,_universal -k -d "$RUNNER_TEMP" \
+              -f application/pdf,image/urf,image/pwg-raster "CI AirPrint" > "$RUNNER_TEMP/eve.log" 2>&1 &
+          sleep 5
+          lpstat -e || true
+          lp -d CI_AirPrint -o document-format=application/vnd.cups-raw "$RUNNER_TEMP/label.zpl" || true
+          sleep 10
+          lpstat -v; lpstat -W all -o || true
+          cat "$RUNNER_TEMP/eve.log" || true
+          cancel -a ci-stopped; lpadmin -x ci-stopped; kill %1 || true
+
+      # PDFium renders on macOS as well, so this runner's pages are a third set to compare.
+      - name: Upload the rendered pages
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rasterization-macos
+          path: artifacts/rasterization
+          if-no-files-found: warn
+          retention-days: 7
+
+  # One archive holding every run, so the engines can be compared without downloading
+  # each. It checks nothing out: the workspace holds only what the three jobs produced, which
   # is what keeps the paths inside the archive predictable.
   #
-  # Each half is downloaded under a name of its own, and the upload takes their parent, so
-  # the least-common-ancestor rule puts artifacts/rasterization-linux and
-  # artifacts/rasterization-windows at the root of the zip.
+  # Each run is downloaded under a name of its own, and the upload takes their parent, so
+  # the least-common-ancestor rule puts artifacts/rasterization-linux,
+  # artifacts/rasterization-windows and artifacts/rasterization-macos at the root of the zip.
   rasterization:
     runs-on: ubuntu-latest
-    needs: [test, windows]
+    needs: [test, windows, macos]
     if: always()
 
     steps:
       # continue-on-error: a job that failed before it rendered anything uploaded no
-      # archive, and half the pages is still worth having. The page reports the half that
+      # archive, and part of the pages is still worth having. Each page reports the run that
       # is missing by itself.
       - name: Download the Linux pages
         continue-on-error: true
@@ -292,11 +366,18 @@ jobs:
           name: rasterization-windows
           path: combined/artifacts/rasterization-windows
 
-      # Each half carries its own index.html, and neither knows the other was downloaded
+      - name: Download the macOS pages
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: rasterization-macos
+          path: combined/artifacts/rasterization-macos
+
+      # Each run carries its own index.html, and none knows the others were downloaded
       # beside it. This one says which to open for what.
       - name: Write the front page
         run: |
-          # Both downloads may have failed, in which case nothing created the folder.
+          # Every download may have failed, in which case nothing created the folder.
           mkdir -p combined/artifacts
           cat > combined/artifacts/index.html <<'HTML'
           <!doctype html>
@@ -320,6 +401,8 @@ jobs:
             engines, so this is the one that compares them.</li>
             <li><a href="rasterization-linux/index.html">From the Linux runner</a> — PDFium only.
             The in-box engine ships with Windows, so it renders nothing here and its tiles say so.</li>
+            <li><a href="rasterization-macos/index.html">From the macOS runner</a> — PDFium only,
+            for the same reason.</li>
           </ul>
           <p>The two engines agree about the page size: the units each measures it in cancel, and
           both render A4 at 1240 by 1755 for 150 dots an inch. The fixture embeds its font rather
@@ -330,7 +413,7 @@ jobs:
           </html>
           HTML
 
-      - name: Upload both runs as one archive
+      - name: Upload every run as one archive
         uses: actions/upload-artifact@v7
         with:
           name: rasterization

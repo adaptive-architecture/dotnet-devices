@@ -153,19 +153,20 @@ embeds the outlines, so the font is no longer a variable. That folder's `README.
 binary asset is checked into a tree whose convention is that nothing depends on one, why this
 font and not Arial, and why the whole file rather than a subset.
 
-CI renders them on both runners and leaves one archive to download. The `test` job uploads
-what Linux rendered, the `windows` job uploads what Windows rendered, and a third job,
-`rasterization`, puts the two together:
+CI renders them on every runner and leaves one archive to download. The `test` job uploads
+what Linux rendered, the `windows` job what Windows rendered and the `macos` job what macOS
+rendered, and a fourth job, `rasterization`, puts them together:
 
 ```
-artifacts/index.html                     which of the two to open, and why
+artifacts/index.html                     which to open, and why
 artifacts/rasterization-linux/           PDFium only
 artifacts/rasterization-windows/         both engines, so this is the comparison
+artifacts/rasterization-macos/           PDFium only
 ```
 
-Both halves are uploaded with `if: always()`, because a page that came out wrong is the
-thing these images exist to show, and the download of each is `continue-on-error`, so half
-of a run is still worth having. Held for 30 days; the per-runner halves for 7.
+Each run is uploaded with `if: always()`, because a page that came out wrong is the thing
+these images exist to show, and the download of each is `continue-on-error`, so part of a
+run is still worth having. Held for 30 days; the per-runner archives for 7.
 
 A run on your own machine writes the same pages to `artifacts/rasterization/` without the
 per-runner split, since only one machine rendered them.
@@ -346,6 +347,7 @@ Source projects and tests are wired with `InternalsVisibleTo` automatically via 
 
 GitHub Actions workflows in `.github/workflows/`:
 
-- `test.yml` — build + unit tests + SonarCloud on push/PR
+- `test.yml` — build + unit tests + SonarCloud on push/PR on Linux; the tests that need no
+  container on Windows (`windows`) and macOS (`macos`)
 - `pack.yml` — publish NuGet packages on release
 - `pages.yml` — publish DocFX docs to GitHub Pages on release
