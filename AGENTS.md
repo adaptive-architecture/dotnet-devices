@@ -30,6 +30,7 @@ Read [docs/](docs/README.md) for progressive discovery of the architecture, pack
   (`System.*`) to a package, and prefer no dependency to a thin wrapper over one call.
   Record each approved dependency and its reason in [docs/packages.md](docs/packages.md).
   Framework integrations (DI/hosting/logging) still ship as separate `AdaptArch.*` packages.
+- **No AI attribution**: AI agents never add themselves as co-authors or credit themselves in commits, pull requests or issues — no `Co-authored-by:` trailer and no "Generated with …" footer, even where earlier history has one.
 - **Intra-repo references are configuration-conditional** (sibling `common-utilities` convention): `Debug` (or `BuildDocFx`) uses `ProjectReference` for live source; `Release` uses `PackageReference` against the centrally pinned `AdaptArch.*` version. New packages must be added to `pipeline/publish-packages.sh` so the release flow publishes them in dependency order.
 
 ## Repo-local tooling
