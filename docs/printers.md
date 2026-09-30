@@ -218,7 +218,7 @@ neither. There the library converts, and sends the result as the format the prin
 
 | Channel | A PDF job |
 | --- | --- |
-| `spooler://` on Linux and macOS, and `cups://` anywhere | Passed through. The CUPS filter chain renders it with driver knowledge no converter here has |
+| `spooler://` on Linux and macOS, and `cups://` anywhere | Passed through, with the media and `fit-to-page` [named](#queue-defaults-on-cups). The CUPS filter chain renders it with driver knowledge no converter here has |
 | `ipp://` and `ipps://`, printer lists `application/pdf` | Passed through. The document itself is always better than a raster of it, unless the job names a converter |
 | `ipp://` and `ipps://`, printer lists `image/pwg-raster` | Converted, and sent as one job |
 | `ipp://` and `ipps://`, printer lists neither | Sent unchanged, for the printer to refuse. Event 1034 says why |
@@ -810,19 +810,26 @@ on macOS 27 against an EPSON L6270, with nothing printed:
   sides through the spooler, and on one side over IPP.
 - **Reverse output order.** `*DefaultOutputOrder: Reverse`, so the first page of a job comes
   out last.
-- **A PDF is not fitted.** macOS CUPS renders a PDF with Quartz and not with cups-filters.
-  With no media in the job it takes the PDF's own page size as the media, so a 4 by 6 inch
-  label sent to a printer loaded with A4 arrives as a 4 by 6 inch page and the printer reports
-  a size mismatch. With `media=A4` it draws the page from the PDF's origin, against the bottom
-  left of the sheet, and ignores `print-scaling`: `none`, `fit` and `auto` gave the same
-  output. Linux centres such a page on the default media, and the Windows spooler places it
-  with GDI.
+- **A PDF is fitted only when the job says so.** macOS CUPS renders a PDF with Quartz and
+  not with cups-filters. With no media in the job it takes the PDF's own page size as the
+  media, so a 4 by 6 inch label sent to a printer loaded with A4 arrives as a 4 by 6 inch
+  page and the printer reports a size mismatch. With `media=A4` it draws the page from the
+  PDF's origin, against the bottom left of the sheet, and ignores `print-scaling`: `none`,
+  `fit` and `auto` gave the same output. Only the CUPS job attribute `fit-to-page` makes it
+  centre the page, and it then fits exactly as `auto` does: a page that fits keeps its size,
+  a larger one is shrunk into the printable area, and a landscape page is turned onto
+  portrait media. The library therefore sends every PDF job on a CUPS channel with its media
+  (the job's own, or the queue's `media-default`), `print-scaling` (the job's, or `auto`) and
+  `fit-to-page`. cups-filters on Linux reads `print-scaling` before `fit-to-page`, so it
+  behaves as it did, which is also where the Windows spooler puts the page with GDI. A job
+  with `MediaSizeSource.Document` is sent with neither media nor fit, and Quartz prints the
+  page at its own size.
 
 `lpoptions -p <queue> -l` lists a queue's options with the current value starred. Set the
 option on the job to override one — `Duplex = DuplexMode.Simplex` — or change the queue itself
 with `lpadmin -p <queue> -o Duplex=None`. A job that must land in the same place on every
 platform asks for a [placement](#where-a-page-lands-on-the-media), which the library renders
-rather than leaving it to the queue; on CUPS that is still open work (#29, #31). Recheck the
+rather than leaving it to the queue; on CUPS a placement is still open work (#29, #31). Recheck the
 list above with `cupsfilter` on another macOS version, since it is the queue and not the
 library that decides it.
 

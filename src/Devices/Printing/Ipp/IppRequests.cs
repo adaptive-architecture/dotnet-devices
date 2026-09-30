@@ -1,6 +1,7 @@
 ﻿using System.Globalization;
 using System.Runtime.InteropServices;
 using AdaptArch.Devices.Printing.Spooler;
+using SharpIpp;
 using SharpIpp.Models.Requests;
 using SharpIpp.Protocol.Models;
 
@@ -40,12 +41,13 @@ internal static class IppRequests
         IppOperations operations = new(context, uri, "Print-Job", printerId);
         SharpIpp.Models.Responses.PrintJobResponse response;
         IppLog.DocumentSubmitted(context.Logger, documentFormat, uri, buffer.Length);
+        var extras = submission.ExtraJobAttributes;
+        Func<SharpIppClient, PrintJobRequest, CancellationToken, Task<SharpIpp.Models.Responses.PrintJobResponse>> send = extras.Count == 0
+            ? static (client, message, token) => client.PrintJobAsync(message, token)
+            : (client, message, token) => PrintJobWithExtrasAsync(client, uri, message, extras, token);
         try
         {
-            response = await operations.SendAsync(
-                static (client, message, token) => client.PrintJobAsync(message, token),
-                request,
-                cancellationToken).ConfigureAwait(false);
+            response = await operations.SendAsync(send, request, cancellationToken).ConfigureAwait(false);
         }
         catch (PrinterOperationException exception)
             when (exception.IppStatusCode == IppStatusCodes.ClientErrorDocumentFormatNotSupported)
@@ -141,6 +143,15 @@ internal static class IppRequests
         IppOperations operations = new(context, uri, ReadAttributesOperation, printerId);
         var response = await ReadAttributesAsync(operations, uri, IppConfigurationMapper.RequestedAttributes, cancellationToken).ConfigureAwait(false);
         return IppConfigurationMapper.Map(printerId, response.PrinterAttributes, operations.LastRawResponse);
+    }
+
+    // One attribute and not the whole configuration: a job reads it on its way to the queue,
+    // and the full set is a long answer to parse for a single keyword.
+    public static async Task<string?> GetDefaultMediaAsync(IppContext context, Uri uri, PrinterId printerId, CancellationToken cancellationToken)
+    {
+        IppOperations operations = new(context, uri, ReadAttributesOperation, printerId);
+        var response = await ReadAttributesAsync(operations, uri, ["media-default"], cancellationToken).ConfigureAwait(false);
+        return response.PrinterAttributes?.MediaDefault?.Value;
     }
 
     public static async Task<IReadOnlyList<PrintJobInfo>> GetJobsAsync(IppContext context, Uri uri, PrinterId printerId, CancellationToken cancellationToken)
@@ -347,6 +358,22 @@ internal static class IppRequests
         "operations-supported",
         "job-hold-until-supported",
     ];
+
+    // SharpIppNext models only the attributes of the specifications, so a server extension is
+    // added to the encoded request. The same client sends it, which keeps the capture of the
+    // raw response and the mapping of every failure that IppOperations gives a typed call.
+    private static async Task<SharpIpp.Models.Responses.PrintJobResponse> PrintJobWithExtrasAsync(
+        SharpIppClient client,
+        Uri uri,
+        PrintJobRequest request,
+        IReadOnlyList<IppAttribute> extras,
+        CancellationToken cancellationToken)
+    {
+        var message = client.CreateRawRequest(request);
+        message.JobAttributes.AddRange(extras);
+        var answer = await client.SendAsync(uri, message, cancellationToken).ConfigureAwait(false);
+        return client.CreateResponse<SharpIpp.Models.Responses.PrintJobResponse>(answer);
+    }
 
     private static Task<SharpIpp.Models.Responses.GetPrinterAttributesResponse> ReadAttributesAsync(
         IppOperations operations,

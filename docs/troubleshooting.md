@@ -308,6 +308,22 @@ sh ./pipeline/cups-state.sh -w    # the same, then wake the daemon and list its 
 Without `-w` the script does not start the daemon. The TCP probe does count as a client,
 though, so running it in a loop keeps an idle daemon awake.
 
+### A PDF lands in a different place on a Linux queue
+
+A CUPS channel sends every PDF job with its media, `print-scaling` and `fit-to-page`, so that
+Quartz on macOS centres the page (see [Queue defaults on CUPS](printers.md#queue-defaults-on-cups)).
+cups-filters is expected to read `print-scaling` first and ignore `fit-to-page`. To check that
+a Linux machine does, without printing:
+
+```bash
+sh ./pipeline/cups-fit-check.sh [queue] [pdf] [media]   # defaults: the default queue, the 4x6 label, A4
+```
+
+It runs `cupsfilter` up to `pdftopdf` three times: with `print-scaling=auto`, with
+`fit-to-page` added, and with `fit-to-page` alone as a control. It then measures where the page
+landed each time, and exits 0 on PASS and 1 on FAIL. It needs `cupsfilter`, `pdftoppm`
+(poppler-utils) and `python3`, and `sudo` when the queue's PPD is readable only by root.
+
 ### The printer reported an error
 
 `PrinterOperationException` carries the cause as data, so you do not match on the message.

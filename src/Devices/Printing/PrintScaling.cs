@@ -9,6 +9,12 @@
 /// languages apply <see cref="None"/> as a 100 per cent device mode scale and report
 /// every other value in <see cref="PrintJobInfo.DroppedOptions"/>, while PNG and JPEG
 /// images are laid out with GDI and honour every value.
+/// <para>
+/// A CUPS queue on macOS renders a PDF with Quartz, which ignores this value and fits
+/// every page as <see cref="Auto"/> does: <see cref="Fit"/> does not enlarge a page that
+/// already fits, <see cref="Fill"/> is not applied, and <see cref="None"/> shrinks a page
+/// larger than the media instead of cutting it off.
+/// </para>
 /// </remarks>
 public enum PrintScaling
 {
