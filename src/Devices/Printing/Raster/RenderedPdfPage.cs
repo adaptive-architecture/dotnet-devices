@@ -20,12 +20,12 @@ public sealed record RenderedPdfPage(
     byte[] Pixels,
     int Width,
     int Height,
-    PwgRasterColorSpace ColorSpace,
+    RasterColorSpace ColorSpace,
     double WidthPoints,
     double HeightPoints)
 {
     /// <summary>
     /// Gets how many octets one pixel takes: one for grayscale, three for red, green, blue.
     /// </summary>
-    public int BytesPerPixel => ColorSpace == PwgRasterColorSpace.Srgb8 ? 3 : 1;
+    public int BytesPerPixel => ColorSpace == RasterColorSpace.Srgb8 ? 3 : 1;
 }

@@ -8,4 +8,8 @@
     <PackageReference Include="AdaptArch.Devices" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Devices.TestSupport\Devices.TestSupport.csproj" />
+  </ItemGroup>
+
 </Project>

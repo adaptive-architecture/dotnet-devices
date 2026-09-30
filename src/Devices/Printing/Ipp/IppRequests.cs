@@ -75,6 +75,8 @@ internal static class IppRequests
         return new PrintJobInfo(job.JobId.ToString(CultureInfo.InvariantCulture), printerId, IppJobStateMapper.Map(job.JobState))
         {
             JobName = options?.JobName,
+            ConverterUsed = submission.ConverterUsed,
+            SubmittedContentType = documentFormat,
             DroppedOptionDetails = dropped,
             Detail = StateReasons.Join(reasons),
             StateReasons = reasons,

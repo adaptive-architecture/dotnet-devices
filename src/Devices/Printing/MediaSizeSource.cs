@@ -18,8 +18,9 @@ public enum MediaSizeSource
     /// A label generator that already sized its output to the stock wants the page printed
     /// at exactly that size, and nothing else. The page is then rendered once at its own
     /// size, so no fit and no offset apply and no pixel is resampled, which is the sharpest
-    /// result available. It needs a converter that reads the page size, so a job that asks
-    /// for it is converted rather than passed through.
+    /// result available. It needs a converter that reads the page size, so on a channel that
+    /// reads the document itself it applies only when the job names or requires one
+    /// (<see cref="PrintOptions.ConverterName"/>), and is reported dropped otherwise.
     /// </remarks>
     Document,
 }

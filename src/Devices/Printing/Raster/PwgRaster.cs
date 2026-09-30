@@ -15,37 +15,37 @@ public static class PwgRaster
     /// </summary>
     /// <param name="type">The keyword, or <c>null</c> when the printer named none.</param>
     /// <returns>
-    /// The colour space, or <see cref="PwgRasterColorSpace.Srgb8"/> for a keyword this
+    /// The colour space, or <see cref="RasterColorSpace.Srgb8"/> for a keyword this
     /// library does not write. Colour is the safer default: a printer asked for grey prints
     /// a colour page in grey, where the other way round loses the colour for good.
     /// </returns>
-    public static PwgRasterColorSpace ColorSpaceFor(string? type) =>
+    public static RasterColorSpace ColorSpaceFor(string? type) =>
         type?.StartsWith("sgray", StringComparison.OrdinalIgnoreCase) == true
-            ? PwgRasterColorSpace.Grayscale8
-            : PwgRasterColorSpace.Srgb8;
+            ? RasterColorSpace.Grayscale8
+            : RasterColorSpace.Srgb8;
 
     /// <summary>
     /// Reads a <c>pwg-raster-document-sheet-back</c> keyword.
     /// </summary>
     /// <param name="sheetBack">The keyword, or <c>null</c> when the printer named none.</param>
-    /// <returns>The coordinate system, or <see cref="PwgRasterSheetBack.Normal"/> for a keyword this library does not know.</returns>
-    public static PwgRasterSheetBack SheetBackFor(string? sheetBack)
+    /// <returns>The coordinate system, or <see cref="RasterSheetBack.Normal"/> for a keyword this library does not know.</returns>
+    public static RasterSheetBack SheetBackFor(string? sheetBack)
     {
         if (String.Equals(sheetBack, "flipped", StringComparison.OrdinalIgnoreCase))
         {
-            return PwgRasterSheetBack.Flipped;
+            return RasterSheetBack.Flipped;
         }
 
         if (String.Equals(sheetBack, "rotated", StringComparison.OrdinalIgnoreCase))
         {
-            return PwgRasterSheetBack.Rotated;
+            return RasterSheetBack.Rotated;
         }
 
         if (String.Equals(sheetBack, "manual-tumble", StringComparison.OrdinalIgnoreCase))
         {
-            return PwgRasterSheetBack.ManualTumble;
+            return RasterSheetBack.ManualTumble;
         }
 
-        return PwgRasterSheetBack.Normal;
+        return RasterSheetBack.Normal;
     }
 }

@@ -57,6 +57,12 @@ public static class PrinterContentTypes
     public const string PwgRaster = "image/pwg-raster";
 
     /// <summary>
+    /// Apple Raster (URF), the format AirPrint printers read. One stream carries every page,
+    /// as PWG Raster does, and a macOS CUPS queue passes it to the printer unfiltered.
+    /// </summary>
+    public const string Urf = "image/urf";
+
+    /// <summary>
     /// Opaque binary data for printers that accept vendor-specific streams.
     /// </summary>
     public const string OctetStream = "application/octet-stream";

@@ -417,7 +417,9 @@ instrument for that is a ruler on the real stock.
 Print `PrintJobs/pdf-placement.json` through a spooler queue, and the same set through an IPP
 queue if one is reachable. The two paths place a page by different means — GDI draws it on
 Windows, a composed raster carries it over IPP — so agreeing on paper is the thing worth
-proving.
+proving. Every job names PDFium, because a placement on an IPP queue applies only when the
+job chooses an engine; on Windows it means PDFium renders the pages rather than the in-box
+engine.
 
 Every job but the first prints `document.pdf`, a 4 by 6 inch label, at its own size, so it
 has room to move on a larger sheet.

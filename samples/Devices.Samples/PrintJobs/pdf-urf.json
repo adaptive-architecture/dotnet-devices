@@ -1,0 +1,54 @@
+{
+  "name": "PDF as URF",
+  "description": "Every PDF rendered by PDFium on a CUPS queue, for the macOS run of issue 29. A macOS queue fails every PWG Raster job in its filters, so each job here must be sent as image/urf: the log line after each submission names the engine and the format. Watch every job to job-completed rather than trusting the submission. Compare the sides and the colour of each sheet with its description, and the anchored label with the placement sheet of pdf-placement.",
+  "mode": "queue",
+  "jobs": [
+    {
+      "file": "pages.pdf",
+      "description": "PDFium to URF: page 1, one-sided, in colour",
+      "options": {
+        "converter": "PDFium",
+        "pageRanges": "1",
+        "colorMode": "Color",
+        "duplex": "Simplex"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "PDFium to URF: page 2, one-sided, in grayscale",
+      "options": {
+        "converter": "PDFium",
+        "pageRanges": "2",
+        "colorMode": "Monochrome",
+        "duplex": "Simplex"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "PDFium to URF: pages 1 to 4 in colour, duplex on the long edge; every back side reads the right way up",
+      "options": {
+        "converter": "PDFium",
+        "colorMode": "Color",
+        "duplex": "LongEdge"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "PDFium to URF: pages 1 to 4 in grayscale, duplex on the long edge",
+      "options": {
+        "converter": "PDFium",
+        "colorMode": "Monochrome",
+        "duplex": "LongEdge"
+      }
+    },
+    {
+      "file": "document.pdf",
+      "description": "PDFium to URF: the label anchored top left at its own size, which only the library can place on a CUPS queue",
+      "options": {
+        "converter": "PDFium",
+        "scaling": "None",
+        "anchor": "TopLeft"
+      }
+    }
+  ]
+}

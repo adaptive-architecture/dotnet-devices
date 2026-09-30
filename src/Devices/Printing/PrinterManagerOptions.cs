@@ -195,13 +195,28 @@ public sealed class PrinterManagerOptions
     public IList<IPrintPayloadConverter> Converters { get; } = [];
 
     /// <summary>
-    /// Builds the snapshot of <see cref="Formats"/> and <see cref="Converters"/> that a
-    /// printer reads.
+    /// Gets the converter every job of a document format must be rendered with, by content
+    /// type, so that a PDF comes out the same through every channel and on every platform.
+    /// </summary>
+    /// <remarks>
+    /// A job of a listed format is treated as if it named the converter in
+    /// <see cref="PrintOptions.ConverterName"/>, and a job that names another keeps its own.
+    /// Only a <see cref="PrinterFormatKind.Document"/> may be listed; any other kind throws
+    /// <see cref="ArgumentException"/> from <see cref="BuildFormatPolicy"/>. A job whose
+    /// converter cannot run fails before anything is sent, whatever
+    /// <see cref="PrintOptions.OnUnsupported"/> says.
+    /// </remarks>
+    public IDictionary<string, string> RequiredConverters { get; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Builds the snapshot of <see cref="Formats"/>, <see cref="Converters"/> and
+    /// <see cref="RequiredConverters"/> that a printer reads.
     /// </summary>
     /// <returns>The policy to give to <see cref="PrinterFactory.Formats"/>, or to a printer opened directly.</returns>
     /// <remarks>
     /// A manager takes this snapshot once, so a list edited afterwards does not change a
     /// job that is already on its way. Call it again to pick up later edits.
     /// </remarks>
-    public PrintFormatPolicy BuildFormatPolicy() => new(Formats, Converters);
+    /// <exception cref="ArgumentException">Thrown when <see cref="RequiredConverters"/> lists a format that is not a document, or a blank name.</exception>
+    public PrintFormatPolicy BuildFormatPolicy() => new(Formats, Converters, RequiredConverters);
 }

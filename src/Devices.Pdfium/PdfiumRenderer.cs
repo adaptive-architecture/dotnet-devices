@@ -132,7 +132,7 @@ internal static class PdfiumRenderer
         }
     }
 
-    private static RenderedPdfPage RenderPage(FpdfDocumentT document, int index, int dpi, PwgRasterColorSpace colorSpace, int flags)
+    private static RenderedPdfPage RenderPage(FpdfDocumentT document, int index, int dpi, RasterColorSpace colorSpace, int flags)
     {
         using FS_SIZEF_ size = new();
         if (fpdfview.FPDF_GetPageSizeByIndexF(document, index, size) == 0)
@@ -141,7 +141,7 @@ internal static class PdfiumRenderer
         }
 
         (var width, var height) = PdfRenderLimits.RenderPixels(size.Width, size.Height, dpi, PdfRenderLimits.PointsPerInch);
-        var isColor = colorSpace == PwgRasterColorSpace.Srgb8;
+        var isColor = colorSpace == RasterColorSpace.Srgb8;
         var stride = width * (isColor ? 3 : 1);
         var pixels = new byte[stride * height];
 

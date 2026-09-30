@@ -92,7 +92,7 @@ public class CupsSpoolerDriverTests
 
     // CUPS receives the document as it is, so what only a renderer applies never reaches it.
     [Fact]
-    public async Task SubmitAsync_ReportsWhatNoIppAttributeCarries()
+    public async Task SubmitAsync_ReportsWhatOnlyARendererAppliesWhenNoConverterIsRegistered()
     {
         var body = IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 7), (0x23, "job-state", 3));
         IppMessages.StubHandler handler = new(_ => IppMessages.Ok(body));
@@ -116,26 +116,138 @@ public class CupsSpoolerDriverTests
             job.DroppedOptions);
         Assert.All(job.DroppedOptionDetails, dropped =>
         {
-            Assert.Equal(PrintOptionStage.Channel, dropped.Stage);
-            Assert.Equal("CUPS receives the document as it is, and no IPP attribute carries it", dropped.Reason);
+            Assert.Equal(PrintOptionStage.Conversion, dropped.Stage);
+            Assert.Equal("no converter is registered for application/pdf", dropped.Reason);
         });
+        Assert.Null(job.ConverterUsed);
+        Assert.Equal(PrinterContentTypes.Pdf, job.SubmittedContentType);
     }
 
     [Fact]
-    public async Task SubmitAsync_ReportsANamedConverterAsNotRun()
+    public async Task SubmitAsync_ANamedConverterNobodyCarries_FailsBeforeSending()
     {
-        var body = IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 7), (0x23, "job-state", 3));
-        CupsSpoolerDriver driver = new(new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(body))));
+        IppMessages.StubHandler handler = new(_ => IppMessages.Ok(SubmittedJob()));
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        var error = await Assert.ThrowsAsync<NotSupportedException>(() => driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { ConverterName = "pdfium" },
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("No converter named 'pdfium'", error.Message, StringComparison.Ordinal);
+        Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_ANamedConverter_RendersUrfForAQueueThatListsIt()
+    {
+        QueueHandler handler = new(RasterQueue(PrinterContentTypes.PwgRaster, PrinterContentTypes.Urf), SubmittedJob());
+        RecordingRasterConverter converter = new();
+        CupsSpoolerDriver driver = new(new HttpClient(handler), new Uri("ipp://localhost:631/"), new PrintFormatPolicy(null, [converter]));
 
         var job = await driver.SubmitAsync(
             "lobby",
             PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
-            new PrintOptions { ConverterName = "pdfium" },
+            new PrintOptions { ConverterName = RecordingRasterConverter.ConverterName },
             TestContext.Current.CancellationToken);
 
-        var dropped = Assert.Single(job.DroppedOptionDetails);
-        Assert.Equal(nameof(PrintOptions.ConverterName), dropped.Option);
-        Assert.Equal(PrintOptionStage.Conversion, dropped.Stage);
+        Assert.Equal(PrinterContentTypes.Urf, converter.LastContext?.TargetContentType);
+        Assert.Equal(RecordingRasterConverter.ConverterName, job.ConverterUsed);
+        Assert.Equal(PrinterContentTypes.Urf, job.SubmittedContentType);
+        var sent = handler.RequestBodies[^1];
+        Assert.Contains(PrinterContentTypes.Urf, Latin1(sent), StringComparison.Ordinal);
+        Assert.True(HasKeyword(sent, "sides", "one-sided"));
+        Assert.False(HasFitToPage(sent));
+    }
+
+    [Fact]
+    public async Task SubmitAsync_APlacementWithANamedConverter_IsRendered()
+    {
+        QueueHandler handler = new(RasterQueue(PrinterContentTypes.PwgRaster), SubmittedJob());
+        RecordingRasterConverter converter = new();
+        CupsSpoolerDriver driver = new(new HttpClient(handler), new Uri("ipp://localhost:631/"), new PrintFormatPolicy(null, [converter]));
+
+        var job = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions
+            {
+                ConverterName = RecordingRasterConverter.ConverterName,
+                Placement = new PrintPlacement { Anchor = PrintAnchor.TopLeft },
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(PrinterContentTypes.PwgRaster, job.SubmittedContentType);
+        Assert.Equal(PrintAnchor.TopLeft, converter.LastContext?.Placement?.Anchor);
+        Assert.DoesNotContain(nameof(PrintOptions.Placement), job.DroppedOptions);
+    }
+
+    // The queue's own driver renders unless the job chose an engine, so a converter that is
+    // merely registered does not take over.
+    [Fact]
+    public async Task SubmitAsync_APlacementWithAConverterNobodyNamed_IsLeftToCupsAndReported()
+    {
+        var handler = QueueWithDefaultMedia("iso_a4_210x297mm");
+        RecordingRasterConverter converter = new();
+        CupsSpoolerDriver driver = new(new HttpClient(handler), new Uri("ipp://localhost:631/"), new PrintFormatPolicy(null, [converter]));
+
+        var job = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { Placement = new PrintPlacement { Anchor = PrintAnchor.TopLeft } },
+            TestContext.Current.CancellationToken);
+
+        Assert.Null(converter.LastContext);
+        Assert.Equal(PrinterContentTypes.Pdf, job.SubmittedContentType);
+        Assert.Equal([nameof(PrintOptions.Placement)], job.DroppedOptions);
+        Assert.True(HasFitToPage(handler.RequestBodies[^1]));
+    }
+
+    [Fact]
+    public async Task SubmitAsync_AConverterRegisteredButNotAskedFor_LeavesThePdfToCups()
+    {
+        var handler = QueueWithDefaultMedia("iso_a4_210x297mm");
+        RecordingRasterConverter converter = new();
+        CupsSpoolerDriver driver = new(new HttpClient(handler), new Uri("ipp://localhost:631/"), new PrintFormatPolicy(null, [converter]));
+
+        var job = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            null,
+            TestContext.Current.CancellationToken);
+
+        Assert.Null(converter.LastContext);
+        Assert.Null(job.ConverterUsed);
+        Assert.True(HasFitToPage(handler.RequestBodies[^1]));
+    }
+
+    [Theory]
+    [InlineData(UnsupportedOptionBehavior.Send)]
+    [InlineData(UnsupportedOptionBehavior.Drop)]
+    [InlineData(UnsupportedOptionBehavior.Throw)]
+    public async Task SubmitAsync_ANamedConverterTheQueueCannotTake_FailsWhateverOnUnsupportedSays(UnsupportedOptionBehavior onUnsupported)
+    {
+        QueueHandler handler = new(RasterQueue(), SubmittedJob());
+        RecordingRasterConverter converter = new();
+        CupsSpoolerDriver driver = new(new HttpClient(handler), new Uri("ipp://localhost:631/"), new PrintFormatPolicy(null, [converter]));
+
+        var error = await Assert.ThrowsAsync<NotSupportedException>(() => driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { ConverterName = RecordingRasterConverter.ConverterName, OnUnsupported = onUnsupported },
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("PrintOptions.OnUnsupported does not apply to a named converter", error.Message, StringComparison.Ordinal);
+        Assert.Null(converter.LastContext);
+        Assert.All(handler.RequestBodies, body => Assert.Equal(0x000B, (body[2] << 8) | body[3]));
+    }
+
+    [Fact]
+    public void TargetsFor_TheLocalDaemonOfAMac_NeverOffersPwgRaster()
+    {
+        Assert.Equal([PrinterContentTypes.Urf], CupsSpoolerDriver.TargetsFor(true));
+        Assert.Equal([PrinterContentTypes.Urf, PrinterContentTypes.PwgRaster], CupsSpoolerDriver.TargetsFor(false));
     }
 
     [Fact]
@@ -351,6 +463,15 @@ public class CupsSpoolerDriverTests
         IppMessages.Response(0x0000, (0x44, "media-default", media));
 
     private static QueueHandler QueueWithDefaultMedia(string media) => new(DefaultMedia(media), SubmittedJob());
+
+    // A queue that reads PDF and the rasters named. 0x49 is the mimeMediaType tag.
+    private static byte[] RasterQueue(params string[] rasters) =>
+        IppMessages.Response(
+            0x0000,
+            [
+                (0x49, "document-format-supported", PrinterContentTypes.Pdf),
+                .. rasters.Select(static raster => ((byte)0x49, (string)null, (object)raster)),
+            ]);
 
     private static string Latin1(byte[] body) => Encoding.Latin1.GetString(body);
 
@@ -581,5 +702,27 @@ public class CupsSpoolerDriverTests
 
         Assert.NotNull(read);
         Assert.Contains(read.RawAttributes, attribute => attribute.Name == "an-attribute-the-library-does-not-map");
+    }
+
+    // Reads PDF and writes both rasters, answering with one document as a raster requires.
+    private sealed class RecordingRasterConverter : IPrintPayloadConverter
+    {
+        internal const string ConverterName = "Recording";
+
+        public string Name => ConverterName;
+
+        public PrintConversionContext LastContext { get; private set; }
+
+        public bool CanConvert(string contentType) =>
+            String.Equals(contentType, PrinterContentTypes.Pdf, StringComparison.OrdinalIgnoreCase);
+
+        public bool CanEmit(string targetContentType) =>
+            targetContentType is PrinterContentTypes.PwgRaster or PrinterContentTypes.Urf;
+
+        public Task<IReadOnlyList<byte[]>> ConvertAsync(byte[] data, PrintConversionContext context, CancellationToken cancellationToken)
+        {
+            LastContext = context;
+            return Task.FromResult<IReadOnlyList<byte[]>>([[1, 2, 3]]);
+        }
     }
 }

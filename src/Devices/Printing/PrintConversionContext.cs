@@ -4,7 +4,7 @@
 /// What a converter is asked to produce.
 /// </summary>
 /// <param name="ContentType">The media type of the bytes given to the converter.</param>
-/// <param name="TargetContentType">The media type of each page the converter returns. Today this is always <see cref="PrinterContentTypes.Png"/>.</param>
+/// <param name="TargetContentType">The media type the converter returns: <see cref="PrinterContentTypes.Png"/> for the Windows spooler, one image a page, or <see cref="PrinterContentTypes.PwgRaster"/> or <see cref="PrinterContentTypes.Urf"/> for an IPP printer or a CUPS queue, one document for every page.</param>
 /// <param name="Dpi">The resolution the caller asked for, or 300 when the job named none. A converter clamps it to what its engine renders well.</param>
 /// <param name="PageRanges">The 1-based pages the caller asked for, or <c>null</c> for the whole document.</param>
 /// <param name="QueueName">The channel the pages print on, for a message that names it.</param>
@@ -29,8 +29,10 @@ public sealed record PrintConversionContext(
     /// <c>null</c> when it named none or the target is not a raster.
     /// </summary>
     /// <remarks>
-    /// Chosen from <see cref="PrinterConfiguration.PwgRasterTypes"/> and the colour mode of
-    /// the job. A converter that cannot produce it should produce what it can rather than
+    /// Chosen from <see cref="PrinterConfiguration.PwgRasterTypes"/>, or from
+    /// <see cref="PrinterConfiguration.UrfSupported"/> for URF, and the colour mode of the job.
+    /// A URF colour space is named with the PWG keyword that means the same, so
+    /// <c>W8</c> arrives as <c>sgray_8</c> and <c>SRGB24</c> as <c>srgb_8</c>. A converter that cannot produce it should produce what it can rather than
     /// fail: the printer is the one that judges the result.
     /// </remarks>
     public string? RasterType { get; init; }
@@ -40,7 +42,9 @@ public sealed record PrintConversionContext(
     /// nothing or the job is one-sided.
     /// </summary>
     /// <remarks>
-    /// Carries <see cref="PrinterConfiguration.PwgRasterSheetBack"/> unchanged. A converter
+    /// Carries <see cref="PrinterConfiguration.PwgRasterSheetBack"/> unchanged, or for URF the
+    /// PWG keyword the <c>DM</c> keyword of <see cref="PrinterConfiguration.UrfSupported"/>
+    /// means. A converter
     /// that ignores it on a duplex job writes every second page upside down or mirrored,
     /// and nothing reports that as an error.
     /// </remarks>

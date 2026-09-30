@@ -1,12 +1,13 @@
 {
   "name": "PDF through IPP pwg-raster",
-  "description": "PDF documents through the pwg-raster on IPP(S)",
+  "description": "PDF documents rendered by PDFium and sent as a raster: PWG Raster on IPP(S), URF or PWG Raster on a CUPS queue. Every job names the converter, so it is rendered even where the printer reads PDF itself, and the placement in the last job applies.",
   "mode": "queue",
   "jobs": [
     {
       "file": "pages.pdf",
       "description": "four pages in colour, to check the raster geometry",
       "options": {
+        "converter": "PDFium",
         "colorMode": "Color"
       }
     },
@@ -14,6 +15,7 @@
       "file": "pages.pdf",
       "description": "the same four pages in grayscale, which is one octet a pixel instead of three",
       "options": {
+        "converter": "PDFium",
         "colorMode": "Monochrome"
       }
     },
@@ -21,6 +23,7 @@
       "file": "pages.pdf",
       "description": "pages 2 and 4 only, selected by the converter and not by the printer",
       "options": {
+        "converter": "PDFium",
         "pageRanges": "2,4"
       }
     },
@@ -28,6 +31,7 @@
       "file": "pages.pdf",
       "description": "four pages duplex on the long edge, to check the back-side transform",
       "options": {
+        "converter": "PDFium",
         "duplex": "LongEdge"
       }
     },
@@ -35,6 +39,7 @@
       "file": "pages.pdf",
       "description": "page 1 against the top left of the stock, 5 mm right and 3 mm down, with smoothing off: the placement is composed into the raster, so the printer applies none of it",
       "options": {
+        "converter": "PDFium",
         "pageRanges": "1",
         "scaling": "Fit",
         "anchor": "TopLeft",

@@ -503,11 +503,12 @@ public sealed class PrinterManager : IPrinterManager
         ArgumentNullException.ThrowIfNull(payload);
 
         var device = await ResolveAsync(id, cancellationToken).ConfigureAwait(false);
-        var channel = ChooseForPrint(device, id, payload.ContentType, options?.ConverterName);
+        var effectiveOptions = PrintOptionValidator.WithConverter(options, _formats.RequiredConverterFor(payload.ContentType));
+        var channel = ChooseForPrint(device, id, payload.ContentType, effectiveOptions?.ConverterName);
         var printer = _factory.Open(channel);
         try
         {
-            var job = await printer.PrintAsync(payload, options, cancellationToken).ConfigureAwait(false);
+            var job = await printer.PrintAsync(payload, effectiveOptions, cancellationToken).ConfigureAwait(false);
             PrintingLog.JobSubmitted(_logger, job.JobId, id, channel.Endpoint, payload.ContentType, payload.Data.Length);
 
             // A job name and a user name are personal data, so they are at Debug and never

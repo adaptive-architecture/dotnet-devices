@@ -16,7 +16,7 @@ public class PwgRasterWriterTests
     public void Constructor_WritesTheSynchronizationWord()
     {
         MemoryStream stream = new();
-        _ = new PwgRasterWriter(stream, new PwgRasterOptions());
+        _ = new PwgRasterWriter(stream, new RasterOptions());
 
         Assert.Equal("RaS2"u8.ToArray(), stream.ToArray());
     }
@@ -31,12 +31,12 @@ public class PwgRasterWriterTests
     }
 
     [Theory]
-    [InlineData(PwgRasterColorSpace.Grayscale8, 18u, 8u, 1u)]
-    [InlineData(PwgRasterColorSpace.Srgb8, 19u, 24u, 3u)]
-    public void WritePage_DescribesTheColorSpace(PwgRasterColorSpace space, uint colorSpace, uint bitsPerPixel, uint colors)
+    [InlineData(RasterColorSpace.Grayscale8, 18u, 8u, 1u)]
+    [InlineData(RasterColorSpace.Srgb8, 19u, 24u, 3u)]
+    public void WritePage_DescribesTheColorSpace(RasterColorSpace space, uint colorSpace, uint bitsPerPixel, uint colors)
     {
         MemoryStream stream = new();
-        PwgRasterWriter writer = new(stream, new PwgRasterOptions { ColorSpace = space });
+        PwgRasterWriter writer = new(stream, new RasterOptions { ColorSpace = space });
         const int width = 2;
         writer.WritePage(new byte[writer.BytesPerLine(width)], width, 1);
 
@@ -52,10 +52,10 @@ public class PwgRasterWriterTests
     public void WritePage_DescribesTheGeometry()
     {
         MemoryStream stream = new();
-        PwgRasterWriter writer = new(stream, new PwgRasterOptions
+        PwgRasterWriter writer = new(stream, new RasterOptions
         {
             ResolutionDpi = 300,
-            ColorSpace = PwgRasterColorSpace.Grayscale8,
+            ColorSpace = RasterColorSpace.Grayscale8,
             TotalPageCount = 4,
             Copies = 2,
         });
@@ -88,7 +88,7 @@ public class PwgRasterWriterTests
     public void WritePage_DescribesTheDuplexMode(DuplexMode? duplex, uint expectedDuplex, uint expectedTumble)
     {
         MemoryStream stream = new();
-        PwgRasterWriter writer = new(stream, new PwgRasterOptions { ColorSpace = PwgRasterColorSpace.Grayscale8, Duplex = duplex });
+        PwgRasterWriter writer = new(stream, new RasterOptions { ColorSpace = RasterColorSpace.Grayscale8, Duplex = duplex });
         writer.WritePage([0x00], 1, 1);
 
         var header = Header(stream.ToArray());
@@ -98,20 +98,20 @@ public class PwgRasterWriterTests
 
     // PWG 5102.4 Table 9. A front side is always 1 and 1; only a duplex back side changes.
     [Theory]
-    [InlineData(DuplexMode.LongEdge, PwgRasterSheetBack.Normal, 1, 1)]
-    [InlineData(DuplexMode.LongEdge, PwgRasterSheetBack.ManualTumble, 1, 1)]
-    [InlineData(DuplexMode.LongEdge, PwgRasterSheetBack.Flipped, 1, -1)]
-    [InlineData(DuplexMode.LongEdge, PwgRasterSheetBack.Rotated, -1, -1)]
-    [InlineData(DuplexMode.ShortEdge, PwgRasterSheetBack.Normal, 1, 1)]
-    [InlineData(DuplexMode.ShortEdge, PwgRasterSheetBack.ManualTumble, -1, -1)]
-    [InlineData(DuplexMode.ShortEdge, PwgRasterSheetBack.Flipped, -1, 1)]
-    [InlineData(DuplexMode.ShortEdge, PwgRasterSheetBack.Rotated, 1, 1)]
-    public void WritePage_TransformsTheBackOfADuplexSheet(DuplexMode duplex, PwgRasterSheetBack sheetBack, int crossFeed, int feed)
+    [InlineData(DuplexMode.LongEdge, RasterSheetBack.Normal, 1, 1)]
+    [InlineData(DuplexMode.LongEdge, RasterSheetBack.ManualTumble, 1, 1)]
+    [InlineData(DuplexMode.LongEdge, RasterSheetBack.Flipped, 1, -1)]
+    [InlineData(DuplexMode.LongEdge, RasterSheetBack.Rotated, -1, -1)]
+    [InlineData(DuplexMode.ShortEdge, RasterSheetBack.Normal, 1, 1)]
+    [InlineData(DuplexMode.ShortEdge, RasterSheetBack.ManualTumble, -1, -1)]
+    [InlineData(DuplexMode.ShortEdge, RasterSheetBack.Flipped, -1, 1)]
+    [InlineData(DuplexMode.ShortEdge, RasterSheetBack.Rotated, 1, 1)]
+    public void WritePage_TransformsTheBackOfADuplexSheet(DuplexMode duplex, RasterSheetBack sheetBack, int crossFeed, int feed)
     {
         MemoryStream stream = new();
-        PwgRasterWriter writer = new(stream, new PwgRasterOptions
+        PwgRasterWriter writer = new(stream, new RasterOptions
         {
-            ColorSpace = PwgRasterColorSpace.Grayscale8,
+            ColorSpace = RasterColorSpace.Grayscale8,
             Duplex = duplex,
             SheetBack = sheetBack,
         });
@@ -133,11 +133,11 @@ public class PwgRasterWriterTests
     public void WritePage_LeavesEveryPageUntransformedWhenTheJobIsOneSided()
     {
         MemoryStream stream = new();
-        PwgRasterWriter writer = new(stream, new PwgRasterOptions
+        PwgRasterWriter writer = new(stream, new RasterOptions
         {
-            ColorSpace = PwgRasterColorSpace.Grayscale8,
+            ColorSpace = RasterColorSpace.Grayscale8,
             Duplex = DuplexMode.Simplex,
-            SheetBack = PwgRasterSheetBack.Rotated,
+            SheetBack = RasterSheetBack.Rotated,
         });
 
         writer.WritePage([0x00], 1, 1);
@@ -154,14 +154,14 @@ public class PwgRasterWriterTests
     // its own. A back side the Table 9 values move is therefore reordered here, while
     // the front side always goes out as it came in.
     [Theory]
-    [InlineData(DuplexMode.LongEdge, PwgRasterSheetBack.Rotated, 6, 5, 4, 3, 2, 1)]
-    [InlineData(DuplexMode.LongEdge, PwgRasterSheetBack.Flipped, 4, 5, 6, 1, 2, 3)]
-    [InlineData(DuplexMode.LongEdge, PwgRasterSheetBack.Normal, 1, 2, 3, 4, 5, 6)]
-    [InlineData(DuplexMode.ShortEdge, PwgRasterSheetBack.Flipped, 3, 2, 1, 6, 5, 4)]
-    [InlineData(DuplexMode.ShortEdge, PwgRasterSheetBack.ManualTumble, 6, 5, 4, 3, 2, 1)]
-    [InlineData(DuplexMode.ShortEdge, PwgRasterSheetBack.Rotated, 1, 2, 3, 4, 5, 6)]
+    [InlineData(DuplexMode.LongEdge, RasterSheetBack.Rotated, 6, 5, 4, 3, 2, 1)]
+    [InlineData(DuplexMode.LongEdge, RasterSheetBack.Flipped, 4, 5, 6, 1, 2, 3)]
+    [InlineData(DuplexMode.LongEdge, RasterSheetBack.Normal, 1, 2, 3, 4, 5, 6)]
+    [InlineData(DuplexMode.ShortEdge, RasterSheetBack.Flipped, 3, 2, 1, 6, 5, 4)]
+    [InlineData(DuplexMode.ShortEdge, RasterSheetBack.ManualTumble, 6, 5, 4, 3, 2, 1)]
+    [InlineData(DuplexMode.ShortEdge, RasterSheetBack.Rotated, 1, 2, 3, 4, 5, 6)]
     public void WritePage_ReordersThePixelsOfADuplexBackSide(
-        DuplexMode duplex, PwgRasterSheetBack sheetBack, int p0, int p1, int p2, int p3, int p4, int p5)
+        DuplexMode duplex, RasterSheetBack sheetBack, int p0, int p1, int p2, int p3, int p4, int p5)
     {
         byte[] pages = [1, 2, 3, 4, 5, 6];
         var (front, back) = WriteDuplexGray(duplex, sheetBack, pages, 3, 2);
@@ -175,11 +175,11 @@ public class PwgRasterWriterTests
     {
         byte[] pages = [1, 2, 3, 4, 5, 6];
         MemoryStream stream = new();
-        PwgRasterWriter writer = new(stream, new PwgRasterOptions
+        PwgRasterWriter writer = new(stream, new RasterOptions
         {
-            ColorSpace = PwgRasterColorSpace.Grayscale8,
+            ColorSpace = RasterColorSpace.Grayscale8,
             Duplex = DuplexMode.Simplex,
-            SheetBack = PwgRasterSheetBack.Rotated,
+            SheetBack = RasterSheetBack.Rotated,
         });
 
         writer.WritePage(pages, 3, 2);
@@ -198,11 +198,11 @@ public class PwgRasterWriterTests
         // whole pixels, never single octets.
         byte[] pages = [10, 20, 30, 40, 50, 60];
         MemoryStream stream = new();
-        PwgRasterWriter writer = new(stream, new PwgRasterOptions
+        PwgRasterWriter writer = new(stream, new RasterOptions
         {
-            ColorSpace = PwgRasterColorSpace.Srgb8,
+            ColorSpace = RasterColorSpace.Srgb8,
             Duplex = DuplexMode.ShortEdge,
-            SheetBack = PwgRasterSheetBack.Flipped,
+            SheetBack = RasterSheetBack.Flipped,
         });
 
         writer.WritePage(pages, 2, 1);
@@ -220,7 +220,7 @@ public class PwgRasterWriterTests
         // A4 at 100 dpi is 826.77 by 1169.29 pixels and 595.28 by 841.89 points. Both are
         // rounded down, so the page never claims to be larger than the sheet.
         MemoryStream stream = new();
-        PwgRasterWriter writer = new(stream, new PwgRasterOptions { ResolutionDpi = 100, ColorSpace = PwgRasterColorSpace.Grayscale8 });
+        PwgRasterWriter writer = new(stream, new RasterOptions { ResolutionDpi = 100, ColorSpace = RasterColorSpace.Grayscale8 });
         writer.WritePage(new byte[826 * 1169], 826, 1169);
         var header = Header(stream.ToArray());
 
@@ -258,10 +258,10 @@ public class PwgRasterWriterTests
     {
         // 100 by 150 mm is 1.6 mm narrower than 4 by 6 inches, which strict firmware rejects.
         MemoryStream stream = new();
-        PwgRasterWriter writer = new(stream, new PwgRasterOptions
+        PwgRasterWriter writer = new(stream, new RasterOptions
         {
             ResolutionDpi = 100,
-            ColorSpace = PwgRasterColorSpace.Grayscale8,
+            ColorSpace = RasterColorSpace.Grayscale8,
             MediaName = "iso_a4_210x297mm",
             MediaSizeNames = ["na_index-4x6_4x6in"],
         });
@@ -280,10 +280,10 @@ public class PwgRasterWriterTests
     private static string NameOfA4Page(string mediaName, IReadOnlyList<string> mediaSizeNames)
     {
         MemoryStream stream = new();
-        PwgRasterWriter writer = new(stream, new PwgRasterOptions
+        PwgRasterWriter writer = new(stream, new RasterOptions
         {
             ResolutionDpi = 100,
-            ColorSpace = PwgRasterColorSpace.Grayscale8,
+            ColorSpace = RasterColorSpace.Grayscale8,
             MediaName = mediaName,
             MediaSizeNames = mediaSizeNames,
         });
@@ -410,7 +410,7 @@ public class PwgRasterWriterTests
     public void WritePage_WritesEveryPageOfADocumentIntoOneStream()
     {
         MemoryStream stream = new();
-        PwgRasterWriter writer = new(stream, new PwgRasterOptions { ColorSpace = PwgRasterColorSpace.Grayscale8, TotalPageCount = 2 });
+        PwgRasterWriter writer = new(stream, new RasterOptions { ColorSpace = RasterColorSpace.Grayscale8, TotalPageCount = 2 });
         writer.WritePage([0x01], 1, 1);
         writer.WritePage([0x02], 1, 1);
 
@@ -428,7 +428,7 @@ public class PwgRasterWriterTests
     public void WritePage_RejectsABitmapThatIsNotTheSizeTheDimensionsGive()
     {
         MemoryStream stream = new();
-        PwgRasterWriter writer = new(stream, new PwgRasterOptions { ColorSpace = PwgRasterColorSpace.Grayscale8 });
+        PwgRasterWriter writer = new(stream, new RasterOptions { ColorSpace = RasterColorSpace.Grayscale8 });
 
         var exception = Assert.Throws<ArgumentException>(() => writer.WritePage(new byte[5], 2, 2));
 
@@ -441,7 +441,7 @@ public class PwgRasterWriterTests
     public void WritePage_RejectsAPageWithNoArea(int width, int height)
     {
         MemoryStream stream = new();
-        PwgRasterWriter writer = new(stream, new PwgRasterOptions());
+        PwgRasterWriter writer = new(stream, new RasterOptions());
 
         _ = Assert.Throws<ArgumentOutOfRangeException>(() => writer.WritePage([], width, height));
     }
@@ -451,13 +451,13 @@ public class PwgRasterWriterTests
     {
         MemoryStream stream = new();
 
-        _ = Assert.Throws<ArgumentOutOfRangeException>(() => new PwgRasterWriter(stream, new PwgRasterOptions { ResolutionDpi = 0 }));
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => new PwgRasterWriter(stream, new RasterOptions { ResolutionDpi = 0 }));
     }
 
     private static byte[] WriteGray(int width, int height, byte[] pixels)
     {
         MemoryStream stream = new();
-        PwgRasterWriter writer = new(stream, new PwgRasterOptions { ColorSpace = PwgRasterColorSpace.Grayscale8 });
+        PwgRasterWriter writer = new(stream, new RasterOptions { ColorSpace = RasterColorSpace.Grayscale8 });
         writer.WritePage(pixels, width, height);
         return stream.ToArray();
     }
@@ -465,18 +465,18 @@ public class PwgRasterWriterTests
     private static byte[] WriteColor(int width, int height, byte[] pixels)
     {
         MemoryStream stream = new();
-        PwgRasterWriter writer = new(stream, new PwgRasterOptions { ColorSpace = PwgRasterColorSpace.Srgb8 });
+        PwgRasterWriter writer = new(stream, new RasterOptions { ColorSpace = RasterColorSpace.Srgb8 });
         writer.WritePage(pixels, width, height);
         return stream.ToArray();
     }
 
     private static (byte[] Front, byte[] Back) WriteDuplexGray(
-        DuplexMode duplex, PwgRasterSheetBack sheetBack, byte[] pixels, int width, int height)
+        DuplexMode duplex, RasterSheetBack sheetBack, byte[] pixels, int width, int height)
     {
         MemoryStream stream = new();
-        PwgRasterWriter writer = new(stream, new PwgRasterOptions
+        PwgRasterWriter writer = new(stream, new RasterOptions
         {
-            ColorSpace = PwgRasterColorSpace.Grayscale8,
+            ColorSpace = RasterColorSpace.Grayscale8,
             Duplex = duplex,
             SheetBack = sheetBack,
         });

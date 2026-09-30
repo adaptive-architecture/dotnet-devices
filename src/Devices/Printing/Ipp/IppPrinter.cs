@@ -1,5 +1,4 @@
-﻿using AdaptArch.Devices.Printing.Raster;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.Printing.Ipp;
 
@@ -158,237 +157,28 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
             }
         }
 
-        var submission = await ConvertIfNeededAsync(payload, format, effectiveOptions, cancellationToken).ConfigureAwait(false);
+        var submission = await IppDocumentConversion.ConvertIfNeededAsync(ConversionChannel, payload, format, effectiveOptions, cancellationToken).ConfigureAwait(false);
 
         var job = await _resolver.RunAsync(
-            (uri, token) => IppRequests.SubmitAsync(_context, uri, Id, new IppSubmission(submission.Payload, submission.Format, submission.Options, dropped), token),
+            (uri, token) => IppRequests.SubmitAsync(
+                _context,
+                uri,
+                Id,
+                new IppSubmission(submission.Payload, submission.Format, submission.Options, dropped) { ConverterUsed = submission.ConverterUsed },
+                token),
             cancellationToken).ConfigureAwait(false);
         PrintOptionValidator.Prepend(job, submission.Dropped);
         PrintingLog.ReportDropped(Logger, job);
         return job;
     }
 
-    // A raster is only readable at a resolution the printer rasters at, so the request is
-    // moved to the nearest one it named rather than sent as asked and refused. One the engine
-    // renders well wins over a nearer one it does not; with none such, the converter renders
-    // at its limit and scales the page up to the printer's. A printer that named none takes
-    // what the job asked for.
-    internal static int ResolveDpi(int? requested, IReadOnlyList<int> supported)
-    {
-        var dpi = requested ?? PrintConversionContext.DefaultDpi;
-        if (supported.Count == 0)
-        {
-            return dpi;
-        }
-
-        var renderable = supported.Where(candidate => PdfRenderLimits.ClampDpi(candidate) == candidate).ToList();
-        return (renderable.Count > 0 ? renderable : supported).MinBy(candidate => Math.Abs(candidate - dpi));
-    }
-
-    // Geometry the printer cannot be asked for, so the page has to be rendered for it.
-    private static bool NeedsRendering(PrintOptions? options) =>
-        options is not null
-        && (options.MediaSizeSource == MediaSizeSource.Document || options.Placement?.IsEmpty == false);
-
-    // How large the sheet is, for a converter that composes the page onto it. The dimensions
-    // a job carries win over the name, because a name is only as good as the size it encodes;
-    // a legacy keyword such as "letter" encodes none, and the converter is then told nothing
-    // rather than told a guess.
-    private static MediaDimensions? ResolveMedia(PrintOptions? options, string? mediaName)
-    {
-        if (options?.MediaDimensions is MediaDimensions dimensions)
-        {
-            return dimensions;
-        }
-
-        return PwgMediaNames.TryParse(mediaName, out var parsed) ? parsed : null;
-    }
-
-    // The part of the sheet the page is fitted into. A job that asked for the physical page,
-    // a printer that reported no margins, and a margin set that would leave nothing to print
-    // on all answer null, which is the whole sheet.
-    internal static ImageRectangle? ResolveFitArea(PrintOptions? options, MediaDimensions? media, MediaMargins? margins, int dpi)
-    {
-        if (media is null || margins is null or { IsEmpty: true })
-        {
-            return null;
-        }
-
-        if (options?.FitArea == PrintFitArea.Physical)
-        {
-            return null;
-        }
-
-        var left = margins.Left.ToPixels(dpi);
-        var top = margins.Top.ToPixels(dpi);
-        var width = media.Width.ToWholePixels(dpi) - left - margins.Right.ToPixels(dpi);
-        var height = media.Height.ToWholePixels(dpi) - top - margins.Bottom.ToPixels(dpi);
-        return width > 0 && height > 0 ? new ImageRectangle(left, top, width, height) : null;
-    }
-
-    // Grayscale for a job that asked for it and a printer that offers it, and colour
-    // otherwise. A printer that named no type leaves the choice to the converter.
-    private static string? ResolveRasterType(IReadOnlyList<string> types, PrintColorMode? colorMode)
-    {
-        if (types.Count == 0)
-        {
-            return null;
-        }
-
-        if (colorMode == PrintColorMode.Monochrome)
-        {
-            var gray = types.FirstOrDefault(static type => type.StartsWith("sgray", StringComparison.OrdinalIgnoreCase));
-            if (gray is not null)
-            {
-                return gray;
-            }
-        }
-
-        return types.FirstOrDefault(static type => type.StartsWith("srgb", StringComparison.OrdinalIgnoreCase)) ?? types[0];
-    }
-
-    // A document the printer cannot read is rendered to a format it can, when a converter
-    // is registered for it. Everything else passes through: a printer that lists the format
-    // reads the document itself, which is always better than a raster of it -- unless the job
-    // named the converter, which is the one way of saying otherwise.
-    private async Task<(PrinterPayload Payload, string Format, PrintOptions? Options, IReadOnlyList<DroppedOption> Dropped)> ConvertIfNeededAsync(
-        PrinterPayload payload,
-        string format,
-        PrintOptions? options,
-        CancellationToken cancellationToken)
-    {
-        if (Formats.KindOf(payload.ContentType) != PrinterFormatKind.Document)
-        {
-            return (payload, format, options, Unrendered(
-                options,
-                $"the library renders only documents, so {payload.ContentType} goes to the printer as it is",
-                nameof(PrintOptions.ConverterName)));
-        }
-
-        // The converter is looked for before the format list is read, because an application
-        // that registered none converts nothing whatever the printer answers, and this path
-        // must not cost it a request it never needed.
-        var converter = Formats.ConverterFor(payload.ContentType, options?.ConverterName);
-        if (converter is null)
-        {
-            // A job that named a converter asked for that one, so rendering with another or
-            // sending the document unchanged would both be the wrong answer to a question
-            // the caller did ask.
-            PrintConverters.ThrowIfNamed(Formats, payload.ContentType, options?.ConverterName);
-            return (payload, format, options, Unrendered(options, $"no converter is registered for {payload.ContentType}"));
-        }
-
-        var configuration = await GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
-        var supported = configuration.SupportedDocumentFormats;
-
-        // The document itself is the better thing to send when nobody said otherwise: the
-        // printer's own interpreter beats any raster of ours and the job is a fraction of the
-        // size. Naming a converter is saying otherwise. Nobody sets that as a preference, so
-        // a job that carries one is asking for that engine to run, and a printer that happens
-        // to read the format too must not quietly decide it should not.
-        // A placement and a document media size are geometry nobody but a renderer can apply:
-        // there is no IPP attribute for either, so a job that asks for one is converted even
-        // where the printer reads the document, exactly as a job that named an engine is.
-        if (options?.ConverterName is null
-            && !NeedsRendering(options)
-            && supported.Contains(payload.ContentType, StringComparer.OrdinalIgnoreCase))
-        {
-            return (payload, format, options, PrintOptionValidator.Unapplied(
-                options,
-                PrintOptionStage.Conversion,
-                "the printer reads the document itself, so the library renders nothing",
-                nameof(PrintOptions.FitArea),
-                nameof(PrintOptions.Smoothing)));
-        }
-
-        var target = IppDocumentFormat.NegotiateConversionTarget(supported, converter);
-        if (target is null)
-        {
-            // Passing through is still the right answer where the printer reads the document,
-            // but a job that named a converter should not have to infer from a printed page
-            // that the name went nowhere.
-            var unreachable = _resolver.Resolved ?? await _resolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
-            var reason = options?.ConverterName is null
-                ? "the printer reads no format the converter writes"
-                : $"the printer reads no format converter '{options.ConverterName}' writes";
-            IppLog.DocumentNotConverted(_context.Logger, payload.ContentType, unreachable, reason);
-            return (payload, format, options, Unrendered(options, reason, nameof(PrintOptions.ConverterName)));
-        }
-
-        var endpoint = _resolver.Resolved ?? await _resolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
-
-        var dpi = ResolveDpi(options?.ResolutionDpi, configuration.PwgRasterResolutionsDpi);
-        var mediaName = options?.MediaSize ?? configuration.DefaultMediaSize;
-        var media = ResolveMedia(options, mediaName);
-
-        PrintConversionContext context = new(
-            payload.ContentType,
-            target,
-            dpi,
-            options?.PageRanges,
-            Id.ToString())
-        {
-            RasterType = ResolveRasterType(configuration.PwgRasterTypes, options?.ColorMode),
-            SheetBack = configuration.PwgRasterSheetBack,
-            Duplex = options?.Duplex,
-            MediaName = mediaName,
-            MediaSizeNames = configuration.MediaSizes,
-            MediaWidthPixels = media?.Width.ToWholePixels(dpi),
-            MediaHeightPixels = media?.Height.ToWholePixels(dpi),
-            FitArea = ResolveFitArea(options, media, configuration.DefaultMediaMargins, dpi),
-            Scaling = options?.Scaling,
-            Orientation = options?.Orientation,
-            Placement = options?.Placement,
-            Smoothing = options?.Smoothing,
-            MediaSizeSource = options?.MediaSizeSource ?? MediaSizeSource.Printer,
-            DocumentPassword = options?.DocumentPassword,
-        };
-
-        var documents = await converter.ConvertAsync(payload.Data.ToArray(), context, cancellationToken).ConfigureAwait(false);
-
-        // Every target this negotiates carries each page in one stream, so one document is
-        // the only valid answer. A converter that returned one page each would otherwise
-        // have all but the first silently dropped.
-        if (documents is not { Count: 1 })
-        {
-            throw new InvalidOperationException(
-                $"The converter of '{payload.ContentType}' returned {documents?.Count ?? 0} documents for '{target}', " +
-                $"which carries every page in one. Printer '{Id}' was sent nothing.");
-        }
-
-        IppLog.DocumentConverted(_context.Logger, payload.ContentType, endpoint, target);
-        IppLog.DocumentConversionSize(_context.Logger, payload.ContentType, endpoint, documents[0].Length, target);
-
-        // The converter selected the pages, so the printer must not select them again -- and
-        // where it also placed the page on its media, the printer must not fit it again.
-        // The job then asks for the resolution the raster carries, not the one it named.
-        PrintOptions? converted = null;
-        DroppedOption[] moved = [];
-        if (options is not null)
-        {
-            converted = converter.PlacesOnMedia(context)
-                ? PrintOptionValidator.WithoutPlacedGeometry(options)
-                : PrintOptionValidator.WithoutPageRanges(options);
-            if (options.ResolutionDpi is int requested && requested != dpi)
-            {
-                converted.ResolutionDpi = dpi;
-                moved = [new DroppedOption(
-                    nameof(PrintOptions.ResolutionDpi),
-                    PrintOptionStage.Conversion,
-                    $"the page was rasterized at {dpi} dpi, the resolution chosen from those the printer rasters at")];
-            }
-        }
-
-        return (PrinterPayload.FromBytes(documents[0], target), target, converted, moved);
-    }
-
-    // What only a renderer applies, lost on a job that is sent as it is.
-    private static DroppedOption[] Unrendered(PrintOptions? options, string reason, params string[] more) =>
-        PrintOptionValidator.Unapplied(
-            options,
-            PrintOptionStage.Conversion,
-            reason,
-            [nameof(PrintOptions.FitArea), nameof(PrintOptions.Placement), nameof(PrintOptions.Smoothing), nameof(PrintOptions.MediaSizeSource), .. more]);
+    private IppConversionChannel ConversionChannel => new(
+        Formats,
+        Id,
+        _context.Logger,
+        GetConfigurationAsync,
+        async token => _resolver.Resolved ?? await _resolver.ResolveAsync(token).ConfigureAwait(false),
+        IppDocumentFormat.IppTargets);
 
     /// <inheritdoc />
     /// <exception cref="InvalidOperationException">Thrown when no IPP endpoint answers, or the printer reports an IPP error.</exception>

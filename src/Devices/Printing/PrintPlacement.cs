@@ -6,8 +6,9 @@
 /// <remarks>
 /// This is geometry and not a printer setting. No printer protocol carries it — the IPP
 /// shift attributes are production-printing extensions a label printer does not advertise —
-/// so it is applied while the page is drawn or while it is composed into a raster, and a job
-/// that asks for it is converted rather than passed through.
+/// so it is applied while the page is drawn or while it is composed into a raster. On a
+/// channel that reads the document itself it applies only when the job names or requires a
+/// converter (<see cref="PrintOptions.ConverterName"/>), and is reported dropped otherwise.
 /// <para>
 /// It is normally a per-printer constant, not a per-document choice: it corrects a printer
 /// that lays its stock a fraction off its own origin, and a caller stores it beside the

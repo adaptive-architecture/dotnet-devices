@@ -30,6 +30,7 @@ internal static class IppConfigurationMapper
         "pwg-raster-document-type-supported",
         "pwg-raster-document-resolution-supported",
         "pwg-raster-document-sheet-back",
+        "urf-supported",
     ];
 
     // The four margins of "media-col-default", in the hundredths of a millimetre both IPP and
@@ -88,10 +89,12 @@ internal static class IppConfigurationMapper
             SupportedDocumentFormats = ReadFormats(attributes.DocumentFormatSupported),
             SupportedOrientations = ReadOrientations(attributes.OrientationRequestedSupported),
             SupportedScalings = ReadScalings(attributes.PrintScalingSupported),
-            // SharpIppNext models none of the "pwg-raster-*" attributes, so they are read raw.
+            // SharpIppNext models none of the "pwg-raster-*" attributes, nor "urf-supported",
+            // so they are read raw.
             PwgRasterTypes = IppRawAttributes.ReadKeywords(raw, 0, "pwg-raster-document-type-supported"),
             PwgRasterResolutionsDpi = IppRawAttributes.ReadResolutions(raw, 0, "pwg-raster-document-resolution-supported"),
             PwgRasterSheetBack = IppRawAttributes.ReadText(raw, 0, "pwg-raster-document-sheet-back"),
+            UrfSupported = IppRawAttributes.ReadKeywords(raw, 0, "urf-supported"),
         };
     }
 

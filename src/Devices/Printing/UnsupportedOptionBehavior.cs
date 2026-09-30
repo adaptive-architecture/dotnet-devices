@@ -3,6 +3,11 @@
 /// <summary>
 /// What <see cref="IPrinter.PrintAsync"/> does with an option the printer does not support.
 /// </summary>
+/// <remarks>
+/// A named or required converter is not such an option: one that cannot run fails the job
+/// with <see cref="NotSupportedException"/> whichever value is chosen, because it says which
+/// engine renders the job. See <see cref="PrintOptions.ConverterName"/>.
+/// </remarks>
 public enum UnsupportedOptionBehavior
 {
     /// <summary>

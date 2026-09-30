@@ -22,7 +22,7 @@ public class IppFitAreaTests
     [Fact]
     public void ResolveFitArea_SubtractsTheMarginsThePrinterCannotMark()
     {
-        var area = IppPrinter.ResolveFitArea(new PrintOptions(), Media, Margins, Dpi);
+        var area = IppDocumentConversion.ResolveFitArea(new PrintOptions(), Media, Margins, Dpi);
 
         Assert.NotNull(area);
         Assert.Equal(30, area.Value.X);
@@ -33,13 +33,13 @@ public class IppFitAreaTests
 
     [Fact]
     public void ResolveFitArea_APhysicalFitIsTheWholeSheet() =>
-        Assert.Null(IppPrinter.ResolveFitArea(new PrintOptions { FitArea = PrintFitArea.Physical }, Media, Margins, Dpi));
+        Assert.Null(IppDocumentConversion.ResolveFitArea(new PrintOptions { FitArea = PrintFitArea.Physical }, Media, Margins, Dpi));
 
     [Fact]
     public void ResolveFitArea_APrinterThatReportedNoMarginsHasNoneToSubtract()
     {
-        Assert.Null(IppPrinter.ResolveFitArea(new PrintOptions(), Media, null, Dpi));
-        Assert.Null(IppPrinter.ResolveFitArea(new PrintOptions(), Media, MediaMargins.None, Dpi));
+        Assert.Null(IppDocumentConversion.ResolveFitArea(new PrintOptions(), Media, null, Dpi));
+        Assert.Null(IppDocumentConversion.ResolveFitArea(new PrintOptions(), Media, MediaMargins.None, Dpi));
     }
 
     [Fact]
@@ -53,10 +53,10 @@ public class IppFitAreaTests
 
         // A page fitted into nothing prints nothing, so the sheet is the better answer than a
         // job that silently comes out blank.
-        Assert.Null(IppPrinter.ResolveFitArea(new PrintOptions(), Media, swallowing, Dpi));
+        Assert.Null(IppDocumentConversion.ResolveFitArea(new PrintOptions(), Media, swallowing, Dpi));
     }
 
     [Fact]
     public void ResolveFitArea_WithoutAMediaSizeThereIsNothingToInset() =>
-        Assert.Null(IppPrinter.ResolveFitArea(new PrintOptions(), null, Margins, Dpi));
+        Assert.Null(IppDocumentConversion.ResolveFitArea(new PrintOptions(), null, Margins, Dpi));
 }

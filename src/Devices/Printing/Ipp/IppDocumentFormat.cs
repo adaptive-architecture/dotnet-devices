@@ -13,11 +13,17 @@ internal static class IppDocumentFormat
     // The CUPS format that means "apply no filter".
     public const string CupsRaw = "application/vnd.cups-raw";
 
-    // What a converter may be asked to produce, best first. PWG Raster is required of every
-    // IPP Everywhere printer, it is lossless, and one stream carries every page, so a
-    // converted document stays one document. image/png is deliberately absent: no IPP
-    // printer reads it, whatever a converter can write.
-    private static readonly string[] ConversionTargets = [PrinterContentTypes.PwgRaster];
+    // What a converter may be asked to produce for an IPP printer, best first. PWG Raster is
+    // required of every IPP Everywhere printer; URF is what an AirPrint printer that is not
+    // one reads. Both are lossless and carry every page in one stream, so a converted
+    // document stays one document. image/png is deliberately absent: no IPP printer reads
+    // it, whatever a converter can write.
+    public static readonly string[] IppTargets = [PrinterContentTypes.PwgRaster, PrinterContentTypes.Urf];
+
+    // A CUPS queue on macOS lists PWG Raster but sends it through a filter that fails on
+    // every PWG Raster file, while it passes URF to the printer untouched, so a queue that
+    // lists both is sent URF.
+    public static readonly string[] CupsTargets = [PrinterContentTypes.Urf, PrinterContentTypes.PwgRaster];
 
     // True for a payload that carries printer commands, which no IPP server may rewrite.
     // The formats an application registered decide it, so a vendor language the library
@@ -33,13 +39,13 @@ internal static class IppDocumentFormat
     // converter writes. A printer that reported no list at all reaches this with an empty
     // one and converts nothing, which is right: a converted job is a worse job than the
     // original whenever the original would have been read.
-    public static string? NegotiateConversionTarget(IReadOnlyList<string> supported, IPrintPayloadConverter converter)
+    public static string? NegotiateConversionTarget(IReadOnlyList<string> supported, IPrintPayloadConverter converter, string[]? targets = null)
     {
         ArgumentNullException.ThrowIfNull(supported);
         ArgumentNullException.ThrowIfNull(converter);
 
         return Array.Find(
-            ConversionTargets,
+            targets ?? IppTargets,
             target => supported.Contains(target, StringComparer.OrdinalIgnoreCase) && converter.CanEmit(target));
     }
 

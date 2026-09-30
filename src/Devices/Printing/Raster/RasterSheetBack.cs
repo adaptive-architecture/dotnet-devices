@@ -5,11 +5,12 @@
 /// </summary>
 /// <remarks>
 /// A printer states this in its <c>pwg-raster-document-sheet-back</c> attribute, which
-/// <see cref="PrinterConfiguration.PwgRasterSheetBack"/> carries. PWG 5102.4 section 5.1.1
+/// <see cref="PrinterConfiguration.PwgRasterSheetBack"/> carries, or in the <c>DM</c> keyword
+/// of its <c>urf-supported</c> attribute. PWG 5102.4 section 5.1.1
 /// names the values; a bitmap is always written in the printer's own coordinate system, and
 /// these say what that system is for a back side.
 /// </remarks>
-public enum PwgRasterSheetBack
+public enum RasterSheetBack
 {
     /// <summary>
     /// The back side starts at the top-left corner, as the front does.

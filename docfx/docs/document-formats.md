@@ -44,15 +44,20 @@ skipped.
 ## A document the printer cannot read
 
 A PDF prints on most channels without being touched: CUPS renders it, and so does an IPP
-printer that lists `application/pdf`. The case that needs work is an IPP printer that lists
-neither. There the library converts, and sends the result as the format the printer named.
+printer that lists `application/pdf`. The library converts when the printer lists neither,
+and when the job names or requires a converter. It sends the result as a raster format the
+printer or the queue named. Geometry no IPP attribute carries — a placement, a fit area, the
+smoothing switch or a document media size — is applied only by a converter the job chose, and
+is reported dropped otherwise: a converter that is merely registered may be there for
+another channel, and does not take over rendering on the caller's behalf.
 
 | Channel | A PDF job |
 | :--- | :--- |
-| `spooler://` on Linux and macOS, and `cups://` anywhere | Passed through, and never converted. The CUPS filter chain renders it with driver knowledge no converter here has. A placement, the smoothing switch, a fit area, a document media size and a named converter are reported in `DroppedOptionDetails`, because no IPP attribute carries them |
-| `ipp://` and `ipps://`, printer lists `application/pdf` | Passed through. The document itself is always better than a raster of it, unless the job names a converter |
-| `ipp://` and `ipps://`, printer lists `image/pwg-raster` | Converted, and sent as one job |
-| `ipp://` and `ipps://`, printer lists neither | Sent unchanged, for the printer to refuse. Event 1034 says why, and the options only a renderer applies are reported dropped |
+| `spooler://` on Linux and macOS, and `cups://` anywhere, job names no converter | Passed through, fitted onto the queue's media with `fit-to-page`. The CUPS filter chain renders it with driver knowledge no converter here has |
+| `spooler://` on Linux and macOS, and `cups://` anywhere, job names or requires a converter | Converted to URF when the queue lists `image/urf`, otherwise to PWG Raster, and sent as one job. The local queue of a Mac is never sent PWG Raster (see below) |
+| `ipp://` and `ipps://`, printer lists `application/pdf` | Passed through. The document itself is always better than a raster of it, unless the job names or requires a converter |
+| `ipp://` and `ipps://`, printer lists `image/pwg-raster` or `image/urf` | Converted, PWG Raster first, and sent as one job |
+| `ipp://` and `ipps://`, printer lists none of these | Sent unchanged, for the printer to refuse. Event 1034 says why, and the options only a renderer applies are reported dropped. A job that names a converter fails instead |
 | `spooler://` on Windows | Converted to one PNG a page and drawn through GDI |
 | `raw://` | Sent unchanged. Port 9100 has no stage that puts a raster on a page |
 
@@ -115,7 +120,7 @@ that encodes no size, such as `letter`, is never written.
 
 | Format | `spooler://` on Windows | `spooler://` on Linux and macOS, and `cups://` | `ipp://` and `ipps://` | `raw://` |
 | :--- | :--- | :--- | :--- | :--- |
-| PDF | Converted to one PNG a page and drawn through GDI on the paper of the queue | Passed through; CUPS renders it | Passed through when the printer lists it and the job needs no rendering; converted to PWG Raster otherwise; sent unchanged when the printer reads nothing the converter writes | Sent unchanged |
+| PDF | Converted to one PNG a page and drawn through GDI on the paper of the queue | Passed through, and CUPS renders it, unless the job names or requires a converter; converted to URF or PWG Raster then | Passed through when the printer lists it and the job names no converter; converted to PWG Raster or URF otherwise; sent unchanged when the printer reads nothing the converter writes | Sent unchanged |
 | PNG and JPEG | Drawn through GDI, which applies the orientation, the scaling, the placement and the smoothing switch | Passed through; CUPS scales it onto the page | Sent as it is: the library converts documents only | Sent unchanged |
 | ZPL, EPL and the other printer languages | Sent with the `RAW` datatype, unchanged | Sent as `application/vnd.cups-raw`; a queue with a driver may still convert it | Sent as the language or as `application/octet-stream`, whichever the printer names | Sent unchanged |
 
@@ -124,9 +129,29 @@ file prints about half as wide on Windows. Declare the resolution in the file to
 page on both.
 
 Wherever a row sends the payload without rendering it, the options only a renderer applies —
-`FitArea`, `Placement`, `Smoothing`, `MediaSizeSource.Document` and `ConverterName` — are listed in
+`FitArea`, `Placement`, `Smoothing` and `MediaSizeSource.Document` — are listed in
 `PrintJobInfo.DroppedOptionDetails` with the reason, and logged as event 2041. A raw channel
-carries no job template at all, so it reports every option the job set.
+carries no job template at all, so it reports every option the job set. `ConverterName` is
+the exception: a job whose named converter cannot run fails instead (see
+[One engine for every PDF](#one-engine-for-every-pdf)).
+
+`PrintJobInfo.ConverterUsed` names the converter that rendered a job, and
+`PrintJobInfo.SubmittedContentType` the format the channel was handed: `image/urf` for a PDF
+rendered for a macOS queue, `image/png` on the Windows spooler, and the payload's own type
+for a job nothing rendered.
+
+### A macOS CUPS queue and PWG Raster
+
+A macOS queue lists `image/pwg-raster` in `document-format-supported`, but sends it through
+`cgimagetopdf`, which fails on every PWG Raster file with "Filter failed", after CUPS has
+accepted the job. It passes `image/urf` to an AirPrint printer unfiltered. So a CUPS queue that
+lists both is sent URF, and the local queue of a Mac is never offered PWG Raster: a queue that
+lists no URF fails a named converter before anything is sent. A remote `cups://` server does
+not say what it runs on, so it is offered URF first and PWG Raster second.
+
+URF is Apple Raster, the format `UrfWriter` writes. Its pages are encoded as PWG Raster's are,
+behind a 32-octet header, so `UrfWriter` and `PwgRasterWriter` share the `RasterWriter` base
+and the same `RasterOptions`.
 
 ## Can a raw send print a PDF?
 
@@ -265,9 +290,42 @@ case-insensitively, because they arrive from a JSON file or a form field as ofte
 `NotSupportedException` that lists the names that do exist, rather than quietly rendering with
 another engine.
 
-Naming one also decides **whether** the conversion happens at all. An IPP printer that reads
-the payload as it is normally receives it untouched — its own interpreter beats a raster of
-ours and the job is a fraction of the size. But a printer that reads both PDF and PWG Raster
-would otherwise make the named engine unreachable, so a job that names a converter is converted
-even there. Where the printer reads nothing the named converter writes, the document is still
-sent as it is, and event 1034 says the name went nowhere and why.
+Naming one also decides **whether** the conversion happens at all. An IPP printer or a CUPS
+queue that reads the payload as it is normally receives it untouched — its own interpreter
+beats a raster of ours and the job is a fraction of the size. But a printer that reads both
+PDF and PWG Raster would otherwise make the named engine unreachable, so a job that names a
+converter is converted even there.
+
+### One engine for every PDF
+
+Each operating system renders a PDF with its own engine: cups-filters on Linux, Quartz on
+macOS, and whichever converter was registered first on Windows. To get the same page on every
+platform, require one converter for the format:
+
+```csharp
+services.AddPrinters(configureManager: options =>
+{
+    options.Converters.Add(PdfiumPrinting.PdfConverter);
+    options.RequiredConverters[PrinterContentTypes.Pdf] = PdfiumPrinting.PdfConverter.Name;
+});
+```
+
+Every PDF job is then treated as if it named `PDFium` in `PrintOptions.ConverterName`, on the
+Windows spooler, on a CUPS queue and over IPP; a job that names another converter keeps its
+own. Only a document format may be listed, because no converter runs for an image or a
+printer language, and `BuildFormatPolicy()` throws `ArgumentException` for any other kind.
+
+**A named or required converter must run.** The job fails with `NotSupportedException` before
+anything is sent when:
+
+- no converter by that name is registered, and the message lists the ones that are;
+- the printer or the queue reads none of the formats the converter writes;
+- the Windows spooler needs PNG and the converter writes none;
+- the channel renders nothing: a raw socket, the Windows `RAW` path, or a printer language on
+  any channel.
+
+**`PrintOptions.OnUnsupported` does not cover this.** It decides what happens to an option a
+printer cannot apply; a named converter says which engine renders the job, and no value of
+`OnUnsupported` sends the document some other way. A `ConverterName` on an image is the one
+case that is reported in `DroppedOptionDetails` rather than failed, because the library never
+converts an image.

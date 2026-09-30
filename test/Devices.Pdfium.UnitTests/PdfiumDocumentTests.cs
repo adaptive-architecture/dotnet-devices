@@ -36,7 +36,7 @@ public class PdfiumDocumentTests
     {
         var pages = await PdfiumDocument.RenderAsync(
             TestPdf.Barcode(),
-            new PdfRenderOptions { Dpi = 150, ColorSpace = PwgRasterColorSpace.Grayscale8 },
+            new PdfRenderOptions { Dpi = 150, ColorSpace = RasterColorSpace.Grayscale8 },
             TestContext.Current.CancellationToken);
 
         var page = Assert.Single(pages);

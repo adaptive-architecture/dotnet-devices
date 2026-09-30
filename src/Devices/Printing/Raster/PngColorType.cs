@@ -4,7 +4,7 @@
 /// The colour types <see cref="PngWriter"/> writes.
 /// </summary>
 /// <remarks>
-/// The two that match <see cref="PwgRasterColorSpace"/>, so one render feeds both encoders.
+/// The two that match <see cref="RasterColorSpace"/>, so one render feeds both encoders.
 /// RFC 2083 section 4.1.1 names them 0 and 2; the others need a palette or an alpha channel,
 /// and a rendered print page has neither.
 /// </remarks>

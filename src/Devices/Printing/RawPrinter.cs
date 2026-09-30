@@ -101,12 +101,20 @@ public sealed class RawPrinter : IPrinter
     {
         ArgumentNullException.ThrowIfNull(payload);
 
+        // An image is never converted, so a name on one is only reported.
+        if (options?.ConverterName is string converterName
+            && PrintFormatPolicy.Default.KindOf(payload.ContentType) != PrinterFormatKind.Image)
+        {
+            throw PrintConverters.Unhonoured(converterName, payload.ContentType, Id, "a raw channel sends the bytes as they are and renders nothing");
+        }
+
         await Transport.WriteAsync(Endpoint, payload, cancellationToken).ConfigureAwait(false);
 
         var completedAt = DateTimeOffset.UtcNow;
         PrintJobInfo job = new(Guid.NewGuid().ToString("n"), Id, PrintJobState.Completed)
         {
             JobName = options?.JobName,
+            SubmittedContentType = payload.ContentType,
             CompletedAt = completedAt,
             DroppedOptionDetails = options is null
                 ? []

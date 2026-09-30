@@ -242,6 +242,20 @@ internal static class PrintOptionValidator
     // A queue that renders the document itself fits it only onto media it was told about,
     // so the job names the media and the fit rather than leaving either to the queue. The
     // media the job named wins, and so does the fit it asked for.
+    // The converter the format requires, on a job that names none, so a printer opened
+    // with another policy, or none, still renders it with that engine.
+    public static PrintOptions? WithConverter(PrintOptions? options, string? converterName)
+    {
+        if (converterName is null || options?.ConverterName is not null)
+        {
+            return options;
+        }
+
+        var copy = options is null ? new PrintOptions() : Copy(options);
+        copy.ConverterName = converterName;
+        return copy;
+    }
+
     public static PrintOptions WithQueueFit(PrintOptions? options, string? defaultMediaSize)
     {
         var copy = options is null ? new PrintOptions() : Copy(options);

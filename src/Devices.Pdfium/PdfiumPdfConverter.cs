@@ -18,7 +18,7 @@ internal sealed class PdfiumPdfConverter : PdfPayloadConverter
         byte[] pdf,
         PrintConversionContext context,
         int dpi,
-        PwgRasterColorSpace colorSpace,
+        RasterColorSpace colorSpace,
         CancellationToken cancellationToken) =>
         PdfiumDocument.RenderAsync(
             pdf,

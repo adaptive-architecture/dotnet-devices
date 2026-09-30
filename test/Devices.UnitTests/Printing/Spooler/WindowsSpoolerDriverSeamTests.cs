@@ -648,6 +648,48 @@ public class WindowsSpoolerDriverSeamTests
     }
 
     [Fact]
+    public async Task SubmitAsync_ADocumentRequiringAConverter_RecordsTheEngineThatRenderedIt()
+    {
+        FakeWindowsSpoolerInterop interop = new();
+        FakeWindowsGdiImagePrinter images = new();
+        RecordingPdfConverter preferred = new(pages: 1);
+        RecordingPdfConverter required = new(pages: 2) { Name = "Required" };
+        WindowsSpoolerDriver driver = new(
+            interop,
+            images,
+            isWindows: true,
+            new PrintFormatPolicy(null, [preferred, required], [new(PrinterContentTypes.Pdf, "Required")]));
+
+        var job = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromBytes(new byte[] { 1, 2, 3 }, PrinterContentTypes.Pdf),
+            null,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, preferred.LastDpi);
+        Assert.Equal("Required", job.ConverterUsed);
+        Assert.Equal(PrinterContentTypes.Png, job.SubmittedContentType);
+    }
+
+    [Theory]
+    [InlineData(UnsupportedOptionBehavior.Send)]
+    [InlineData(UnsupportedOptionBehavior.Drop)]
+    [InlineData(UnsupportedOptionBehavior.Throw)]
+    public async Task SubmitAsync_APrinterLanguageNamingAConverter_FailsBeforeSpooling(UnsupportedOptionBehavior onUnsupported)
+    {
+        FakeWindowsSpoolerInterop interop = new();
+
+        var exception = await Assert.ThrowsAsync<NotSupportedException>(() => DriverFor(interop).SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
+            new PrintOptions { ConverterName = "PDFium", OnUnsupported = onUnsupported },
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("PrintOptions.OnUnsupported does not apply to a named converter", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(interop.Written);
+    }
+
+    [Fact]
     public async Task SubmitAsync_ADocumentNamingAConverterNobodyCarries_SaysWhichNamesExist()
     {
         FakeWindowsSpoolerInterop interop = new();

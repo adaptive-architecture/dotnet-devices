@@ -21,7 +21,7 @@ internal static class WindowsPdfRenderer
         byte[] pdf,
         int dpi,
         IReadOnlyList<PageRange>? ranges,
-        PwgRasterColorSpace colorSpace,
+        RasterColorSpace colorSpace,
         string? password,
         CancellationToken cancellationToken)
     {
@@ -96,7 +96,7 @@ internal static class WindowsPdfRenderer
         PdfPage page,
         int dpi,
         int index,
-        PwgRasterColorSpace colorSpace,
+        RasterColorSpace colorSpace,
         CancellationToken cancellationToken)
     {
         var size = page.Size;
@@ -135,9 +135,9 @@ internal static class WindowsPdfRenderer
     // BGRA to the chunky layout PWG Raster wants: three octets a pixel in red, green, blue
     // order, or one octet of luma. The alpha is ignored, because the page was rendered onto
     // white and carries none.
-    private static byte[] Repack(byte[] bgra, int pixelCount, PwgRasterColorSpace colorSpace)
+    private static byte[] Repack(byte[] bgra, int pixelCount, RasterColorSpace colorSpace)
     {
-        if (colorSpace == PwgRasterColorSpace.Grayscale8)
+        if (colorSpace == RasterColorSpace.Grayscale8)
         {
             var gray = new byte[pixelCount];
             for (var i = 0; i < pixelCount; i++)

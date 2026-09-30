@@ -152,6 +152,10 @@ names no endpoint. Resolve it through `IPrinterManager` first.
 when the printer reports an empty one. An explicit `false` is a capability statement, and
 both judge against it.
 
+`OnUnsupported` does not cover `ConverterName`. A named or required converter that cannot
+run fails the job with `NotSupportedException` before anything is sent, whichever value is
+set, because it says which engine renders the job, not a setting the printer may ignore.
+
 Orientation is the option this most often catches. Many printers report
 `orientation-requested-supported` as portrait alone — an EPSON L6270 does — so a job that asks
 for `ReversePortrait` or a landscape value prints as if it had asked for nothing. Read
@@ -215,15 +219,18 @@ error names it.
 ## A document the printer cannot read
 
 A PDF prints on most channels without being touched: CUPS renders it, and so does an IPP
-printer that lists `application/pdf`. The case that needs work is an IPP printer that lists
-neither. There the library converts, and sends the result as the format the printer named.
+printer that lists `application/pdf`. The library converts when the printer lists neither,
+and when the job names or requires a converter. It sends the result as a raster format the
+printer or the queue named. A placement or a document media size alone does not choose an
+engine on the caller's behalf, and is reported dropped.
 
 | Channel | A PDF job |
 | --- | --- |
-| `spooler://` on Linux and macOS, and `cups://` anywhere | Passed through, with the media and `fit-to-page` [named](#queue-defaults-on-cups). The CUPS filter chain renders it with driver knowledge no converter here has |
+| `spooler://` on Linux and macOS, and `cups://` anywhere, job names no converter | Passed through, with the media and `fit-to-page` [named](#queue-defaults-on-cups). The CUPS filter chain renders it with driver knowledge no converter here has |
+| `spooler://` on Linux and macOS, and `cups://` anywhere, job names or requires a converter | Converted to URF when the queue lists `image/urf`, otherwise to PWG Raster. The local queue of a Mac is never sent PWG Raster, which its filters fail on |
 | `ipp://` and `ipps://`, printer lists `application/pdf` | Passed through. The document itself is always better than a raster of it, unless the job names a converter |
-| `ipp://` and `ipps://`, printer lists `image/pwg-raster` | Converted, and sent as one job |
-| `ipp://` and `ipps://`, printer lists neither | Sent unchanged, for the printer to refuse. Event 1034 says why |
+| `ipp://` and `ipps://`, printer lists `image/pwg-raster` or `image/urf` | Converted, PWG Raster first, and sent as one job |
+| `ipp://` and `ipps://`, printer lists none of these | Sent unchanged, for the printer to refuse. Event 1034 says why. A job that names a converter fails instead |
 | `spooler://` on Windows | Converted to one PNG a page and drawn through GDI |
 | `raw://` | Sent unchanged. Port 9100 has no stage that puts a raster on a page |
 
@@ -373,7 +380,8 @@ rather than quietly rendering with another engine — a job that named one asked
 and a page rendered by a different engine is not the answer to that question. A job that
 names nothing is unaffected and takes the preferred converter.
 
-Naming one also decides **whether** the conversion happens at all. An IPP printer that reads
+Naming one also decides **whether** the conversion happens at all. An IPP printer or a CUPS
+queue that reads
 the payload as it is normally receives it untouched, for the reason the table above gives: its
 own interpreter beats a raster of ours and the job is a fraction of the size. That is the
 right default and it is unchanged. But a printer that reads both PDF and PWG Raster would
@@ -381,9 +389,13 @@ otherwise make the named engine unreachable, and there is no other way to ask fo
 job that names a converter is converted even there. Nobody names an engine as a vague
 preference; naming one is the way of saying the document itself is not what should be sent.
 
-Where the printer reads nothing the named converter writes, the document is still sent as it
-is. A job that would have printed correctly should not fail over a preference, and event 1034
-says the name went nowhere and why.
+**A named converter must run.** Where the printer reads nothing it writes, or the channel
+renders nothing (a raw socket, the Windows `RAW` path, a printer language), the job fails with
+`NotSupportedException` before anything is sent, whatever `OnUnsupported` says. A name on an
+image is only reported dropped, because the library never converts an image.
+`PrinterManagerOptions.RequiredConverters` applies the same rule to every job of a format,
+so a PDF is rendered by one engine on every platform; `PrintJobInfo.ConverterUsed` and
+`PrintJobInfo.SubmittedContentType` say what rendered a job and what the channel received.
 
 What the registration changes:
 
@@ -1008,7 +1020,7 @@ capabilities when those were read.
 | --- | --- |
 | `raw` | Nothing. The payload reaches the device unchanged. |
 | `spooler` on Windows | `JobName`, `Copies`, `Duplex`, `ColorMode`, `Orientation`, `MediaSource`, `MediaSize`, `ResolutionDpi`, `Quality`, `Placement`, `Smoothing` and `MediaDimensions`. Printer languages report the rest in `PrintJobInfo.DroppedOptions`; image jobs apply every `Orientation` and every `Scaling` with GDI instead of the device mode, and are where the placement and the smoothing switch are applied. |
-| `spooler` on CUPS, `cups` | Every job template attribute, narrowed by what the printer reported. CUPS renders the document itself, so what only a renderer applies — `Placement`, `Smoothing`, `FitArea`, `MediaSizeSource.Document` and `ConverterName` — is reported in `PrintJobInfo.DroppedOptions`. `MediaDimensions` reaches the queue as `media-col`, but it shares `MediaGeometry` with the document media size, so that flag is off. |
+| `spooler` on CUPS, `cups` | Every job template attribute, narrowed by what the printer reported. CUPS renders the document itself unless the job names or requires a converter; then the library renders it, and applies `Placement`, `Smoothing`, `FitArea` and `MediaSizeSource.Document`, which are reported in `PrintJobInfo.DroppedOptions` otherwise. |
 | `ipp`, `ipps` | Everything the library models, narrowed by what the printer reported. The library renders what no attribute carries. |
 
 A capability the printer did not report is not one it denied, so only an explicit `false`
@@ -1065,10 +1077,10 @@ the media. `Physical` is what a label generator that already sized its output to
 wants: the page is the stock, and shrinking it to clear a margin would move every barcode on
 it.
 
-Two consequences worth stating. A payload that would otherwise be sent unchanged is
-**converted** when a job carries a placement or asks for the document's own media size,
-because a page nobody renders cannot be moved — the same rule a job that names an engine
-already has. And a channel that renders nothing at all, which is the raw one, reports them in
+Two consequences worth stating. A payload that would otherwise be sent unchanged keeps its
+placement and its document media size only when the job **names or requires a converter**,
+because a page nobody renders cannot be moved and a converter that is merely registered does
+not take over on the caller's behalf; otherwise both are reported dropped. And a channel that renders nothing at all, which is the raw one, reports them in
 `PrintJobInfo.DroppedOptions` rather than pretending.
 
 `MediaSizeSource.Document` is the sharpest result available and the simplest: the page is its

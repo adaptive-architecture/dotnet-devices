@@ -90,7 +90,7 @@ public static class PwgRasterReader
     // Section 4.4: each line is preceded by the number of times it repeats, and its colour
     // values are then run-length encoded. The page ends when it has as many lines as its
     // header declared, which is what lets the next header be found.
-    private static byte[] ReadBitmap(byte[] document, ref int offset, int stride, int height, int bytesPerPixel)
+    internal static byte[] ReadBitmap(byte[] document, ref int offset, int stride, int height, int bytesPerPixel)
     {
         var pixels = new byte[stride * height];
         var line = new byte[stride];

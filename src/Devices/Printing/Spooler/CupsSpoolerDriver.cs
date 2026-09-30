@@ -1,4 +1,5 @@
-﻿using System.Linq;
+﻿using System.Collections.Concurrent;
+using System.Linq;
 using AdaptArch.Devices.Printing.Ipp;
 using Microsoft.Extensions.Logging;
 using SharpIpp.Models.Requests;
@@ -37,6 +38,8 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     // The default a user set locally, which lp prefers over the server's. Null where only
     // the server default applies.
     private readonly Func<string?>? _userDefault;
+
+    private readonly ConcurrentDictionary<string, PrinterConfiguration> _configurations = new(StringComparer.Ordinal);
 
     public CupsSpoolerDriver(PrintFormatPolicy? formats = null, IppTransportOptions? options = null, ILoggerFactory? loggerFactory = null)
         : this(SharedClient.Value, DefaultBaseUri, formats, options, userDefault: CupsUserDefault.Find, loggerFactory: loggerFactory)
@@ -147,53 +150,76 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         };
     }
 
-    // CUPS receives the document as it is, and no IPP attribute carries what only a renderer
-    // applies, so those options are reported here; the rest were validated above this driver.
+    // A document is rendered by the library when the job asks for an engine or for geometry
+    // no IPP attribute carries, and by the CUPS filters otherwise; the rest of the options
+    // were validated above this driver.
     public async Task<PrintJobInfo> SubmitAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
         ArgumentNullException.ThrowIfNull(payload);
-        DroppedOption[] dropped =
-        [
-            .. PrintOptionValidator.Unapplied(
-                options,
-                PrintOptionStage.Channel,
-                "CUPS receives the document as it is, and no IPP attribute carries it",
-                nameof(PrintOptions.FitArea),
-                nameof(PrintOptions.Placement),
-                nameof(PrintOptions.Smoothing),
-                nameof(PrintOptions.MediaSizeSource)),
-            .. PrintOptionValidator.Unapplied(
-                options,
-                PrintOptionStage.Conversion,
-                "CUPS converts the document with its own filters, and the library converts nothing on this channel",
-                nameof(PrintOptions.ConverterName)),
-        ];
 
         var uri = QueueUri(queueName);
         var id = IdFor(queueName);
-        PrintOptionValidator.ThrowIfRefused(options, id, dropped);
-        var effectiveOptions = options;
+        IppConversionChannel channel = new(
+            _formats,
+            id,
+            _context.Logger,
+            token => GetConversionConfigurationAsync(queueName, token),
+            _ => Task.FromResult(uri),
+            TargetsFor(_server is null && OperatingSystem.IsMacOS()))
+        {
+            ReadsEveryDocument = true,
+        };
+
+        // The daemon is CUPS by construction, so the format needs no negotiation.
+        var conversion = await IppDocumentConversion.ConvertIfNeededAsync(
+            channel,
+            payload,
+            IppDocumentFormat.ForCups(payload.ContentType, _formats),
+            options,
+            cancellationToken).ConfigureAwait(false);
+        PrintOptionValidator.ThrowIfRefused(options, id, conversion.Dropped);
+
+        var effectiveOptions = conversion.Options;
         IReadOnlyList<IppAttribute> extras = [];
-        if (FitsOntoQueueMedia(payload, options))
+        if (!conversion.IsConverted && FitsOntoQueueMedia(payload, options))
         {
             var defaultMedia = options?.MediaSize is null && options?.MediaDimensions is null
                 ? await IppRequests.GetDefaultMediaAsync(_context, uri, id, cancellationToken).ConfigureAwait(false)
                 : null;
-            effectiveOptions = PrintOptionValidator.WithQueueFit(options, defaultMedia);
+            effectiveOptions = PrintOptionValidator.WithQueueFit(conversion.Options, defaultMedia);
             extras = [FitToPage];
         }
 
-        // The daemon is CUPS by construction, so the format needs no negotiation.
         return await IppRequests.SubmitAsync(
             _context,
             uri,
             id,
-            new IppSubmission(payload, IppDocumentFormat.ForCups(payload.ContentType, _formats), effectiveOptions, dropped)
+            new IppSubmission(conversion.Payload, conversion.Format, effectiveOptions, conversion.Dropped)
             {
                 ExtraJobAttributes = extras,
+                ConverterUsed = conversion.ConverterUsed,
             },
             cancellationToken).ConfigureAwait(false);
+    }
+
+    // A macOS queue lists PWG Raster and then fails every PWG Raster job in a filter, so on
+    // the local daemon of a Mac it is never a target. A remote server does not say what it
+    // runs on, so it is offered both, URF first.
+    internal static string[] TargetsFor(bool isLocalMacOs) =>
+        isLocalMacOs ? [PrinterContentTypes.Urf] : IppDocumentFormat.CupsTargets;
+
+    // The formats and raster attributes of a queue change only when an administrator edits
+    // it, so a rendered job reads them once for each queue.
+    private async Task<PrinterConfiguration> GetConversionConfigurationAsync(string queueName, CancellationToken cancellationToken)
+    {
+        if (_configurations.TryGetValue(queueName, out var cached))
+        {
+            return cached;
+        }
+
+        var configuration = await GetConfigurationAsync(queueName, cancellationToken).ConfigureAwait(false);
+        return _configurations.GetOrAdd(queueName, configuration);
     }
 
     // A document CUPS renders lands where the renderer puts it, and the renderers disagree.

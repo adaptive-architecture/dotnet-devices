@@ -85,10 +85,14 @@ rather than a second implementation that drifts.
 
 ## Two consequences
 
-**A job that asks for a placement is converted, even where it would otherwise pass through.** A
-page nobody renders cannot be moved — the same rule a job that
-[names an engine](document-formats.md#two-converters-for-one-format) already has. A converter
-that placed the page tells the channel so, and the printer is not asked to fit it a second time.
+**A placement needs a converter the job chose.** A page nobody renders cannot be moved, so on
+a channel that reads the PDF itself — an IPP printer or a CUPS queue — the placement applies
+only when the job [names an engine](document-formats.md#two-converters-for-one-format) or
+the format [requires one](document-formats.md#one-engine-for-every-pdf). Without that it is
+reported in `PrintJobInfo.DroppedOptions`: a converter that is merely registered does not
+take over rendering on the caller's behalf. The Windows spooler always renders a PDF, so a
+placement applies there either way. A converter that placed the page tells the channel so,
+and the printer is not asked to fit it a second time.
 
 **A channel that renders nothing reports them as dropped.** The raw channel writes bytes to a
 socket, so `Placement`, `Smoothing` and the rest appear in `PrintJobInfo.DroppedOptions`
@@ -119,7 +123,8 @@ same bare file therefore prints about half as wide on Windows.
 Three public types do this work, and an application with its own rasterizer can use all three:
 
 - `PwgRasterWriter` writes PWG Raster (PWG 5102.4) in `srgb_8` or `sgray_8`, with the duplex
-  back-side transforms the printer asked for.
+  back-side transforms the printer asked for, and `UrfWriter` writes the same pages as Apple
+  Raster (URF). Both derive from `RasterWriter` and take `RasterOptions`.
 - `PngWriter` writes one non-interlaced 8-bit image, greyscale or truecolour — the other target
   the conversion path uses.
 - `RasterCanvas` composes a rendered page onto a media-sized canvas, nearest-neighbour or

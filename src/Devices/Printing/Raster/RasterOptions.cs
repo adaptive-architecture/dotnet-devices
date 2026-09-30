@@ -1,14 +1,14 @@
 ﻿namespace AdaptArch.Devices.Printing.Raster;
 
 /// <summary>
-/// What every page of one PWG Raster document has in common.
+/// What every page of one PWG Raster or URF document has in common.
 /// </summary>
 /// <remarks>
-/// A PWG Raster page carries its own header, so these values are written once for each page
+/// A raster page carries its own header, so these values are written once for each page
 /// rather than once for the file. They are collected here because a document that changed
 /// them page by page would be a document no printer expects.
 /// </remarks>
-public sealed record PwgRasterOptions
+public sealed record RasterOptions
 {
     /// <summary>
     /// Gets the resolution of the bitmaps, in dots an inch. Defaults to
@@ -16,14 +16,15 @@ public sealed record PwgRasterOptions
     /// </summary>
     /// <remarks>
     /// A printer reads only the resolutions it names in
-    /// <c>pwg-raster-document-resolution-supported</c>.
+    /// <c>pwg-raster-document-resolution-supported</c>, or in the <c>RS</c> keyword of
+    /// <c>urf-supported</c>.
     /// </remarks>
     public int ResolutionDpi { get; init; } = PrintConversionContext.DefaultDpi;
 
     /// <summary>
-    /// Gets the colour space of the bitmaps. Defaults to <see cref="PwgRasterColorSpace.Srgb8"/>.
+    /// Gets the colour space of the bitmaps. Defaults to <see cref="RasterColorSpace.Srgb8"/>.
     /// </summary>
-    public PwgRasterColorSpace ColorSpace { get; init; } = PwgRasterColorSpace.Srgb8;
+    public RasterColorSpace ColorSpace { get; init; } = RasterColorSpace.Srgb8;
 
     /// <summary>
     /// Gets the number of pages the document holds, or zero when it is not known yet.
@@ -62,13 +63,14 @@ public sealed record PwgRasterOptions
 
     /// <summary>
     /// Gets the coordinate system the printer reads the back of a duplex sheet in, from its
-    /// <c>pwg-raster-document-sheet-back</c> attribute. Defaults to
-    /// <see cref="PwgRasterSheetBack.Normal"/>.
+    /// <c>pwg-raster-document-sheet-back</c> attribute or the <c>DM</c> keyword of its
+    /// <c>urf-supported</c> attribute. Defaults to
+    /// <see cref="RasterSheetBack.Normal"/>.
     /// </summary>
     /// <remarks>
     /// Read by <see cref="Duplex"/> pages only, and by the back sides of them alone. A
     /// document that ignores it prints every second page upside down or mirrored, which no
     /// error reports.
     /// </remarks>
-    public PwgRasterSheetBack SheetBack { get; init; } = PwgRasterSheetBack.Normal;
+    public RasterSheetBack SheetBack { get; init; } = RasterSheetBack.Normal;
 }
