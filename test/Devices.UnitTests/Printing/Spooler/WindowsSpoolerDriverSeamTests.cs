@@ -298,7 +298,7 @@ public class WindowsSpoolerDriverSeamTests
     }
 
     [Fact]
-    public async Task SubmitAsync_MoreThanOneCopy_SpoolsOneJobEachAndReportsTheFirst()
+    public async Task SubmitAsync_MoreThanOneCopy_SpoolsOneJobWithAPagePerCopy()
     {
         FakeWindowsSpoolerInterop interop = new();
 
@@ -308,11 +308,35 @@ public class WindowsSpoolerDriverSeamTests
             new PrintOptions { Copies = 3 },
             TestContext.Current.CancellationToken);
 
-        // A RAW queue never reads dmCopies, so the driver loops instead. The caller is told
-        // so, because only the first identifier can be watched.
-        Assert.Equal(3, interop.Written.Count);
+        // A RAW queue never reads dmCopies, so the payload is written once per copy.
+        Assert.Equal([1], interop.StartedJobs);
+        Assert.Equal("^XA^XZ^XA^XZ^XA^XZ", Encoding.UTF8.GetString(Assert.Single(interop.Written)));
+        Assert.Equal(3, interop.Calls.Count(call => call == nameof(IWindowsSpoolerInterop.StartPagePrinter)));
+        Assert.Equal(3, interop.Calls.Count(call => call == nameof(IWindowsSpoolerInterop.EndPagePrinter)));
         Assert.Equal("1", job.JobId);
-        Assert.Contains("Copy 1 of 3", job.Detail, StringComparison.Ordinal);
+        Assert.Null(job.Detail);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_AFailedWriteOnALaterCopy_DeletesTheWholeJob()
+    {
+        FakeWindowsSpoolerInterop interop = new()
+        {
+            FailingCall = nameof(IWindowsSpoolerInterop.WritePrinter),
+            FailureError = 1801,
+            FailingCallSuccesses = 1,
+        };
+
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => DriverFor(interop).SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
+            new PrintOptions { Copies = 3 },
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal([1], interop.StartedJobs);
+        Assert.Equal([1], interop.DeletedJobs);
+        Assert.Empty(interop.Written);
+        Assert.Equal(0, interop.OpenHandleCount);
     }
 
     [Fact]

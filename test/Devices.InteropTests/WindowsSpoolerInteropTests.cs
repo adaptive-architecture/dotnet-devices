@@ -121,6 +121,31 @@ public class WindowsSpoolerInteropTests
     }
 
     [Fact(SkipUnless = nameof(QueueIsProvisioned), Skip = SkipReason)]
+    public async Task Submit_MoreThanOneCopy_QueuesOneJob()
+    {
+        SpoolerPrinter printer = new(new SpoolerPrinterEndpoint(QueueName));
+        SpoolerPrintJobQueue queue = new();
+        var id = PrinterId.ForSpooler(QueueName);
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await RequirePausedQueueAsync(cancellationToken);
+
+        var name = $"adaptarch-copies-{Guid.NewGuid():N}";
+        var job = await printer.PrintAsync(Label(name), new PrintOptions { JobName = name, Copies = 3 }, cancellationToken);
+        try
+        {
+            var jobs = await queue.GetJobsAsync(id, cancellationToken);
+            Assert.Equal(job.JobId, Assert.Single(jobs, read => read.JobName == name).JobId);
+        }
+        finally
+        {
+            foreach (var read in (await queue.GetJobsAsync(id, cancellationToken)).Where(read => read.JobName == name))
+            {
+                _ = await queue.CancelJobAsync(id, read.JobId, cancellationToken);
+            }
+        }
+    }
+
+    [Fact(SkipUnless = nameof(QueueIsProvisioned), Skip = SkipReason)]
     public async Task GetJob_FindsOneJobAndNothingForAnIdThatIsNotThere()
     {
         SpoolerPrinter printer = new(new SpoolerPrinterEndpoint(QueueName));

@@ -738,11 +738,12 @@ Two rules decide what a device mode field can hold:
 - `dmPrintQuality` holds either a resolution in dots per inch or a `DMRES_*` quality name. A
   job that sets both keeps the resolution, because it is the exact number the caller gave.
 
-`Copies` is applied by printing the document one time for each copy, because a queue with
-the `RAW` data type never reads `dmCopies`. Each copy is a separate spooler job and the
-returned `PrintJobInfo` names the first of them, so a failure on a later copy leaves the
-earlier copies in the queue — which is what a paper jam also does. Image jobs are the
-exception: the GDI path honours `dmCopies`, so one job prints every copy.
+`Copies` is applied by writing the payload once for each copy, each as a page of one spooler
+job, because a queue with the `RAW` data type never reads `dmCopies`. The printer receives the
+same bytes as it would from one job per copy, but `PrintJobInfo.JobId` names every copy:
+cancelling it cancels them all, and a failure part-way deletes the job, so no copy is left in
+the queue. Copies the spooler has already sent to the printer can still print. Image and PDF
+jobs honour `dmCopies` on the GDI path instead.
 
 `MediaType`, `OutputBin`, `PageRanges` and `NumberUp` have no `DEVMODE` field, so the driver
 reports them in `PrintJobInfo.DroppedOptions`, or refuses the job before it spools when `OnUnsupported` is `Throw`. Two

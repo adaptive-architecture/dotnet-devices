@@ -1,0 +1,21 @@
+{
+  "name": "Copies",
+  "description": "Three copies of a label and of a photo through one queue. The label proves the printer-language path: the Windows spooler must show one job for all three copies, and CUPS carries the count as a job attribute. The photo is the control: on Windows it goes through GDI, where the device mode carries the count.",
+  "mode": "queue",
+  "jobs": [
+    {
+      "file": "label.zpl",
+      "description": "a Zebra ZPL label, three copies in one job",
+      "options": {
+        "copies": 3
+      }
+    },
+    {
+      "file": "photo.jpeg",
+      "description": "a JPEG, three copies in one job",
+      "options": {
+        "copies": 3
+      }
+    }
+  ]
+}

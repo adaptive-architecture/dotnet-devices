@@ -26,7 +26,8 @@ The four tabs are:
 - **Job sets** — the scripted hardware test. A job set is a JSON file; the sample ships
   `PrintJobs/queue-sweep.json` (seven documents through one queue, grouped to save paper,
   each sheet checked against its own description), `PrintJobs/raw-sweep.json` (a JPEG, a ZPL
-  label and an EPL label, unchanged) and `PrintJobs/pdf-placement.json` (where a 4 by 6 inch
+  label and an EPL label, unchanged), `PrintJobs/copies.json` (three copies of a ZPL label and
+  of a JPEG, each as one job) and `PrintJobs/pdf-placement.json` (where a 4 by 6 inch
   label lands on larger stock, to be measured rather than judged). A set can also be uploaded, so the same test runs on Windows, Linux and
   macOS and the results compare job by job. The run ends with a summary of what became of
   each job. The set is edited in the browser: one tab per job, named by the file it prints,
