@@ -27,13 +27,13 @@ internal static class CupsUserDefault
 
         var home = getEnvironment("HOME");
         if (!isRoot && !String.IsNullOrEmpty(home)
-            && FromLpoptions(readFile(Path.Combine(home, ".cups", "lpoptions"))) is { } fromUser)
+            && FromLpoptions(readFile($"{home}/.cups/lpoptions")) is { } fromUser)
         {
             return fromUser;
         }
 
         var serverRoot = getEnvironment("CUPS_SERVERROOT");
-        return FromLpoptions(readFile(Path.Combine(String.IsNullOrEmpty(serverRoot) ? "/etc/cups" : serverRoot, "lpoptions")));
+        return FromLpoptions(readFile($"{(String.IsNullOrEmpty(serverRoot) ? "/etc/cups" : serverRoot)}/lpoptions"));
     }
 
     private static string? FromLpoptions(string? content)
