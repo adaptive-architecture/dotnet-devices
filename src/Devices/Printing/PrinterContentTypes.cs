@@ -26,6 +26,11 @@ public static class PrinterContentTypes
     public const string EscPos = "application/vnd.escpos";
 
     /// <summary>
+    /// Datamax Programming Language, used by Datamax-O'Neil and Honeywell label printers.
+    /// </summary>
+    public const string Dpl = "application/vnd.datamax-dpl";
+
+    /// <summary>
     /// Plain text.
     /// </summary>
     public const string Text = "text/plain";

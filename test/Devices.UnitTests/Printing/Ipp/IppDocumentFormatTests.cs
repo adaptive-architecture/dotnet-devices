@@ -11,6 +11,7 @@ public class IppDocumentFormatTests
     [InlineData(PrinterContentTypes.Epl)]
     [InlineData(PrinterContentTypes.Cpcl)]
     [InlineData(PrinterContentTypes.EscPos)]
+    [InlineData(PrinterContentTypes.Dpl)]
     public void IsRawLanguage_IsTrueForEveryPrinterCommandLanguage(string contentType) =>
         Assert.True(IppDocumentFormat.IsRawLanguage(contentType));
 
@@ -26,9 +27,11 @@ public class IppDocumentFormatTests
     public void IsRawLanguage_IgnoresTheCaseOfTheContentType() =>
         Assert.True(IppDocumentFormat.IsRawLanguage("APPLICATION/VND.ZEBRA-ZPL"));
 
-    [Fact]
-    public void ForCups_ReplacesAPrinterLanguageWithTheRawFormat() =>
-        Assert.Equal(IppDocumentFormat.CupsRaw, IppDocumentFormat.ForCups(PrinterContentTypes.Zpl));
+    [Theory]
+    [InlineData(PrinterContentTypes.Zpl)]
+    [InlineData(PrinterContentTypes.Dpl)]
+    public void ForCups_ReplacesAPrinterLanguageWithTheRawFormat(string contentType) =>
+        Assert.Equal(IppDocumentFormat.CupsRaw, IppDocumentFormat.ForCups(contentType));
 
     [Fact]
     public void ForCups_LeavesAFormatCupsKnowsUnchanged() =>

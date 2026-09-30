@@ -46,6 +46,7 @@ public class PrinterPayloadTests
         Assert.Equal("application/vnd.eltron-epl", PrinterContentTypes.Epl);
         Assert.Equal("application/vnd.zebra-cpcl", PrinterContentTypes.Cpcl);
         Assert.Equal("application/vnd.escpos", PrinterContentTypes.EscPos);
+        Assert.Equal("application/vnd.datamax-dpl", PrinterContentTypes.Dpl);
         Assert.Equal("image/png", PrinterContentTypes.Png);
         Assert.Equal("application/pdf", PrinterContentTypes.Pdf);
         Assert.Equal("application/octet-stream", PrinterContentTypes.OctetStream);
