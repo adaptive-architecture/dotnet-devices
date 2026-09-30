@@ -41,7 +41,7 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
     /// </summary>
     /// <param name="pdf">The document.</param>
     /// <param name="context">What the channel is asking the converter for.</param>
-    /// <param name="dpi">The resolution to render at, already clamped to <see cref="PdfRenderLimits"/>.</param>
+    /// <param name="dpi">The resolution to render at, already clamped to <see cref="PdfRenderLimits"/>. The page is scaled to the context's resolution afterwards.</param>
     /// <param name="colorSpace">The colour space to render in.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>One rendered page for each page selected.</returns>
@@ -75,15 +75,15 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
         PrintConversionContext context,
         CancellationToken cancellationToken)
     {
-        var dpi = PdfRenderLimits.ClampDpi(context.Dpi);
-        var pages = await RenderAsync(data, context, dpi, PwgRasterColorSpace.Srgb8, cancellationToken).ConfigureAwait(false);
+        var renderDpi = PdfRenderLimits.ClampDpi(context.Dpi);
+        var pages = await RenderAsync(data, context, renderDpi, PwgRasterColorSpace.Srgb8, cancellationToken).ConfigureAwait(false);
 
         List<byte[]> images = new(pages.Count);
         foreach (var page in pages)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var placed = Place(page, context);
-            images.Add(PngWriter.Encode(placed.Pixels, placed.Width, placed.Height, PngColorType.Rgb8, dpi));
+            var placed = Place(page, context, renderDpi);
+            images.Add(PngWriter.Encode(placed.Pixels, placed.Width, placed.Height, PngColorType.Rgb8, context.Dpi));
         }
 
         return images;
@@ -97,14 +97,14 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
         PrintConversionContext context,
         CancellationToken cancellationToken)
     {
-        var dpi = PdfRenderLimits.ClampDpi(context.Dpi);
+        var renderDpi = PdfRenderLimits.ClampDpi(context.Dpi);
         var colorSpace = PwgRaster.ColorSpaceFor(context.RasterType);
-        var pages = await RenderAsync(data, context, dpi, colorSpace, cancellationToken).ConfigureAwait(false);
+        var pages = await RenderAsync(data, context, renderDpi, colorSpace, cancellationToken).ConfigureAwait(false);
 
         await using MemoryStream document = new();
         PwgRasterWriter writer = new(document, new PwgRasterOptions
         {
-            ResolutionDpi = dpi,
+            ResolutionDpi = context.Dpi,
             ColorSpace = colorSpace,
             TotalPageCount = pages.Count,
             Duplex = context.Duplex,
@@ -116,7 +116,7 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
         foreach (var page in pages)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var placed = Place(page, context);
+            var placed = Place(page, context, renderDpi);
             writer.WritePage(placed.Pixels, placed.Width, placed.Height);
         }
 
@@ -125,8 +125,34 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
 
     // A channel that named its media gets a page the size of that media, with the fit, the
     // anchor and the offset already in the pixels. One that named none gets the page as it
-    // was rendered, and places it itself.
-    private static ComposedPage Place(RenderedPdfPage page, PrintConversionContext context) =>
-        RasterPlacement.Place(page.Pixels, page.Width, page.Height, page.BytesPerPixel, context)
-        ?? new ComposedPage(page.Pixels, page.Width, page.Height);
+    // was rendered, and places it itself. Either way the pixels are at the context's
+    // resolution, which the header and the canvas are sized from, even where the engine
+    // rendered below it.
+    private static ComposedPage Place(RenderedPdfPage page, PrintConversionContext context, int renderDpi) =>
+        RasterPlacement.Place(page.Pixels, page.Width, page.Height, page.BytesPerPixel, context, renderDpi)
+        ?? Rescale(page, context, renderDpi);
+
+    private static ComposedPage Rescale(RenderedPdfPage page, PrintConversionContext context, int renderDpi)
+    {
+        if (renderDpi == context.Dpi)
+        {
+            return new ComposedPage(page.Pixels, page.Width, page.Height);
+        }
+
+        var width = RasterPlacement.AtDpi(page.Width, renderDpi, context.Dpi);
+        var height = RasterPlacement.AtDpi(page.Height, renderDpi, context.Dpi);
+        var pixels = RasterCanvas.Compose(
+            page.Pixels,
+            page.Width,
+            page.Height,
+            page.BytesPerPixel,
+            new RasterTarget
+            {
+                Width = width,
+                Height = height,
+                Destination = new ImageRectangle(0, 0, width, height),
+                Resampling = RasterPlacement.ResamplingFor(context.Smoothing),
+            });
+        return new ComposedPage(pixels, width, height);
+    }
 }

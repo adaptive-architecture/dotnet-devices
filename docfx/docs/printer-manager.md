@@ -83,7 +83,8 @@ when those were read.
 | :--- | :--- |
 | `raw` | Nothing. The payload reaches the device unchanged. |
 | `spooler` on Windows | `JobName`, `Copies`, `Duplex`, `ColorMode`, `Orientation`, `MediaSource`, `MediaSize`, `ResolutionDpi`, `Quality`, `Placement`, `Smoothing` and `MediaDimensions`. Printer languages report the rest in `PrintJobInfo.DroppedOptions`; image jobs apply every `Orientation` and every `Scaling` with GDI instead of the device mode. |
-| `spooler` on CUPS, `ipp`, `ipps` | Everything the library models, narrowed by what the printer reported. |
+| `spooler` on CUPS, `cups` | Every job template attribute, narrowed by what the printer reported. CUPS renders the document itself, so what only a renderer applies — `Placement`, `Smoothing`, `FitArea`, `MediaSizeSource.Document` and `ConverterName` — is reported in `PrintJobInfo.DroppedOptions`. `MediaDimensions` reaches the queue as `media-col`, but it shares `MediaGeometry` with the document media size, so that flag is off. |
+| `ipp`, `ipps` | Everything the library models, narrowed by what the printer reported. The library renders what no attribute carries. |
 
 A capability the printer did not report is not one it denied, so only an explicit `false`
 narrows the set.

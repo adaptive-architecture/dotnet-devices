@@ -142,7 +142,9 @@ names no endpoint. Resolve it through `IPrinterManager` first.
 
 - `Send` (the default) — send the option and let the printer decide. This costs no extra
   request.
-- `Throw` — read the configuration first, then throw `NotSupportedException`.
+- `Throw` — read the configuration first, then throw `NotSupportedException`. A spooler
+  channel, Windows or CUPS, also throws before it submits when it cannot apply an option it
+  would otherwise report dropped.
 - `Drop` — read the configuration first, remove the option, and name it in
   `PrintJobInfo.DroppedOptions`.
 
@@ -254,10 +256,15 @@ registered nothing sees exactly the behaviour it saw before.
 
 The converter is given what the printer asked for in `PrintConversionContext`: the colour
 space from `pwg-raster-document-type-supported` (narrowed by `PrintOptions.ColorMode`), the
-nearest resolution in `pwg-raster-document-resolution-supported`, and the
+resolution in `pwg-raster-document-resolution-supported` nearest to the one asked for,
+preferring one inside `PdfRenderLimits` (150 to 600 dpi) to a nearer one outside it, and the
 `pwg-raster-document-sheet-back` value that says how the back of a duplex sheet is read.
 Page ranges are applied by the converter and then **not** sent to the printer, which would
-otherwise select a subset of the subset.
+otherwise select a subset of the subset. A `ResolutionDpi` the job asked for and did not get
+is reported dropped, and the job asks the printer for the one the raster carries. A printer
+that lists nothing inside the band keeps its own resolution: the PDF engine renders at the
+nearest edge of the band and scales the page up, so the canvas, the offsets and the header
+all describe the same sheet.
 
 `PwgRasterWriter` writes the format, and it is public: an application with a rasterizer of
 its own gets a conforming encoder without writing one. `PngWriter` is public beside it for
@@ -322,7 +329,9 @@ public sealed class TiffConverter : IPrintPayloadConverter
 
 The converter runs before the job reaches the spooler, so a file it refuses spools nothing.
 The resolution is passed on as the caller asked for it, because a band that suits one engine
-is not a rule for another: each converter clamps to what it renders well.
+is not a rule for another: each converter clamps to what it renders well. `PdfPayloadConverter`
+renders at the clamped value and scales the page to `context.Dpi`, so its pixels are always
+at the resolution it was asked for.
 A converter returns pages in `context.TargetContentType`, which is `image/png` today.
 
 `PrinterManagerOptions.Converters` scopes a converter to one manager.
@@ -736,7 +745,7 @@ earlier copies in the queue — which is what a paper jam also does. Image jobs 
 exception: the GDI path honours `dmCopies`, so one job prints every copy.
 
 `MediaType`, `OutputBin`, `PageRanges` and `NumberUp` have no `DEVMODE` field, so the driver
-always reports them in `PrintJobInfo.DroppedOptions`, whatever `OnUnsupported` says. Two
+reports them in `PrintJobInfo.DroppedOptions`, or refuses the job before it spools when `OnUnsupported` is `Throw`. Two
 more options are carried only in part for printer languages. `dmScale` is a percentage
 and not a fit mode, so `Scaling` reaches it as `PrintScaling.None`, which is 100 per cent,
 and `Auto`, `AutoFit`, `Fill` and `Fit` are dropped. `dmOrientation` holds
@@ -998,7 +1007,8 @@ capabilities when those were read.
 | --- | --- |
 | `raw` | Nothing. The payload reaches the device unchanged. |
 | `spooler` on Windows | `JobName`, `Copies`, `Duplex`, `ColorMode`, `Orientation`, `MediaSource`, `MediaSize`, `ResolutionDpi`, `Quality`, `Placement`, `Smoothing` and `MediaDimensions`. Printer languages report the rest in `PrintJobInfo.DroppedOptions`; image jobs apply every `Orientation` and every `Scaling` with GDI instead of the device mode, and are where the placement and the smoothing switch are applied. |
-| `spooler` on CUPS, `ipp`, `ipps` | Everything the library models, narrowed by what the printer reported. |
+| `spooler` on CUPS, `cups` | Every job template attribute, narrowed by what the printer reported. CUPS renders the document itself, so what only a renderer applies — `Placement`, `Smoothing`, `FitArea`, `MediaSizeSource.Document` and `ConverterName` — is reported in `PrintJobInfo.DroppedOptions`. `MediaDimensions` reaches the queue as `media-col`, but it shares `MediaGeometry` with the document media size, so that flag is off. |
+| `ipp`, `ipps` | Everything the library models, narrowed by what the printer reported. The library renders what no attribute carries. |
 
 A capability the printer did not report is not one it denied, so only an explicit `false`
 narrows the set.

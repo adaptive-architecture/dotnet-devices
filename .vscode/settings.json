@@ -43,6 +43,7 @@
     "PDFium",
     "Qube",
     "rasterizer",
+    "renderable",
     "Roslynator",
     "scanlines",
     "SERVERROOT",

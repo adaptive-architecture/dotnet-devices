@@ -98,25 +98,26 @@ public class PdfiumPdfConverterTests
     [Fact]
     public async Task ConvertAsync_ClampsAResolutionTheEngineDoesNotRenderWell()
     {
-        // 50 dots an inch turns a page to mush, so the floor of the band is used instead
-        // and the pages come back at 150.
+        // 50 dots an inch turns a page to mush, so the page is rendered at the floor of the
+        // band and scaled to the resolution asked for, which keeps its size on the paper.
         var pages = await Converter.ConvertAsync(
             TestPdf.WithPages(1), Context(PrinterContentTypes.Png, 50), TestContext.Current.CancellationToken);
 
         (var width, var height) = PngSize(pages[0]);
-        Assert.Equal(1275, width);
-        Assert.Equal(1650, height);
+        Assert.Equal(425, width);
+        Assert.Equal(550, height);
     }
 
     [Fact]
-    public async Task ConvertAsync_ARasterDocument_StatesTheClampedResolutionInItsHeader()
+    public async Task ConvertAsync_ARasterDocument_StatesTheResolutionItsPixelsAreAt()
     {
-        // The header must agree with the pixels, or the printer scales the page: the
-        // resolution written is the one rendered at and not the one asked for.
+        // The header must agree with the pixels, or the printer scales the page: a page
+        // rendered at the ceiling of the band is scaled to the resolution asked for.
         var documents = await Converter.ConvertAsync(
             TestPdf.WithPages(1), Context(PrinterContentTypes.PwgRaster, 1200), TestContext.Current.CancellationToken);
 
-        Assert.Equal(600u, ResolutionDpi(documents[0]));
+        Assert.Equal(1200u, ResolutionDpi(documents[0]));
+        Assert.Equal(10200u, HeaderField(documents[0], 372));
     }
 
     [Fact]

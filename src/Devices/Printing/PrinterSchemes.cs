@@ -154,9 +154,10 @@ internal static class PrinterSchemes
     /// <remarks>
     /// A raw channel writes the payload to a socket and applies nothing. The Windows
     /// spooler driver maps what a device mode can hold, and reports every other option in
-    /// <see cref="PrintJobInfo.DroppedOptions"/>. CUPS and IPP carry the whole set as job
-    /// template attributes. Reading the capabilities of a printer can narrow this further,
-    /// but never widen it.
+    /// <see cref="PrintJobInfo.DroppedOptions"/>. IPP carries the whole set, rendering the
+    /// geometry no attribute holds. CUPS carries the job template attributes and renders
+    /// nothing. Reading the capabilities of a printer can narrow this further, but never
+    /// widen it.
     /// </remarks>
     public static PrintOptionSupports SupportedOptions(PrinterScheme scheme, bool isWindows)
     {
@@ -167,11 +168,21 @@ internal static class PrinterSchemes
 
         if (scheme == PrinterScheme.Spooler)
         {
-            return isWindows ? WindowsDeviceModeOptions : PrintOptionSupports.All;
+            return isWindows ? WindowsDeviceModeOptions : CupsOptions;
+        }
+
+        if (scheme == PrinterScheme.Cups)
+        {
+            return CupsOptions;
         }
 
         return PrintOptionSupports.All;
     }
+
+    // MediaGeometry goes with MediaSizeSource.Document, which only a renderer applies, even
+    // though media-col carries MediaDimensions.
+    private const PrintOptionSupports CupsOptions =
+        PrintOptionSupports.All & ~(PrintOptionSupports.Placement | PrintOptionSupports.Smoothing | PrintOptionSupports.MediaGeometry);
 
     // What a Windows device mode carries, plus the copies the driver prints as one
     // document each. MediaType would need a DMMEDIA_* number, which the spooler does not

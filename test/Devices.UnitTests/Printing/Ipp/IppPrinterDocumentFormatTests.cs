@@ -285,6 +285,36 @@ public class IppPrinterDocumentFormatTests
         Assert.Equal(DuplexMode.LongEdge, converter.LastContext.Duplex);
     }
 
+    // The engine renders well only within PdfRenderLimits, so a listed resolution inside it
+    // wins over a nearer one outside; a printer that lists none inside keeps its own, and
+    // the converter scales the page up to it.
+    [Theory]
+    [InlineData(1200, new[] { 300, 600, 1200 }, 600)]
+    [InlineData(1000, new[] { 150, 1200 }, 150)]
+    [InlineData(null, new[] { 1200 }, 1200)]
+    [InlineData(null, new[] { 100 }, 100)]
+    [InlineData(1200, new int[0], 1200)]
+    public void ResolveDpi_PrefersAResolutionTheEngineRendersWell(int? asked, int[] supported, int expected) =>
+        Assert.Equal(expected, IppPrinter.ResolveDpi(asked, supported));
+
+    [Fact]
+    public async Task PrintAsync_AResolutionMovedForTheRaster_IsReportedAndNotSentAsAsked()
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        OperationHandler handler = new(RasterAttributes(), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler)) { Formats = new PrintFormatPolicy(null, [converter]) };
+
+        var job = await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { ResolutionDpi = 400 },
+            TestContext.Current.CancellationToken);
+
+        var dropped = Assert.Single(job.DroppedOptionDetails);
+        Assert.Equal(nameof(PrintOptions.ResolutionDpi), dropped.Option);
+        Assert.Equal(PrintOptionStage.Conversion, dropped.Stage);
+        Assert.Contains("300 dpi", dropped.Reason, StringComparison.Ordinal);
+    }
+
     // A printer that reads PWG Raster, rasters at 300 and 600, and turns its sheets over.
     private static byte[] RasterAttributes() =>
         IppMessages.Response(0x0000,
@@ -416,17 +446,23 @@ public class IppPrinterDocumentFormatTests
         Assert.Equal("the printer reads no format converter 'Named' writes", dropped.Reason);
     }
 
-    // Smoothing alone never makes a job render, so on a PDF the printer reads it goes nowhere.
-    [Fact]
-    public async Task PrintAsync_SmoothingOnAPdfThePrinterReads_IsReportedAsDropped()
+    // Smoothing or a fit area alone never makes a job render, so on a PDF the printer reads
+    // either goes nowhere.
+    [Theory]
+    [InlineData(nameof(PrintOptions.Smoothing))]
+    [InlineData(nameof(PrintOptions.FitArea))]
+    public async Task PrintAsync_ARendererOnlyOptionOnAPdfThePrinterReads_IsReportedAsDropped(string option)
     {
         FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        var options = option == nameof(PrintOptions.Smoothing)
+            ? new PrintOptions { Smoothing = false }
+            : new PrintOptions { FitArea = PrintFitArea.Physical };
 
-        var job = await PrintPdfJobAsync(converter, new PrintOptions { Smoothing = false }, PrinterContentTypes.Pdf);
+        var job = await PrintPdfJobAsync(converter, options, PrinterContentTypes.Pdf);
 
         Assert.Equal(0, converter.Calls);
         var dropped = Assert.Single(job.DroppedOptionDetails);
-        Assert.Equal(nameof(PrintOptions.Smoothing), dropped.Option);
+        Assert.Equal(option, dropped.Option);
         Assert.Equal(PrintOptionStage.Conversion, dropped.Stage);
         Assert.Equal("the printer reads the document itself, so the library renders nothing", dropped.Reason);
     }

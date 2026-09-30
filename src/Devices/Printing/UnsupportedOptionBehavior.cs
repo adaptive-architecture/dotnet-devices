@@ -11,7 +11,8 @@ public enum UnsupportedOptionBehavior
     Send,
 
     /// <summary>
-    /// Read the configuration first, then throw <see cref="NotSupportedException"/>.
+    /// Read the configuration first, then throw <see cref="NotSupportedException"/>. A spooler
+    /// channel, Windows or CUPS, also throws before it submits when it cannot apply an option.
     /// </summary>
     Throw,
 

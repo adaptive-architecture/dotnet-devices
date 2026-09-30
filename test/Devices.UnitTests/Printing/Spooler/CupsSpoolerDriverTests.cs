@@ -107,17 +107,51 @@ public class CupsSpoolerDriverTests
                 Placement = new PrintPlacement { Anchor = PrintAnchor.TopLeft },
                 Smoothing = false,
                 MediaSizeSource = MediaSizeSource.Document,
+                FitArea = PrintFitArea.Physical,
             },
             TestContext.Current.CancellationToken);
 
         Assert.Equal(
-            [nameof(PrintOptions.MediaSizeSource), nameof(PrintOptions.Placement), nameof(PrintOptions.Smoothing)],
+            [nameof(PrintOptions.FitArea), nameof(PrintOptions.MediaSizeSource), nameof(PrintOptions.Placement), nameof(PrintOptions.Smoothing)],
             job.DroppedOptions);
         Assert.All(job.DroppedOptionDetails, dropped =>
         {
             Assert.Equal(PrintOptionStage.Channel, dropped.Stage);
             Assert.Equal("CUPS receives the document as it is, and no IPP attribute carries it", dropped.Reason);
         });
+    }
+
+    [Fact]
+    public async Task SubmitAsync_ReportsANamedConverterAsNotRun()
+    {
+        var body = IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 7), (0x23, "job-state", 3));
+        CupsSpoolerDriver driver = new(new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(body))));
+
+        var job = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { ConverterName = "pdfium" },
+            TestContext.Current.CancellationToken);
+
+        var dropped = Assert.Single(job.DroppedOptionDetails);
+        Assert.Equal(nameof(PrintOptions.ConverterName), dropped.Option);
+        Assert.Equal(PrintOptionStage.Conversion, dropped.Stage);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_ThrowsBeforeSendingWhenTheJobAsksToFailOnAnUnappliedOption()
+    {
+        IppMessages.StubHandler handler = new(_ => IppMessages.Ok(IppMessages.Response(0x0000)));
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        var error = await Assert.ThrowsAsync<NotSupportedException>(() => driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { Smoothing = false, OnUnsupported = UnsupportedOptionBehavior.Throw },
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains(nameof(PrintOptions.Smoothing), error.Message, StringComparison.Ordinal);
+        Assert.Empty(handler.Requests);
     }
 
     [Fact]

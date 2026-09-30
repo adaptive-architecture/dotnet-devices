@@ -146,7 +146,9 @@ one and is never the wrong one for the payload.
 
 - `Send` (the default) — send the option and let the printer decide. This costs no extra
   request.
-- `Throw` — read the configuration first, then throw `NotSupportedException`.
+- `Throw` — read the configuration first, then throw `NotSupportedException`. A spooler
+  channel, Windows or CUPS, also throws before it submits when it cannot apply an option it
+  would otherwise report dropped.
 - `Drop` — read the configuration first, remove the option, and name it in
   `PrintJobInfo.DroppedOptions`.
 

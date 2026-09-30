@@ -18,6 +18,10 @@ public static class RasterPlacement
     /// <param name="height">The height of the page in pixels.</param>
     /// <param name="bytesPerPixel">One for grayscale, three for red, green, blue.</param>
     /// <param name="context">What the channel is asking the converter for.</param>
+    /// <param name="renderDpi">
+    /// The resolution the page was rendered at, or <c>null</c> for <see cref="PrintConversionContext.Dpi"/>.
+    /// A page rendered below the context's resolution is scaled up to it, so it keeps its size on the media.
+    /// </param>
     /// <returns>
     /// The composed page, or <c>null</c> when there is nothing to compose onto and the page
     /// stands as it was rendered.
@@ -34,7 +38,8 @@ public static class RasterPlacement
         int width,
         int height,
         int bytesPerPixel,
-        PrintConversionContext context)
+        PrintConversionContext context,
+        int? renderDpi = null)
     {
         ArgumentNullException.ThrowIfNull(context);
 
@@ -66,9 +71,10 @@ public static class RasterPlacement
 
         // Nothing of ours turns these pixels: the printer applies the orientation itself, and
         // turning them here would apply it twice.
+        var sourceDpi = renderDpi ?? context.Dpi;
         var placed = ImagePlacement.Compute(
-            width,
-            height,
+            AtDpi(width, sourceDpi, context.Dpi),
+            AtDpi(height, sourceDpi, context.Dpi),
             area.Width,
             area.Height,
             null,
@@ -112,6 +118,16 @@ public static class RasterPlacement
 
         return new ComposedPage(composed, canvasWidth, canvasHeight);
     }
+
+    /// <summary>
+    /// Converts a length in pixels from one resolution to another.
+    /// </summary>
+    /// <param name="pixels">The length at <paramref name="fromDpi"/>.</param>
+    /// <param name="fromDpi">The resolution the length is measured at.</param>
+    /// <param name="toDpi">The resolution to measure it at.</param>
+    /// <returns>The same physical length at <paramref name="toDpi"/>, never below one pixel.</returns>
+    public static int AtDpi(int pixels, int fromDpi, int toDpi) =>
+        fromDpi == toDpi ? pixels : Math.Max(1, (int)Math.Round((double)pixels * toDpi / fromDpi, MidpointRounding.AwayFromZero));
 
     /// <summary>
     /// Tells whether <see cref="Place"/> answers the final geometry for this context.
