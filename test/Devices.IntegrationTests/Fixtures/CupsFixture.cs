@@ -11,6 +11,7 @@ namespace AdaptArch.Devices.IntegrationTests.Fixtures;
 /// split by purpose rather than by test: <see cref="RawQueue"/> prints and keeps the bytes,
 /// <see cref="HeldQueue"/> never prints so a job stays where a test can look at it, and
 /// <see cref="SecondQueue"/> only exists to give the enumeration more than one answer.
+/// <see cref="RawQueue"/> is also the server default.
 /// </summary>
 public sealed class CupsFixture : IAsyncLifetime
 {

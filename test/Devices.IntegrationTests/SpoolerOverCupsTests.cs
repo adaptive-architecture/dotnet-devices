@@ -46,6 +46,18 @@ public class SpoolerOverCupsTests
     }
 
     [Fact]
+    public async Task Discovery_ReportsOnlyTheServerDefaultAsDefault()
+    {
+        using var client = new HttpClient();
+        SpoolerPrinterDiscovery discovery = new(DriverFor(client));
+
+        var printers = await discovery.DiscoverAsync(TestContext.Current.CancellationToken);
+
+        var defaults = printers.Where(printer => printer.Info.IsDefault).Select(printer => printer.Id.Authority);
+        Assert.Equal([CupsFixture.RawQueue], defaults);
+    }
+
+    [Fact]
     public async Task PrintAsync_ReachesTheQueueAndKeepsTheBytes()
     {
         using var client = new HttpClient();

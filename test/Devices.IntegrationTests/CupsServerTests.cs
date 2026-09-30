@@ -42,6 +42,18 @@ public class CupsServerTests
     }
 
     [Fact]
+    public async Task Discovery_ReportsOnlyTheServerDefaultAsDefault()
+    {
+        using HttpClient client = new();
+        CupsPrinterDiscovery discovery = new(_cups.Host, _cups.Port, client, new IppTransportOptions());
+
+        var printers = await discovery.DiscoverAsync(TestContext.Current.CancellationToken);
+
+        var defaults = printers.Where(printer => printer.Info.IsDefault).Select(printer => printer.Id);
+        Assert.Equal([_cups.IdFor(CupsFixture.RawQueue)], defaults);
+    }
+
+    [Fact]
     public async Task PrintAsync_PassesAPrinterLanguageThroughUnchanged()
     {
         using HttpClient client = new();

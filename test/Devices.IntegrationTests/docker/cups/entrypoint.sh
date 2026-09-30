@@ -32,6 +32,9 @@ cupsdisable held-queue
 lpadmin -p second-queue -E -v file:/var/spool/out/second.prn -m raw \
     -D 'Second passthrough queue' -L 'Integration tests'
 
+# The server default, so the default flag of CUPS-Get-Printers has a queue to mark.
+lpadmin -d raw-queue
+
 echo "cups-ready"
 
 # cupsd forked; keep the container alive on its process.
