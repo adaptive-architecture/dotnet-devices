@@ -164,9 +164,11 @@ public class CupsSpoolerDriverTests
     [Fact]
     public async Task SubmitAsync_APlacementWithANamedConverter_IsRendered()
     {
+        // A named server, so PWG Raster is a target on every operating system: the local
+        // daemon of a Mac never offers it (see TargetsFor), and this queue lists nothing else.
         QueueHandler handler = new(RasterQueue(PrinterContentTypes.PwgRaster), SubmittedJob());
         RecordingRasterConverter converter = new();
-        CupsSpoolerDriver driver = new(new HttpClient(handler), new Uri("ipp://localhost:631/"), new PrintFormatPolicy(null, [converter]));
+        var driver = CupsSpoolerDriver.ForServer("cups.local", 631, new HttpClient(handler), null, new PrintFormatPolicy(null, [converter]));
 
         var job = await driver.SubmitAsync(
             "lobby",

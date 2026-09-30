@@ -75,6 +75,27 @@ Linux unaffected.
 [windows-manual-tests.md](windows-manual-tests.md#the-tests-that-run-themselves-on-windows)
 says how to pause the queue and why that matters.
 
+`test/Devices.CupsHostTests` runs against the CUPS daemon of the machine itself, over the local
+socket and under the stock policy — what the integration tests' container, whose policy allows
+everything, cannot show and a macOS runner, which has no Docker, cannot run at all. It checks
+that a job belongs to the user who printed it and that the same user can cancel it, that a PDF
+for the local daemon of a Mac is sent as URF, `ForwardsOverIpp` on both kinds of queue, and what
+CUPS reports for a job the device behind a forwarding queue refused. `pipeline/cups-host-queues.sh up`
+creates its two queues and prints the `DEVICES_CUPS_HELD_QUEUE` and
+`DEVICES_CUPS_FORWARDING_QUEUE` that turn it on; without them every test skips. The `macos` CI
+job runs it, and so can a developer on macOS or Linux:
+
+```sh
+eval "export $(sh ./pipeline/cups-host-queues.sh up | tr '\n' ' ')"
+dotnetup dotnet test --project test/Devices.CupsHostTests
+sh ./pipeline/cups-host-queues.sh down
+```
+
+**Run `down` and `up` again before a second run.** The forwarding queue ends at an
+`ippeveprinter`, which never ends its own copy of the job it refused and then answers every later
+job with `server-error-busy`; `up` restarts it. Nothing prints: the held queue is stopped and
+points at a port nothing listens on, and each test checks that before it sends anything.
+
 `test/Devices.TestSupport/` holds what more than one test project needs: `Pdf/MinimalPdf.cs`,
 which assembles a PDF around a list of objects so no fixture writes a cross-reference table
 of its own, and `Rasterization/`, the harness described below. It is a library rather than
@@ -153,19 +174,20 @@ embeds the outlines, so the font is no longer a variable. That folder's `README.
 binary asset is checked into a tree whose convention is that nothing depends on one, why this
 font and not Arial, and why the whole file rather than a subset.
 
-CI renders them on both runners and leaves one archive to download. The `test` job uploads
-what Linux rendered, the `windows` job uploads what Windows rendered, and a third job,
-`rasterization`, puts the two together:
+CI renders them on every runner and leaves one archive to download. The `test` job uploads
+what Linux rendered, the `windows` job what Windows rendered and the `macos` job what macOS
+rendered, and a fourth job, `rasterization`, puts them together:
 
 ```
-artifacts/index.html                     which of the two to open, and why
+artifacts/index.html                     which to open, and why
 artifacts/rasterization-linux/           PDFium only
 artifacts/rasterization-windows/         both engines, so this is the comparison
+artifacts/rasterization-macos/           PDFium only
 ```
 
-Both halves are uploaded with `if: always()`, because a page that came out wrong is the
-thing these images exist to show, and the download of each is `continue-on-error`, so half
-of a run is still worth having. Held for 30 days; the per-runner halves for 7.
+Each run is uploaded with `if: always()`, because a page that came out wrong is the thing
+these images exist to show, and the download of each is `continue-on-error`, so part of a
+run is still worth having. Held for 30 days; the per-runner archives for 7.
 
 A run on your own machine writes the same pages to `artifacts/rasterization/` without the
 per-runner split, since only one machine rendered them.
@@ -346,6 +368,7 @@ Source projects and tests are wired with `InternalsVisibleTo` automatically via 
 
 GitHub Actions workflows in `.github/workflows/`:
 
-- `test.yml` — build + unit tests + SonarCloud on push/PR
+- `test.yml` — build + unit tests + SonarCloud on push/PR on Linux; the tests that need no
+  container on Windows (`windows`) and macOS (`macos`)
 - `pack.yml` — publish NuGet packages on release
 - `pages.yml` — publish DocFX docs to GitHub Pages on release
