@@ -128,8 +128,9 @@ public class PrintingLogTests
     {
         // Each printer type raises 2041 for every option, so the summary would repeat it.
         FakeLoggerFactory factory = new();
+        var printerId = PrinterId.ForRaw("printer.local");
 
-        PrintingLog.OptionsDropped(factory.Logger, PrinterId.ForRaw("printer.local"), "Duplex", "1");
+        PrintingLog.OptionsDropped(factory.Logger, printerId, "Duplex", "1");
 
         Assert.Equal(LogLevel.Debug, Assert.Single(factory.WithId(2040)).Level);
     }

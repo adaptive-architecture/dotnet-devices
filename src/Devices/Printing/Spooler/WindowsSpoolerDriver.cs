@@ -361,7 +361,9 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     {
         if (deviceMode.Count > 0 && _logger.IsEnabled(LogLevel.Debug))
         {
+#pragma warning disable CA1873 // Guarded by IsEnabled above
             SpoolerLog.DeviceModeOptionsDropped(_logger, queueName, String.Join(", ", deviceMode));
+#pragma warning restore CA1873
         }
 
         List<DroppedOption> all = new(deviceMode.Count + unapplied.Length);

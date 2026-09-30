@@ -515,7 +515,9 @@ public sealed class PrinterManager : IPrinterManager
             PrintingLog.JobNamed(_logger, job.JobId, id, job.JobName, options?.RequestingUserName);
             if (job.DroppedOptions.Count > 0 && _logger.IsEnabled(LogLevel.Debug))
             {
+#pragma warning disable CA1873 // Guarded by IsEnabled above
                 PrintingLog.OptionsDropped(_logger, id, String.Join(", ", job.DroppedOptions), job.JobId);
+#pragma warning restore CA1873
             }
 
             return job;

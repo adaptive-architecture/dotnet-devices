@@ -5,6 +5,8 @@
 /// </summary>
 public sealed class PrintJobInfo
 {
+    private IReadOnlyList<DroppedOption> _droppedOptionDetails = [];
+
     /// <summary>
     /// Initializes a new instance of the <see cref="PrintJobInfo"/> class.
     /// </summary>
@@ -110,7 +112,7 @@ public sealed class PrintJobInfo
     /// Gets the names of the options that did not reach the device, one for each entry of
     /// <see cref="DroppedOptionDetails"/>.
     /// </summary>
-    public IReadOnlyList<string> DroppedOptions => DroppedOptionDetails.Select(dropped => dropped.Option).ToArray();
+    public IReadOnlyList<string> DroppedOptions { get; private set; } = [];
 
     /// <summary>
     /// Gets or sets every option that did not reach the device, with the stage that dropped
@@ -122,5 +124,14 @@ public sealed class PrintJobInfo
     /// it, a conversion that did not run, or a channel that carries no job template. The
     /// sheet then shows the printer's own setting for that option.
     /// </remarks>
-    public IReadOnlyList<DroppedOption> DroppedOptionDetails { get; set; } = [];
+    public IReadOnlyList<DroppedOption> DroppedOptionDetails
+    {
+        get => _droppedOptionDetails;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            _droppedOptionDetails = value;
+            DroppedOptions = value.Select(dropped => dropped.Option).ToArray();
+        }
+    }
 }
