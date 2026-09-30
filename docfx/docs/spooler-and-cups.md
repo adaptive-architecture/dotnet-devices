@@ -90,6 +90,38 @@ without regard to case, as Windows and CUPS compare them.
 > Everything around the native calls is tested through seams; the calls themselves are checked by
 > hand on real Windows hardware.
 
+## Queue defaults on CUPS
+
+A spooler job carries only the options it sets, so every option it leaves unset takes the
+**queue's** default — and a queue's defaults are not the printer's. A driverless queue on macOS
+shows how far apart they can be:
+
+- **Two-sided by default.** The queue's PPD reads `*DefaultDuplex: DuplexNoTumble` while the
+  printer reports `sides-default = one-sided`. A job that names no `Duplex` prints on both sides
+  through the spooler, and on one side over IPP.
+- **Reverse output order.** `*DefaultOutputOrder: Reverse`, so the first page of a job comes out
+  last.
+- **A PDF is not fitted.** macOS CUPS renders a PDF with Quartz and not with cups-filters. With
+  no media in the job it takes the PDF's own page size as the media, so a 4 by 6 inch label sent
+  to a printer loaded with A4 arrives as a 4 by 6 inch page and the printer reports a size
+  mismatch. With `media=A4` it draws the page from the PDF's origin, against the bottom left of
+  the sheet, and ignores `print-scaling`: `none`, `fit` and `auto` gave the same output. Linux
+  centres such a page on the default media, and the Windows spooler places it with GDI.
+
+To see and change them:
+
+- `lpoptions -p <queue> -l` lists a queue's options with the current value starred.
+- Set the option on the job to override one, such as `Duplex = DuplexMode.Simplex`, or change the
+  queue itself with `lpadmin -p <queue> -o Duplex=None`.
+- A job that must land in the same place on every platform asks for a
+  [placement](page-placement.md), which the library renders rather than leaving it to the queue.
+  On CUPS that is still open work.
+
+> [!NOTE]
+> This was measured with `lpoptions`, `ipptool` and `cupsfilter` on macOS 27 against an EPSON
+> L6270, with nothing printed. It is the queue and not the library that decides it, so recheck
+> with `cupsfilter` on another macOS version.
+
 ## A CUPS server, from any operating system
 
 `SpoolerPrinter` reaches the daemon on `localhost`, so it finds queues only where CUPS runs.

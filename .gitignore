@@ -370,3 +370,6 @@ docs/superpowers
 
 # Copied from assets/logo.ico by the sample build.
 samples/Devices.Samples/wwwroot/favicon.ico
+
+# macOS Finder metadata
+.DS_Store

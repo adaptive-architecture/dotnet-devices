@@ -24,10 +24,10 @@ The four tabs are:
   reported, so the page never invents a choice. Before the button, the page calls
   `PrinterDevice.Accepts` and warns when the channel says it does not read the format.
 - **Job sets** — the scripted hardware test. A job set is a JSON file; the sample ships
-  `PrintJobs/queue-sweep.json` (five documents through one queue, each changing one option
-  from the job before it), `PrintJobs/raw-sweep.json` (a JPEG, a ZPL label and an EPL
-  label, unchanged) and `PrintJobs/pdf-placement.json` (where a page lands on the media, one
-  option a sheet, to be measured rather than judged). A set can also be uploaded, so the same test runs on Windows, Linux and
+  `PrintJobs/queue-sweep.json` (seven documents through one queue, grouped to save paper,
+  each sheet checked against its own description), `PrintJobs/raw-sweep.json` (a JPEG, a ZPL
+  label and an EPL label, unchanged) and `PrintJobs/pdf-placement.json` (where a 4 by 6 inch
+  label lands on larger stock, to be measured rather than judged). A set can also be uploaded, so the same test runs on Windows, Linux and
   macOS and the results compare job by job. The run ends with a summary of what became of
   each job. The set is edited in the browser: one tab per job, named by the file it prints,
   with the same option controls the print tab builds from what the channel reported, and jobs
@@ -74,13 +74,14 @@ label: `anchor` is one of the nine positions on the sheet, `offsetXMillimeters` 
 `offsetYMillimeters` move the page from there, `smoothing` is `false` for a hard barcode edge,
 `mediaWidthMillimeters` and `mediaHeightMillimeters` give a size the printer has no name for,
 and `mediaSizeSource` is `Document` to make the page its own media. The shipped
-**PDF placement** set prints them one per sheet, to be measured with a ruler on real stock:
+**PDF placement** set prints a 4 by 6 inch label at its own size, one placement per sheet, to
+be measured with a ruler on real stock:
 
 ```json
-{ "file": "pages.pdf",
-  "description": "top left, then 5 mm right and 3 mm down",
-  "options": { "pageRanges": "1", "scaling": "Fit", "anchor": "TopLeft",
-               "offsetXMillimeters": 5, "offsetYMillimeters": 3 } }
+{ "file": "document.pdf",
+  "description": "top left, then 15 mm right and 10 mm down",
+  "options": { "scaling": "None", "anchor": "TopLeft",
+               "offsetXMillimeters": 15, "offsetYMillimeters": 10 } }
 ```
 
 A job that carries a placement or asks for the document's own media size is converted even

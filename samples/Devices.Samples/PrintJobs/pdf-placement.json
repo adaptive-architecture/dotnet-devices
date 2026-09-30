@@ -1,79 +1,79 @@
 {
   "name": "PDF placement",
-  "description": "Where a PDF page lands on the media, and how sharply it is drawn. None of these four is a print option in the protocol sense: each is geometry applied while the page becomes pixels, so each job here is converted even where the printer reads PDF itself. Print the set on the stock you actually use and measure it with a ruler: the first job is the reference, the next four move the same page into each corner, and the last three change what is drawn rather than where. On a printer that reads PWG Raster the placement is already in the bytes; on a Windows spooler queue the page is placed as it is drawn.",
+  "description": "Where a PDF page lands on the media, and how sharply it is drawn. The page is document.pdf, a 4 by 6 inch label, printed at its own size so it has room to move on a larger sheet: a page fitted to the sheet has nowhere to go, and every anchor would look the same. None of these is a print option in the protocol sense: each is geometry applied while the page becomes pixels, so each job is converted even where the printer or the queue reads PDF itself, and a channel no converter can render for drops the options and says so. Print the set on the stock you actually use and measure it with a ruler: the first two jobs are the references, the next four move the label, and the last three change what is drawn rather than where.",
   "mode": "queue",
   "jobs": [
     {
       "file": "pages.pdf",
-      "description": "page 1 centred, which is what every job did before there was a placement: the reference sheet to measure the others against",
+      "description": "page 1 of pages.pdf fitted to the sheet: the fitted reference, which fills the stock and so cannot show a placement",
       "options": {
         "pageRanges": "1",
         "scaling": "Fit"
       }
     },
     {
-      "file": "pages.pdf",
-      "description": "the same page against the top left corner of the stock, which is how a label is registered",
+      "file": "document.pdf",
+      "description": "the label at its own size, centred: the reference sheet to measure the others against",
       "options": {
-        "pageRanges": "1",
-        "scaling": "Fit",
-        "anchor": "TopLeft"
+        "scaling": "None"
       }
     },
     {
-      "file": "pages.pdf",
-      "description": "top left, then 5 mm right and 3 mm down: the correction a printer that lays its stock off its own origin needs",
+      "file": "document.pdf",
+      "description": "the label against the top left corner of the stock, which is how a label is registered",
       "options": {
-        "pageRanges": "1",
-        "scaling": "Fit",
-        "anchor": "TopLeft",
-        "offsetXMillimeters": 5,
-        "offsetYMillimeters": 3
-      }
-    },
-    {
-      "file": "pages.pdf",
-      "description": "bottom right, to show the anchor is the corner and not a direction: the same offset now moves the page off the stock, and what fits is printed",
-      "options": {
-        "pageRanges": "1",
-        "scaling": "Fit",
-        "anchor": "BottomRight",
-        "offsetXMillimeters": 5,
-        "offsetYMillimeters": 3
-      }
-    },
-    {
-      "file": "pages.pdf",
-      "description": "the page at its own size, not fitted, so the fit mode and the placement can be told apart on the sheet",
-      "options": {
-        "pageRanges": "1",
         "scaling": "None",
         "anchor": "TopLeft"
       }
     },
     {
-      "file": "pages.pdf",
-      "description": "smoothing off: the barcode edges arrive hard rather than as a grey ramp the printer has to halftone",
+      "file": "document.pdf",
+      "description": "top left, then 15 mm right and 10 mm down: the correction a printer that lays its stock off its own origin needs, large enough to measure",
       "options": {
-        "pageRanges": "1",
-        "scaling": "Fit",
+        "scaling": "None",
+        "anchor": "TopLeft",
+        "offsetXMillimeters": 15,
+        "offsetYMillimeters": 10
+      }
+    },
+    {
+      "file": "document.pdf",
+      "description": "bottom right with the same offset, to show the anchor is the corner and not a direction: the offset now moves the label off the stock, and what fits is printed",
+      "options": {
+        "scaling": "None",
+        "anchor": "BottomRight",
+        "offsetXMillimeters": 15,
+        "offsetYMillimeters": 10
+      }
+    },
+    {
+      "file": "document.pdf",
+      "description": "the label centred along the top edge, the anchor that is neither a corner nor the centre",
+      "options": {
+        "scaling": "None",
+        "anchor": "TopCenter"
+      }
+    },
+    {
+      "file": "document.pdf",
+      "description": "smoothing off: the barcode edges arrive hard rather than as a grey ramp the printer has to halftone. Compare the bars with the centred reference",
+      "options": {
+        "scaling": "None",
         "smoothing": false
       }
     },
     {
-      "file": "pages.pdf",
-      "description": "the media taken from the document: the page is its own media, so nothing is fitted, moved or resampled and the bars are as sharp as the engine can draw them",
+      "file": "document.pdf",
+      "description": "the media taken from the document: the label is its own 4 by 6 inch media, so nothing is fitted, moved or resampled. A printer loaded with larger stock reports a size mismatch, which is the printer telling the truth",
       "options": {
-        "pageRanges": "1",
         "mediaSizeSource": "Document"
       }
     },
     {
-      "file": "pages.pdf",
-      "description": "a media size the printer has no name for: 100 by 150 mm, which is the four by six inch label in millimetres",
+      "file": "document.pdf",
+      "description": "a media size the printer has no name for: 100 by 150 mm, which is close to but not the 4 by 6 inch label. The page carries no size name. A printer loaded with other stock reports a size mismatch",
       "options": {
-        "pageRanges": "1",
-        "scaling": "Fit",
+        "scaling": "None",
         "anchor": "TopLeft",
         "mediaWidthMillimeters": 100,
         "mediaHeightMillimeters": 150

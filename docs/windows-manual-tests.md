@@ -338,8 +338,8 @@ The `queue-sweep` job set prints `document.pdf` through the spooler queue. It ne
 - ~~Every page of the PDF must print, in order, as one job in the queue window.~~ **Done**:
   the single-page `document.pdf` printed in the five-job sweep. `pages.pdf` is in the set now
   and re-checks this across four pages.
-- A multi-page PDF with `PageRanges` must print only the selected pages. `pages.pdf` with
-  `2,4` is in the set.
+- A multi-page PDF with `PageRanges` must print only the selected pages. The seven-job set
+  has two such jobs: `pages.pdf` with `1,3`, and with `2,4`.
 - A corrupt PDF must fail with `InvalidOperationException` naming the file, and leave no job
   in the queue. `corrupt.pdf` is in `PrintFiles` for this: it is `pages.pdf` truncated, so it
   keeps a valid `%PDF-1.7` header and has no xref and no trailer. The header matters — a file
@@ -357,7 +357,7 @@ The path no automated test can reach. The encoder is tested on Linux, but nothin
 render a PDF, so the pixels that reach the encoder have never been seen.
 
 Run the same `queue-sweep` set against an `ipp://` or `ipps://` printer whose
-`document-format-supported` lists `image/pwg-raster` and **not** `application/pdf`. The four
+`document-format-supported` lists `image/pwg-raster` and **not** `application/pdf`. The three
 `pages.pdf` jobs are the ones that matter, and each page carries the marks that name its own
 fault.
 
@@ -381,11 +381,15 @@ encoder reads it as picture and every line starts a little further along than th
 it depends on the printer's `pwg-raster-document-sheet-back` as well as on the edge the sheet
 turns on. Get it wrong and every second page is upside down or mirrored, with no error.
 
-- On the duplex job, hold a sheet as you would read the front and turn it over on the long
-  edge. Page 2 must read the right way up, `TOP OF PAGE` at the top.
-- The grey corner block must be in the **top right** on both sides. Top left means the page
-  was flipped where it should have been rotated; bottom right means it was rotated twice.
-- The page numbers must run 1, 2, 3, 4 across the two sheets.
+Each duplex job is one sheet.
+
+- **Long edge** (pages 2 and 4): hold the sheet as you would read page 2 and turn it over like
+  a book. Page 4 must be on the back and read the right way up, `TOP OF PAGE` at the top.
+- **Short edge** (pages 1 and 3, grayscale): hold the sheet as you would read page 1 and turn it
+  over like a flip pad, top to bottom. Page 3 must be on the back and read the right way up.
+- The grey corner block must be in the **top right** on both sides of both sheets. Top left
+  means the page was flipped where it should have been rotated; bottom right means it was
+  rotated twice.
 - Write down what the printer reported for `pwg-raster-document-sheet-back`. The transform is
   only right for that value, so a second printer reporting another one is worth the run.
 
@@ -393,11 +397,11 @@ turns on. Get it wrong and every second page is upside down or mirrored, with no
 
 - The page must be upright and the right size, not stretched or squashed.
 - Grayscale must be grey and not inverted: the page is mostly white with black lines.
-- The page-range job must print pages 2 and 4 of the document, not pages 2 and 4 of a
-  document already cut to two pages. The converter selects the pages, so the job template
-  must carry no `page-ranges` afterwards; a printer that applied them twice prints page 4
-  alone, or nothing.
-- Four pages must arrive as **one** job in the printer's queue, not four.
+- The two page-range jobs must print pages 1 and 3, and pages 2 and 4, of the document — not
+  those pages of a document already cut to two pages. The converter selects the pages, so the
+  job template must carry no `page-ranges` afterwards; a printer that applied them twice
+  prints page 3 or page 4 alone, or nothing.
+- The four-page colour job must arrive as **one** job in the printer's queue, not four.
 - `corrupt.pdf` must fail here too, and no job may reach the printer. The renderer runs
   before the IPP request is built, so the failure is the same `InvalidOperationException`
   as on the spooler — but it is worth confirming on this path as well, because it is the
@@ -415,22 +419,31 @@ queue if one is reachable. The two paths place a page by different means — GDI
 Windows, a composed raster carries it over IPP — so agreeing on paper is the thing worth
 proving.
 
-- **The reference sheet** is the first job, centred. Measure the margins on all four sides;
-  they are what every other sheet is compared against.
+Every job but the first prints `document.pdf`, a 4 by 6 inch label, at its own size, so it
+has room to move on a larger sheet.
+
+- **The fitted sheet** is the first job: page 1 of `pages.pdf` fitted to the stock. It fills
+  the sheet, so it shows the fit and cannot show a placement.
+- **The label reference sheet** is the label centred. Measure the margins on all four sides;
+  they are what every other label sheet is compared against.
 - **The anchored sheet** must sit against the top left corner of the printable area, with the
   two margins there as small as the printer allows and the slack on the other two sides.
-- **The offset sheet** must be exactly 5 mm right and 3 mm down of the anchored one. Measure
+- **The offset sheet** must be exactly 15 mm right and 10 mm down of the anchored one. Measure
   it, do not judge it. This is the number a customer will send you when it is wrong.
 - **The bottom right sheet** proves the anchor is a corner and not a direction: the same
-  offset now pushes the page off the stock, and what fits must print with no error.
+  offset now pushes the label off the stock, and what fits must print with no error.
+- **The top centre sheet** must sit against the top edge, centred left to right: the anchor
+  that is neither a corner nor the centre.
 - **The smoothing sheet** must show hard bar edges. Scan the barcode with a real scanner, at
-  the distance an operator would. Compare against the job before it.
-- **The document media sheet** must print the page at exactly the size the PDF declares. This
-  is the one where a wrong answer is obvious with a ruler: an A4 page must measure 210 by
-  297 mm.
-- **The custom media sheet** asks for 100 by 150 mm. Confirm the driver took it, and write
-  down what the queue reported afterwards. On a queue whose driver refuses custom sizes the
-  option is reported in `DroppedOptions`, which is the right answer and not a failure.
+  the distance an operator would. Compare against the label reference sheet.
+- **The document media sheet** must print the label on 4 by 6 inch media, the size the PDF
+  declares. A printer loaded with larger stock reports a size mismatch, which is the printer
+  telling the truth and not a failure.
+- **The custom media sheet** asks for 100 by 150 mm, close to but not the label, and the page
+  carries no size name. Confirm the driver took it, and write down what the queue reported
+  afterwards. A printer loaded with other stock reports a size mismatch; on a queue whose
+  driver refuses custom sizes the option is reported in `DroppedOptions`. Neither is a
+  failure.
 
 Write down the printer, the stock and every measurement. A sheet without its measurements
 proves nothing a photograph would not.
