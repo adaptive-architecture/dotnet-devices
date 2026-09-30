@@ -94,7 +94,11 @@ public sealed class PrintFormatPolicy
                     nameof(requiredConverters));
             }
 
-            ArgumentException.ThrowIfNullOrWhiteSpace(name, nameof(requiredConverters));
+            if (String.IsNullOrWhiteSpace(name))
+            {
+                throw new ArgumentException($"The converter required for '{contentType}' has a blank name.", nameof(requiredConverters));
+            }
+
             _requiredConverters[contentType] = name;
         }
     }

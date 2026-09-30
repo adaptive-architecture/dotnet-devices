@@ -47,17 +47,7 @@ internal static class IppDocumentConversion
         var kind = formats.KindOf(payload.ContentType);
         if (kind != PrinterFormatKind.Document)
         {
-            // An image is never converted, so a name on one is reported rather than failed;
-            // a printer language or opaque bytes cannot be rendered at all.
-            if (name is not null && kind != PrinterFormatKind.Image)
-            {
-                throw PrintConverters.Unhonoured(name, payload.ContentType, channel.Id, $"'{payload.ContentType}' is sent as it is and nothing renders it");
-            }
-
-            return Unconverted(payload, format, options, Unrendered(
-                options,
-                $"the library renders only documents, so {payload.ContentType} goes to the printer as it is",
-                nameof(PrintOptions.ConverterName)));
+            return NotADocument(channel, payload, format, options, name, kind);
         }
 
         // The converter is looked for before the format list is read, because an application
@@ -108,6 +98,39 @@ internal static class IppDocumentConversion
             return Unconverted(payload, format, options, Unrendered(options, reason));
         }
 
+        return await ConvertAsync(channel, converter, target, configuration, payload, options, cancellationToken).ConfigureAwait(false);
+    }
+
+    // An image is never converted, so a name on one is reported rather than failed; a
+    // printer language or opaque bytes cannot be rendered at all.
+    private static IppConversion NotADocument(
+        IppConversionChannel channel,
+        PrinterPayload payload,
+        string format,
+        PrintOptions? options,
+        string? name,
+        PrinterFormatKind kind)
+    {
+        if (name is not null && kind != PrinterFormatKind.Image)
+        {
+            throw PrintConverters.Unhonoured(name, payload.ContentType, channel.Id, $"'{payload.ContentType}' is sent as it is and nothing renders it");
+        }
+
+        return Unconverted(payload, format, options, Unrendered(
+            options,
+            $"the library renders only documents, so {payload.ContentType} goes to the printer as it is",
+            nameof(PrintOptions.ConverterName)));
+    }
+
+    private static async Task<IppConversion> ConvertAsync(
+        IppConversionChannel channel,
+        IPrintPayloadConverter converter,
+        string target,
+        PrinterConfiguration configuration,
+        PrinterPayload payload,
+        PrintOptions? options,
+        CancellationToken cancellationToken)
+    {
         var endpoint = await channel.GetEndpointAsync(cancellationToken).ConfigureAwait(false);
 
         // A URF printer states in one attribute what an IPP Everywhere printer states in three.
@@ -158,17 +181,8 @@ internal static class IppDocumentConversion
         IppLog.DocumentConverted(channel.Logger, payload.ContentType, endpoint, target);
         IppLog.DocumentConversionSize(channel.Logger, payload.ContentType, endpoint, documents[0].Length, target);
 
-        // The converter selected the pages, so the printer must not select them again -- and
-        // where it also placed the page on its media, the printer must not fit it again.
+        var converted = ConvertedOptions(options, converter.PlacesOnMedia(context));
         // The job then asks for the resolution the raster carries, not the one it named.
-        // A raster header states its sides, so the job states the same: a queue that
-        // defaults to two-sided, as a macOS one does, must not contradict a simplex page.
-        var converted = options is null
-            ? new PrintOptions()
-            : converter.PlacesOnMedia(context)
-                ? PrintOptionValidator.WithoutPlacedGeometry(options)
-                : PrintOptionValidator.WithoutPageRanges(options);
-        converted.Duplex ??= DuplexMode.Simplex;
         DroppedOption[] moved = [];
         if (options?.ResolutionDpi is int requested && requested != dpi)
         {
@@ -180,6 +194,30 @@ internal static class IppDocumentConversion
         }
 
         return new IppConversion(PrinterPayload.FromBytes(documents[0], target), target, converted, moved, converter.Name);
+    }
+
+    // The converter selected the pages, so the printer must not select them again -- and
+    // where it also placed the page on its media, the printer must not fit it again.
+    // A raster header states its sides, so the job states the same: a queue that defaults
+    // to two-sided, as a macOS one does, must not contradict a simplex page.
+    private static PrintOptions ConvertedOptions(PrintOptions? options, bool placedOnMedia)
+    {
+        PrintOptions converted;
+        if (options is null)
+        {
+            converted = new PrintOptions();
+        }
+        else if (placedOnMedia)
+        {
+            converted = PrintOptionValidator.WithoutPlacedGeometry(options);
+        }
+        else
+        {
+            converted = PrintOptionValidator.WithoutPageRanges(options);
+        }
+
+        converted.Duplex ??= DuplexMode.Simplex;
+        return converted;
     }
 
     // A raster is only readable at a resolution the printer rasters at, so the request is
