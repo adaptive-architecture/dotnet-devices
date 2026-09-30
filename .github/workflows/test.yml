@@ -267,7 +267,8 @@ jobs:
   # which the local daemon of a Mac is never offered.
   #
   # No Sonar and no coverage, as in the windows job: the Linux job owns the report. No
-  # integration tests either, because a macOS runner has no Docker.
+  # integration tests either, because a macOS runner has no Docker; test/Devices.CupsHostTests
+  # runs against the runner's own CUPS daemon instead.
   macos:
     runs-on: macos-latest
 
@@ -292,6 +293,16 @@ jobs:
       - name: Build
         run: dotnet build --no-incremental
 
+      # The runner's own CUPS daemon, under its stock policy, is what a Mac adds: the
+      # container of the integration tests allows everything, and this runner has no Docker.
+      # The queues are created rather than assumed, and the step fails when one did not take,
+      # as the windows job's paused queue does: without them the tests skip and would pass
+      # having reached nothing. The runner user is in admin and _lpadmin, so no sudo is needed,
+      # and lpstat wakes the daemon, which launchd starts on demand.
+      - name: Provision the host CUPS queues
+        shell: bash
+        run: sh ./pipeline/cups-host-queues.sh up >> "$GITHUB_ENV"
+
       # Each project on its own line under bash's -e, so a failing project fails the step even
       # when a later one passes. Devices.Windows.UnitTests targets -windows and cannot run here.
       - name: Run tests that do not need a container
@@ -300,31 +311,7 @@ jobs:
           dotnet test test/Devices.UnitTests/Devices.UnitTests.csproj --no-build
           dotnet test test/Devices.DependencyInjection.UnitTests/Devices.DependencyInjection.UnitTests.csproj --no-build
           dotnet test test/Devices.Pdfium.UnitTests/Devices.Pdfium.UnitTests.csproj --no-build
-
-      # TEMPORARY: what the runner's own CUPS daemon allows, before any test relies on it. It
-      # cannot fail the job, and it is replaced by a provisioning step once the answer is in.
-      - name: Probe the runner's CUPS daemon
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -x
-          sw_vers; id; cups-config --version || true
-          sh ./pipeline/cups-state.sh || true
-          lpstat -r; lpstat -v || true
-          grep -E '^(DefaultAuthType|Listen)' /etc/cups/cupsd.conf || true
-          lpadmin -p ci-stopped -E -v socket://127.0.0.1:9 && cupsdisable ci-stopped
-          printf '^XA^FO50,50^FDhello^FS^XZ' > "$RUNNER_TEMP/label.zpl"
-          lp -d ci-stopped -o document-format=application/vnd.cups-raw "$RUNNER_TEMP/label.zpl"
-          lpstat -o ci-stopped
-          ippeveprinter -p 8631 -r _print,_universal -k -d "$RUNNER_TEMP" \
-              -f application/pdf,image/urf,image/pwg-raster "CI AirPrint" > "$RUNNER_TEMP/eve.log" 2>&1 &
-          sleep 5
-          lpstat -e || true
-          lp -d CI_AirPrint -o document-format=application/vnd.cups-raw "$RUNNER_TEMP/label.zpl" || true
-          sleep 10
-          lpstat -v; lpstat -W all -o || true
-          cat "$RUNNER_TEMP/eve.log" || true
-          cancel -a ci-stopped; lpadmin -x ci-stopped; kill %1 || true
+          dotnet test test/Devices.CupsHostTests/Devices.CupsHostTests.csproj --no-build
 
       # PDFium renders on macOS as well, so this runner's pages are a third set to compare.
       - name: Upload the rendered pages
