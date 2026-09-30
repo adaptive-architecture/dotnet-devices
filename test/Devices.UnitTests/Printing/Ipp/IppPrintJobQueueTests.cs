@@ -1,4 +1,5 @@
-﻿using AdaptArch.Devices.Printing;
+﻿using System.Text;
+using AdaptArch.Devices.Printing;
 using AdaptArch.Devices.Printing.Ipp;
 using Xunit;
 
@@ -80,6 +81,20 @@ public class IppPrintJobQueueTests
         var job = await queue.GetJobAsync(Printer, "not-a-number", TestContext.Current.CancellationToken);
 
         Assert.Null(job);
+    }
+
+    [Fact]
+    public async Task CancelJobAsync_NamesTheUserThisProcessRunsAs()
+    {
+        // The owner a job printed with no RequestingUserName is given, so the same process
+        // may take it back on a server that lets only the owner cancel.
+        IppMessages.CapturingHandler handler = new(IppMessages.Response(0x0000, 0x02));
+        IppPrintJobQueue queue = new(Endpoint, new HttpClient(handler));
+        var processUser = String.IsNullOrWhiteSpace(Environment.UserName) ? PrintOptions.DefaultRequestingUserName : Environment.UserName;
+
+        _ = await queue.CancelJobAsync(Printer, "1", TestContext.Current.CancellationToken);
+
+        Assert.Contains(processUser, Encoding.Latin1.GetString(handler.RequestBodies[^1]), StringComparison.Ordinal);
     }
 
     [Fact]

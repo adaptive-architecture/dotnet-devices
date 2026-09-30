@@ -65,9 +65,12 @@ public sealed class IppPrintJobQueue : IPrintJobQueue
         _resolver.RunAsync((uri, token) => IppRequests.GetJobAsync(_context, uri, printerId, jobId, token), cancellationToken);
 
     /// <inheritdoc />
-    /// <remarks>Returns <c>false</c> when <paramref name="jobId"/> is not a number, or the printer reports the job as not found.</remarks>
+    /// <remarks>
+    /// Returns <c>false</c> when <paramref name="jobId"/> is not a number, or the printer reports the job as not found.
+    /// The request names the user this process runs as, the owner <see cref="PrintOptions.RequestingUserName"/> gives a job by default.
+    /// </remarks>
     /// <exception cref="InvalidOperationException">Thrown when no IPP endpoint answers, or the printer reports an IPP error other than "job not found".</exception>
     /// <exception cref="InvalidDataException">Thrown when the printer returns a malformed IPP response.</exception>
     public Task<bool> CancelJobAsync(PrinterId printerId, string jobId, CancellationToken cancellationToken) =>
-        _resolver.RunAsync((uri, token) => IppRequests.CancelJobAsync(_context, uri, jobId, token), cancellationToken);
+        _resolver.RunAsync((uri, token) => IppRequests.CancelJobAsync(_context, uri, jobId, PrintOptions.EffectiveUserName(null), token), cancellationToken);
 }

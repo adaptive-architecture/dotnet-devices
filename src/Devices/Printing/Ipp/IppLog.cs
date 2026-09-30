@@ -52,4 +52,7 @@ internal static partial class IppLog
 
     [LoggerMessage(EventId = 1021, Level = LogLevel.Debug, Message = "IPP job {JobId} on {Endpoint} is {State}; reasons {Reasons}; message {Message}.")]
     public static partial void JobRead(ILogger logger, string jobId, Uri endpoint, PrintJobState state, string? reasons, string? message);
+
+    [LoggerMessage(EventId = 1022, Level = LogLevel.Warning, Message = "IPP job {JobId} on {Endpoint} is completed, but the printer said: {Message}. A CUPS queue that forwards over IPP reports a job the device refused as completed, so the job may not have printed.")]
+    public static partial void JobCompletedWithMessage(ILogger logger, string jobId, Uri endpoint, string message);
 }

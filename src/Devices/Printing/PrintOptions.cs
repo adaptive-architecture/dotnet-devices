@@ -22,9 +22,15 @@
 public sealed class PrintOptions
 {
     /// <summary>
-    /// The user name an IPP request carries when <see cref="RequestingUserName"/> is not set.
+    /// The user name an IPP request carries when <see cref="RequestingUserName"/> is not set
+    /// and the operating system reports no name for the user this process runs as.
     /// </summary>
     public const string DefaultRequestingUserName = "anonymous";
+
+    // The name lp and cancel send. CUPS records it as the owner of a job and lets that owner
+    // cancel it without authentication, so a job submitted and cancelled under it stays the
+    // caller's own. The user a process runs as does not change, so it is read once.
+    private static readonly string ProcessUserName = ReadProcessUserName();
 
     private int? _copies;
     private int? _numberUp;
@@ -233,10 +239,17 @@ public sealed class PrintOptions
 
     /// <summary>
     /// Gets or sets the user name an IPP request carries as <c>requesting-user-name</c>.
-    /// RFC 8011 says a client should send it, and CUPS uses it for its owner-based cancel
-    /// policy. Defaults to <see cref="DefaultRequestingUserName"/> when not set. The
-    /// operating system spooler and the raw channel do not use it.
+    /// RFC 8011 says a client should send it, and CUPS records it as the owner of the job.
+    /// Defaults, when not set, to the user this process runs as, which is what <c>lp</c>
+    /// sends, and to <see cref="DefaultRequestingUserName"/> when the operating system
+    /// reports no name. Every IPP channel uses it, including the operating system spooler on
+    /// Linux and macOS, which is CUPS; the Windows spooler and the raw channel do not.
     /// </summary>
+    /// <remarks>
+    /// A job queue cancels as the user this process runs as. CUPS's stock policy lets the
+    /// owner and its administrators cancel a job without authentication, so a job printed
+    /// under another name can be cancelled through the library only by an administrator.
+    /// </remarks>
     public string? RequestingUserName { get; set; }
 
     /// <summary>
@@ -251,4 +264,14 @@ public sealed class PrintOptions
     /// fails the job.
     /// </remarks>
     public UnsupportedOptionBehavior OnUnsupported { get; set; } = UnsupportedOptionBehavior.Send;
+
+    // The requesting-user-name of an IPP request that names none, or names a blank one.
+    internal static string EffectiveUserName(string? requested) =>
+        String.IsNullOrWhiteSpace(requested) ? ProcessUserName : requested;
+
+    private static string ReadProcessUserName()
+    {
+        var name = Environment.UserName;
+        return String.IsNullOrWhiteSpace(name) ? DefaultRequestingUserName : name;
+    }
 }

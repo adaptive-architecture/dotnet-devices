@@ -1,4 +1,4 @@
-# Status and monitoring
+﻿# Status and monitoring
 
 Reading what a printer says about itself, and following a job until it ends.
 
@@ -125,6 +125,15 @@ one.
 Get-Jobs with the job identifier alone, and none of the messages that say why a job stopped. Both
 `GetJobsAsync` and `GetJobAsync` therefore send an explicit `requested-attributes` list that
 holds every attribute the mapper reads.
+
+**A job belongs to the user this process runs as.** Unless `PrintOptions.RequestingUserName`
+names someone else, every IPP job, and every job on the CUPS spooler of Linux and macOS, carries
+that user's name as its `requesting-user-name`, which is what `lp` sends. `CancelJobAsync` names
+the same user. CUPS records the name as the owner and, under its stock policy, lets the owner
+and the administrators the policy names (`@SYSTEM` on Linux, `admin` and `lpadmin` on macOS)
+cancel a job without authentication. Any other `Cancel-Job`, including one that names no user,
+is answered with HTTP 401. So a job printed under another `RequestingUserName` can be cancelled
+through a job queue only when this process runs as such an administrator.
 
 ## Watching a job
 
