@@ -333,10 +333,11 @@ queue is raw, has a driver or is driverless. The backend is what differs:
 | `usb`, `socket`, `lpd`, `file`, or `dnssd` to a non-IPP service | The bytes, unchanged | `false` |
 | `ipp`, `ipps`, `http`, `https`, `implicitclass`, or `dnssd` to an `_ipp` or `_ipps` service | The bytes, sent on over IPP as `application/octet-stream` | `true` |
 
-A printer at the end of a forwarding queue decides for itself whether it reads the bytes. One
-that does not answers `client-error-attributes-or-values-not-supported`, and CUPS stops the job
-with *Unable to add document to print job*, even when that printer lists
-`application/octet-stream`. Most AirPrint queues on macOS are forwarding queues (`dnssd://`),
+A printer at the end of a forwarding queue decides for itself whether it reads the bytes, even
+when it lists `application/octet-stream`. One that does not answers
+`client-error-attributes-or-values-not-supported`. CUPS then keeps the job and retries it until
+it is cancelled, and the job's message may say *Unable to add document to print job* or only
+that it is printing. `Validate-Job` passing does not show that the printer will read the bytes. Most AirPrint queues on macOS are forwarding queues (`dnssd://`),
 and macOS refuses to create a raw queue at all.
 
 Read it from `GetConfigurationAsync`:
