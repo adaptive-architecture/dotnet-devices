@@ -324,6 +324,9 @@ It runs `cupsfilter` up to `pdftopdf` three times: with `print-scaling=auto`, wi
 landed each time, and exits 0 on PASS and 1 on FAIL. It needs `cupsfilter`, `pdftoppm`
 (poppler-utils) and `python3`, and `sudo` when the queue's PPD is readable only by root.
 
+It passes on Ubuntu 26.04 with cups-filters 2.0.1 and libcupsfilters 2.1.1, where `pdftopdf`
+does its placement, through an Epson L6270 PPD with the 4x6 label on A4.
+
 ### The printer reported an error
 
 `PrinterOperationException` carries the cause as data, so you do not match on the message.

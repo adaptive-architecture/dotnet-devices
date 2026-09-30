@@ -42,7 +42,8 @@ echo "ppd:          ${ppd:-none, cupsfilter defaults}"
 echo "document:     $pdf"
 echo "media:        $media"
 if command -v dpkg-query >/dev/null 2>&1; then
-    echo "cups-filters: $(dpkg-query -W -f '${Package} ${Version}  ' cups-filters libcupsfilters2 2>/dev/null || true)"
+    echo "cups-filters: $(dpkg-query -W -f '${db:Status-Abbrev} ${Package} ${Version}\n' cups-filters 'libcupsfilters2*' 2>/dev/null \
+        | awk '$1 == "ii" { printf "%s %s  ", $2, $3 }')"
 elif command -v rpm >/dev/null 2>&1; then
     echo "cups-filters: $(rpm -q cups-filters libcupsfilters 2>/dev/null | tr '\n' ' ')"
 fi
