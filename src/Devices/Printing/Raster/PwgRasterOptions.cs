@@ -44,7 +44,21 @@ public sealed record PwgRasterOptions
     /// Gets the self-describing media name, such as <c>iso_a4_210x297mm</c>, or <c>null</c>
     /// to leave the page size unnamed.
     /// </summary>
+    /// <remarks>
+    /// A page is named only with a size it has: the name is written when the size it encodes
+    /// is within 1 mm of the page, the first of <see cref="MediaSizeNames"/> that is
+    /// otherwise, and none when neither is. A name that encodes no size, such as
+    /// <c>letter</c>, is never written, because strict firmware compares the name with the
+    /// page and reports a mismatch.
+    /// </remarks>
     public string? MediaName { get; init; }
+
+    /// <summary>
+    /// Gets the self-describing media names the printer supports, from its
+    /// <c>media-supported</c> attribute, which name a page that <see cref="MediaName"/> does
+    /// not fit. Defaults to empty.
+    /// </summary>
+    public IReadOnlyList<string> MediaSizeNames { get; init; } = [];
 
     /// <summary>
     /// Gets the coordinate system the printer reads the back of a duplex sheet in, from its

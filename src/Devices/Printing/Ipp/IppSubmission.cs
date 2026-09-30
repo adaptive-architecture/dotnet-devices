@@ -5,4 +5,4 @@ internal sealed record IppSubmission(
     PrinterPayload Payload,
     string DocumentFormat,
     PrintOptions? Options,
-    IReadOnlyList<string> Dropped);
+    IReadOnlyList<DroppedOption> Dropped);

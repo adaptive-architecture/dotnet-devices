@@ -181,7 +181,8 @@ internal static class PrinterSchemes
     // The placement, the smoothing switch and the media geometry are named because the
     // spooler applies them where it renders the page itself, which is every payload it draws
     // through GDI; a payload it passes through as RAW reaches a firmware that renders it, and
-    // the driver reports them dropped for that job.
+    // the driver reports them dropped for that job. GDI draws on the paper of the queue, so a
+    // document media size is reported dropped on every path.
     private const PrintOptionSupports WindowsDeviceModeOptions =
         PrintOptionSupports.JobName | PrintOptionSupports.Copies | PrintOptionSupports.Duplex
         | PrintOptionSupports.ColorMode | PrintOptionSupports.Orientation | PrintOptionSupports.MediaSource

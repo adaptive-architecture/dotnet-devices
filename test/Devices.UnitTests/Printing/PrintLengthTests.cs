@@ -38,6 +38,16 @@ public class PrintLengthTests
     public void ToPixels_RoundsToWholePixels(double millimeters, int dpi, int expected) =>
         Assert.Equal(expected, PrintLength.FromMillimeters(millimeters).ToPixels(dpi));
 
+    [Theory]
+    // A4 is 826.77 by 1169.29 pixels at 100 dpi and 2480.31 by 3507.87 at 300; an inch is
+    // exactly the resolution and stays so.
+    [InlineData(210, 100, 826)]
+    [InlineData(297, 100, 1169)]
+    [InlineData(297, 300, 3507)]
+    [InlineData(25.4, 600, 600)]
+    public void ToWholePixels_RoundsDown(double millimeters, int dpi, int expected) =>
+        Assert.Equal(expected, PrintLength.FromMillimeters(millimeters).ToWholePixels(dpi));
+
     [Fact]
     public void ToPixels_MovesTheSameDistanceBothWays()
     {

@@ -26,6 +26,10 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
     private const string WindowsOnlyMessage = "The Windows spooler driver needs Windows.";
 
+    private const string DeviceModeReason = "a Windows device mode has no field for it, or the driver of the queue does not offer the value";
+
+    private const string OnQueuePaper = "GDI draws the page on the paper of the queue";
+
     private readonly PrintFormatPolicy _formats;
     private readonly ILogger _logger;
     private readonly IWindowsSpoolerInterop _interop;
@@ -229,8 +233,10 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
         var request = WindowsSpoolerDeviceModeMapper.Build(options, MediaFor(queueName, options), SourcesFor(queueName, options));
         var imageRequest = WithoutImageLayout(request);
-        var dropped = WithoutGdiDropped(request.Dropped, true);
-        ReportDropped(queueName, dropped);
+        var dropped = Dropped(
+            queueName,
+            WithoutGdiDropped(request.Dropped, true),
+            PrintOptionValidator.Unapplied(options, PrintOptionStage.Conversion, OnQueuePaper, nameof(PrintOptions.MediaSizeSource)));
         var copies = options?.Copies ?? 1;
         var bytes = payload.Data.ToArray();
         var jobName = options?.JobName ?? queueName;
@@ -267,7 +273,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             return new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
             {
                 JobName = options?.JobName,
-                DroppedOptions = dropped,
+                DroppedOptionDetails = dropped,
             };
         }
         finally
@@ -286,8 +292,13 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
         var request = WindowsSpoolerDeviceModeMapper.Build(options, MediaFor(queueName, options), SourcesFor(queueName, options));
         var imageRequest = WithoutImageLayout(request);
-        var dropped = WithoutGdiDropped(request.Dropped, false);
-        ReportDropped(queueName, dropped);
+        var dropped = Dropped(
+            queueName,
+            WithoutGdiDropped(request.Dropped, false),
+            [
+                .. PrintOptionValidator.Unapplied(options, PrintOptionStage.Conversion, "the library does not convert an image", nameof(PrintOptions.ConverterName)),
+                .. PrintOptionValidator.Unapplied(options, PrintOptionStage.Conversion, OnQueuePaper, nameof(PrintOptions.MediaSizeSource)),
+            ]);
         var copies = options?.Copies ?? 1;
         var bytes = payload.Data.ToArray();
         var jobName = options?.JobName ?? queueName;
@@ -315,7 +326,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             return Task.FromResult(new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
             {
                 JobName = options?.JobName,
-                DroppedOptions = dropped,
+                DroppedOptionDetails = dropped,
             });
         }
         finally
@@ -346,12 +357,17 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // mode. PageRanges is additionally honoured by the PDF render, which selects
     // pages rather than naming a mode field.
     // The join costs an allocation for each job, so it runs only when a reader wants it.
-    private void ReportDropped(string queueName, List<string> dropped)
+    private List<DroppedOption> Dropped(string queueName, List<string> deviceMode, DroppedOption[] unapplied)
     {
-        if (dropped.Count > 0 && _logger.IsEnabled(LogLevel.Warning))
+        if (deviceMode.Count > 0 && _logger.IsEnabled(LogLevel.Debug))
         {
-            SpoolerLog.DeviceModeOptionsDropped(_logger, queueName, String.Join(", ", dropped));
+            SpoolerLog.DeviceModeOptionsDropped(_logger, queueName, String.Join(", ", deviceMode));
         }
+
+        List<DroppedOption> all = new(deviceMode.Count + unapplied.Length);
+        all.AddRange(PrintOptionValidator.Dropped(deviceMode, PrintOptionStage.DeviceMode, DeviceModeReason));
+        all.AddRange(unapplied);
+        return all;
     }
 
     private static List<string> WithoutGdiDropped(IReadOnlyList<string> dropped, bool honorPageRanges)
@@ -436,6 +452,17 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         cancellationToken.ThrowIfCancellationRequested();
 
         var request = WindowsSpoolerDeviceModeMapper.Build(options, MediaFor(queueName, options), SourcesFor(queueName, options));
+        var dropped = Dropped(
+            queueName,
+            [.. request.Dropped],
+            PrintOptionValidator.Unapplied(
+                options,
+                PrintOptionStage.Channel,
+                "the RAW data type sends the bytes as they are, and nothing renders them",
+                nameof(PrintOptions.Placement),
+                nameof(PrintOptions.Smoothing),
+                nameof(PrintOptions.MediaSizeSource),
+                nameof(PrintOptions.ConverterName)));
         var copies = options?.Copies ?? 1;
         var bytes = payload.Data.ToArray();
 
@@ -487,7 +514,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             {
                 JobName = options?.JobName,
                 Detail = copies == 1 ? null : $"Copy 1 of {copies}. Each copy is a separate spooler job.",
-                DroppedOptions = request.Dropped,
+                DroppedOptionDetails = dropped,
             });
         }
         finally

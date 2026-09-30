@@ -1,4 +1,4 @@
-# Troubleshooting
+﻿# Troubleshooting
 
 This page tells you how to find why a print job did not print. Read the data the library gives
 first, then turn on the log, then read the raw answer.
@@ -40,6 +40,34 @@ A job stops with the reason `resources-are-not-ready`, and the printer reports
 `cups-pki-expired`. Neither keyword tells you what to do. `PrinterStateMessage` does: the print
 server could not open the TLS connection, because the device certificate is expired. Replace the
 certificate on the device, or point the queue at the plain port.
+
+## Why did the job not print as asked?
+
+A job can print and still lose an option it asked for: a device mode with no field for it,
+a document that was never rendered, or a channel with nowhere to carry it. The sheet then
+shows the printer's own setting for that option. Every option lost this way is listed on the
+returned job, with the step that dropped it and the reason:
+
+```csharp
+PrintJobInfo job = await printer.PrintAsync(payload, options, cancellationToken)
+    .ConfigureAwait(false);
+
+foreach (DroppedOption dropped in job.DroppedOptionDetails)
+{
+    Console.WriteLine($"{dropped.Option} at {dropped.Stage}: {dropped.Reason}");
+    // Placement at Channel: CUPS receives the document as it is, and no IPP attribute carries it
+}
+```
+
+`DroppedOptions` holds the same names alone. Each printer type also logs every entry once, as
+event 2041 at `Warning`, whether or not the job went through `PrinterManager`.
+
+| Stage | What dropped the option | What to do |
+| :--- | :--- | :--- |
+| `PrinterCapabilities` | `UnsupportedOptionBehavior.Drop` removed a value the printer does not list. | Pick a value from `PrinterConfiguration`, or use `Throw` to fail the job instead. |
+| `DeviceMode` | The Windows spooler has no device mode field for it, or the driver of the queue does not offer the value. | Set it on the queue itself, or print over IPP. |
+| `Conversion` | Only the library's renderer applies it, and the job was not rendered: the format is not converted on this path, no converter is registered, or the printer reads nothing the converter writes. | Register a converter, or send a format the channel renders. `Smoothing` alone never makes a job render. |
+| `Channel` | The channel has nowhere to carry it: a raw socket sends the bytes with no job template, CUPS receives the document as it is, and a Windows queue takes a printer language as `RAW`. | Choose a channel that applies it, or leave it unset. |
 
 ## Which transport answered?
 
@@ -91,9 +119,16 @@ IppTransportOptions transport = new() { LoggerFactory = loggerFactory };
 
 A type you build yourself takes the factory through its own `LoggerFactory` property:
 `MdnsPrinterDiscovery`, `SnmpPrinterStatusClient`, `TcpNetworkPrinterDiscovery`,
-`TcpPrinterTransport`, `PollingPrintJobMonitor`, `RawPrinter`, `PrinterFactory`, `SpoolerPrinter`,
-`SpoolerPrinterDiscovery` and `SpoolerPrintJobQueue`. A spooler type falls back to the factory of
-its `IppTransport`, so setting only the transport policy is enough.
+`TcpPrinterTransport`, `PollingPrintJobMonitor`, `RawPrinter`, `IppPrinter`, `CupsPrinter`,
+`PrinterFactory`, `SpoolerPrinter`, `SpoolerPrinterDiscovery` and `SpoolerPrintJobQueue`.
+
+- **`PrinterFactory` hands its factory to every printer it opens**: IPP, raw, spooler and
+  CUPS. It falls back to `IppTransportOptions.LoggerFactory`, so a factory built from a
+  transport policy with a log needs no second call.
+- **An IPP, CUPS or spooler printer falls back to the factory of its transport policy**, so
+  setting only the transport policy is enough.
+- **The CUPS spooler driver takes the factory of `SpoolerPrinter`**, so a `spooler://` printer
+  on Linux and macOS writes its IPP events to the same log.
 
 ### What each level means
 
@@ -134,12 +169,13 @@ An event identifier is stable. It is never reused for another meaning and never 
 | 2021 | Error | Queue correlation failed, so one printer may show as more than one. |
 | 2030 | Debug | A status channel did not answer. |
 | 2031 | Warning | The status came from a fallback channel after another did not answer. |
-| 2032 | Warning | A printer language goes to a channel with no passthrough, so it may print as text. |
+| 2032 | Warning | A printer language goes to a channel with no passthrough, so it may print as text. It is not raised when the allowed transports offer no channel that passes bytes through, because the application chose that. |
 | 2033 | Debug | The channel a job was routed to, and why. |
 | 2034 | Warning | A queue read goes to a channel with no job queue. |
 | 2035 | Debug | A printer was opened straight from its address, with no discovery. |
 | 2036 | Information | A discovery ran because an identifier could not be resolved. |
-| 2040 | Warning | The options a job lost, so it printed with the settings of the queue. |
+| 2040 | Debug | The options a job lost, in one line. Event 2041 reports each of them. |
+| 2041 | Warning | One option a job lost, with the stage that dropped it and the reason. Each printer type raises it, with or without `PrinterManager`. |
 | 2050 | Information | A job was submitted: the job, the printer, the endpoint, the format and the size. |
 | 2051 | Debug | The name of a job and the user who sent it. **Personal data.** |
 | 2060 | Information | A job reached a terminal state. |
@@ -166,7 +202,7 @@ An event identifier is stable. It is never reused for another meaning and never 
 | 1031 | Warning | The printer listed no format it knows, so the job went as `application/octet-stream`. **This is the cause of a label that prints as a page of source.** |
 | 1032 | Information | A document was converted to a raster, because the printer reads no format of the document itself. **The printer received a raster and not the document you handed in**, so the fonts and the vectors are the converter's rendering of them. |
 | 1033 | Debug | The size of the converted document, with the format it was converted to. |
-| 1034 | Warning | A document was **not** converted, with the reason, so it went unchanged and the printer may refuse it. It fires only when a converter is registered and the printer reads no format that converter writes. |
+| 1034 | Debug | A document was **not** converted, with the reason, so it went unchanged and the printer may refuse it. Event 2041 reports the options it lost. It fires only when a converter is registered and the printer reads no format that converter writes. |
 
 ### `AdaptArch.Devices.Printing.Discovery`
 
@@ -205,7 +241,7 @@ An event identifier is stable. It is never reused for another meaning and never 
 | 4000 | Debug | The Windows spooler took a job. |
 | 4001 | Debug | How many queues the Windows spooler reported. |
 | 4011 | Error | The identity of a queue was not read, so its port aliases are lost and it may show as a printer of its own. |
-| 4020 | Warning | The options the Windows driver did not apply. |
+| 4020 | Debug | The options the Windows driver did not apply. Event 2041 reports each of them. |
 
 An application that sets no factory writes nothing and pays almost nothing: each event stops at
 its "is this level on?" test.

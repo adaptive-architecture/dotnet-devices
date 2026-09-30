@@ -104,11 +104,19 @@ public sealed class RawPrinter : IPrinter
         await Transport.WriteAsync(Endpoint, payload, cancellationToken).ConfigureAwait(false);
 
         var completedAt = DateTimeOffset.UtcNow;
-        return new PrintJobInfo(Guid.NewGuid().ToString("n"), Id, PrintJobState.Completed)
+        PrintJobInfo job = new(Guid.NewGuid().ToString("n"), Id, PrintJobState.Completed)
         {
             JobName = options?.JobName,
             CompletedAt = completedAt,
+            DroppedOptionDetails = options is null
+                ? []
+                : PrintOptionValidator.Dropped(
+                    PrintOptionValidator.SetOptions(options),
+                    PrintOptionStage.Channel,
+                    "a raw channel sends the bytes with no job template"),
         };
+        PrintingLog.ReportDropped(Logger, job);
+        return job;
     }
 
     /// <inheritdoc />

@@ -1,4 +1,6 @@
-﻿namespace AdaptArch.Devices.Printing.Spooler;
+﻿using Microsoft.Extensions.Logging;
+
+namespace AdaptArch.Devices.Printing.Spooler;
 
 /// <summary>
 /// Prints to and queries a print queue of a CUPS server reached over the network.
@@ -17,7 +19,9 @@ public sealed class CupsPrinter : IPrinter
 {
     private readonly ISpoolerDriver _driver;
     private readonly string _queueName;
+    private readonly ILoggerFactory? _transportLoggerFactory;
     private PrinterConfiguration? _configuration;
+    private ILogger? _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CupsPrinter"/> class.
@@ -49,6 +53,7 @@ public sealed class CupsPrinter : IPrinter
         PrintFormatPolicy? formats)
         : this(endpoint, CreateDriver(endpoint, httpClient, options, formats))
     {
+        _transportLoggerFactory = options.LoggerFactory;
     }
 
     private static CupsSpoolerDriver CreateDriver(
@@ -72,6 +77,19 @@ public sealed class CupsPrinter : IPrinter
         Info = new PrinterInfo(Id, endpoint.Name);
     }
 
+    /// <summary>
+    /// Gets the factory that makes the log of the options a job lost. Defaults to
+    /// <c>null</c>, which falls back to the factory of the <see cref="IppTransportOptions"/>
+    /// this printer was built with, and then writes nothing.
+    /// </summary>
+    /// <remarks>
+    /// An application that uses <c>AddDevices()</c> or <c>AddPrinters()</c> needs no call
+    /// here: the registration takes the <see cref="ILoggerFactory"/> of the container.
+    /// </remarks>
+    public ILoggerFactory? LoggerFactory { get; init; }
+
+    private ILogger Logger => LazyInitializer.EnsureInitialized(ref _logger, () => PrintingLog.Create(LoggerFactory ?? _transportLoggerFactory));
+
     /// <inheritdoc />
     public PrinterId Id { get; }
 
@@ -88,20 +106,16 @@ public sealed class CupsPrinter : IPrinter
         ArgumentNullException.ThrowIfNull(payload);
 
         var effectiveOptions = options;
-        IReadOnlyList<string> dropped = [];
+        IReadOnlyList<DroppedOption> dropped = [];
         if (options is not null && options.OnUnsupported != UnsupportedOptionBehavior.Send)
         {
             var configuration = await GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
             effectiveOptions = PrintOptionValidator.Apply(options, configuration, out dropped);
         }
 
-        // A collection expression over two lists emits a compiler wrapper type that the
-        // trimmer cannot keep intact, with no analyzer warning. A plain list is safe.
         var job = await _driver.SubmitAsync(_queueName, payload, effectiveOptions, cancellationToken).ConfigureAwait(false);
-        List<string> allDropped = new(dropped.Count + job.DroppedOptions.Count);
-        allDropped.AddRange(dropped);
-        allDropped.AddRange(job.DroppedOptions);
-        job.DroppedOptions = allDropped;
+        PrintOptionValidator.Prepend(job, dropped);
+        PrintingLog.ReportDropped(Logger, job);
         return job;
     }
 

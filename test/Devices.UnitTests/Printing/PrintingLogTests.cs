@@ -92,6 +92,48 @@ public class PrintingLogTests
         Assert.Equal(LogLevel.Warning, fallback.Level);
     }
 
+    [Theory]
+    [InlineData(false, 1)]
+    [InlineData(true, 0)]
+    public async Task PrintAsync_WarnsOfNoPassthroughOnlyWhereTheTransportsOfferOne(bool ippOnly, int warnings)
+    {
+        // An application that allowed no transport which passes bytes through chose that, and
+        // a warning on every label would teach it to ignore the log.
+        FakeLoggerFactory factory = new();
+        var ipp = FakePrinters.Ipp("printer.local", DiscoverySource.Mdns);
+        PrinterManager manager = new(
+            new FakeMdnsDiscovery([ipp]),
+            new FakeSpoolerDiscovery([]),
+            new FakeNetworkProbe([]),
+            new FakePrinterFactory(),
+            new FakePrintJobMonitor([]),
+            new PrinterManagerOptions
+            {
+                LoggerFactory = factory,
+                Transports = ippOnly ? [PrinterScheme.Ipp] : PrinterManagerOptions.DefaultTransports,
+            });
+        _ = await manager.DiscoverAsync(null, TestContext.Current.CancellationToken);
+
+        _ = await manager.PrintAsync(
+            ipp.Id,
+            PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
+            null,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(warnings, factory.WithId(2032).Count);
+    }
+
+    [Fact]
+    public void OptionsDropped_IsDebug()
+    {
+        // Each printer type raises 2041 for every option, so the summary would repeat it.
+        FakeLoggerFactory factory = new();
+
+        PrintingLog.OptionsDropped(factory.Logger, PrinterId.ForRaw("printer.local"), "Duplex", "1");
+
+        Assert.Equal(LogLevel.Debug, Assert.Single(factory.WithId(2040)).Level);
+    }
+
     [Fact]
     public void EveryEntryNamesItsSubject()
     {

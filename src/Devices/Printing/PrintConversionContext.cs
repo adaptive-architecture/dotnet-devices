@@ -84,6 +84,12 @@ public sealed record PrintConversionContext(
     public string? MediaName { get; init; }
 
     /// <summary>
+    /// Gets the media names the printer supports, which name a page that
+    /// <see cref="MediaName"/> does not fit. Defaults to empty.
+    /// </summary>
+    public IReadOnlyList<string> MediaSizeNames { get; init; } = [];
+
+    /// <summary>
     /// Gets how the page is fitted to the media, or <c>null</c> when the job named nothing.
     /// Only a converter that knows the media can apply it.
     /// </summary>

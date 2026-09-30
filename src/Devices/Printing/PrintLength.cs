@@ -62,6 +62,15 @@ public readonly record struct PrintLength
         return Round(HundredthsOfMillimeter * dpi / PerInch);
     }
 
+    // Rounded down: a sheet sized to the nearest pixel can be a fraction larger than the
+    // media, and strict firmware reads that as a larger sheet. The epsilon keeps a length
+    // that is an exact number of pixels from losing one to floating-point error.
+    internal int ToWholePixels(int dpi)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dpi);
+        return (int)Math.Floor((HundredthsOfMillimeter * dpi / PerInch) + 1e-6);
+    }
+
     /// <summary>
     /// Returns the length in millimetres, for a log line or a message.
     /// </summary>

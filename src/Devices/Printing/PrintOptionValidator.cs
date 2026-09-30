@@ -3,7 +3,9 @@
 // A printer that reported nothing cannot judge anything, so the options pass unchanged.
 internal static class PrintOptionValidator
 {
-    public static PrintOptions? Apply(PrintOptions? options, PrinterConfiguration configuration, out IReadOnlyList<string> dropped)
+    private const string CapabilityReason = "the printer does not list the value among its capabilities";
+
+    public static PrintOptions? Apply(PrintOptions? options, PrinterConfiguration configuration, out IReadOnlyList<DroppedOption> dropped)
     {
         dropped = [];
         if (options is null || options.OnUnsupported == UnsupportedOptionBehavior.Send || IsEmpty(configuration))
@@ -23,7 +25,7 @@ internal static class PrintOptionValidator
                 $"Printer '{configuration.PrinterId}' does not support {String.Join(", ", unsupported)}.");
         }
 
-        dropped = unsupported;
+        dropped = Dropped(unsupported, PrintOptionStage.PrinterCapabilities, CapabilityReason);
         return Without(options, unsupported);
     }
 
@@ -130,6 +132,59 @@ internal static class PrintOptionValidator
             && !configuration.SupportedScalings.Contains(scaling))
         {
             unsupported.Add(nameof(PrintOptions.Scaling));
+        }
+    }
+
+    public static DroppedOption[] Dropped(IEnumerable<string> names, PrintOptionStage stage, string reason) =>
+        names.Select(name => new DroppedOption(name, stage, reason)).ToArray();
+
+    // Every option set away from its default that asks the device for something. The job
+    // name, the user name, the password and OnUnsupported steer the library, not the sheet.
+    public static List<string> SetOptions(PrintOptions options)
+    {
+        List<string> set = [];
+        AddIfSet(set, options.Copies is not null, nameof(PrintOptions.Copies));
+        AddIfSet(set, options.Duplex is not null, nameof(PrintOptions.Duplex));
+        AddIfSet(set, options.ColorMode is not null, nameof(PrintOptions.ColorMode));
+        AddIfSet(set, options.Orientation is not null, nameof(PrintOptions.Orientation));
+        AddIfSet(set, options.Scaling is not null, nameof(PrintOptions.Scaling));
+        AddIfSet(set, options.FitArea != PrintFitArea.Printable, nameof(PrintOptions.FitArea));
+        AddIfSet(set, options.MediaSource is not null, nameof(PrintOptions.MediaSource));
+        AddIfSet(set, options.MediaSize is not null, nameof(PrintOptions.MediaSize));
+        AddIfSet(set, options.MediaDimensions is not null, nameof(PrintOptions.MediaDimensions));
+        AddIfSet(set, options.MediaSizeSource != MediaSizeSource.Printer, nameof(PrintOptions.MediaSizeSource));
+        AddIfSet(set, options.Placement is { IsEmpty: false }, nameof(PrintOptions.Placement));
+        AddIfSet(set, options.Smoothing is not null, nameof(PrintOptions.Smoothing));
+        AddIfSet(set, options.MediaType is not null, nameof(PrintOptions.MediaType));
+        AddIfSet(set, options.OutputBin is not null, nameof(PrintOptions.OutputBin));
+        AddIfSet(set, options.ResolutionDpi is not null, nameof(PrintOptions.ResolutionDpi));
+        AddIfSet(set, options.Quality is not null, nameof(PrintOptions.Quality));
+        AddIfSet(set, options.PageRanges is not null, nameof(PrintOptions.PageRanges));
+        AddIfSet(set, options.ConverterName is not null, nameof(PrintOptions.ConverterName));
+        AddIfSet(set, options.NumberUp is not null, nameof(PrintOptions.NumberUp));
+        return set;
+    }
+
+    // The named options this job set, reported as dropped at one stage for one reason.
+    public static DroppedOption[] Unapplied(PrintOptions? options, PrintOptionStage stage, string reason, params string[] names) =>
+        options is null ? [] : Dropped(SetOptions(options).Where(names.Contains), stage, reason);
+
+    // The drops found above a driver come first, and the driver never repeats one of them.
+    // A collection expression over two lists emits a compiler wrapper type that the trimmer
+    // cannot keep intact, with no analyzer warning. A plain list is safe.
+    public static void Prepend(PrintJobInfo job, IReadOnlyList<DroppedOption> dropped)
+    {
+        List<DroppedOption> all = new(dropped.Count + job.DroppedOptionDetails.Count);
+        all.AddRange(dropped);
+        all.AddRange(job.DroppedOptionDetails);
+        job.DroppedOptionDetails = all;
+    }
+
+    private static void AddIfSet(List<string> set, bool isSet, string name)
+    {
+        if (isSet)
+        {
+            set.Add(name);
         }
     }
 

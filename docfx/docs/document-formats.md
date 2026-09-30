@@ -1,4 +1,4 @@
-# Document formats
+﻿# Document formats
 
 What reaches the printer is not always what you handed in. This page says what is sent for
 each content type, what happens to a document the printer cannot read, and how to add a
@@ -49,10 +49,10 @@ neither. There the library converts, and sends the result as the format the prin
 
 | Channel | A PDF job |
 | :--- | :--- |
-| `spooler://` on Linux and macOS, and `cups://` anywhere | Passed through. The CUPS filter chain renders it with driver knowledge no converter here has |
+| `spooler://` on Linux and macOS, and `cups://` anywhere | Passed through, and never converted. The CUPS filter chain renders it with driver knowledge no converter here has. A placement, the smoothing switch and a document media size are reported in `DroppedOptionDetails`, because no IPP attribute carries them |
 | `ipp://` and `ipps://`, printer lists `application/pdf` | Passed through. The document itself is always better than a raster of it, unless the job names a converter |
 | `ipp://` and `ipps://`, printer lists `image/pwg-raster` | Converted, and sent as one job |
-| `ipp://` and `ipps://`, printer lists neither | Sent unchanged, for the printer to refuse. Event 1034 says why |
+| `ipp://` and `ipps://`, printer lists neither | Sent unchanged, for the printer to refuse. Event 1034 says why, and the options only a renderer applies are reported dropped |
 | `spooler://` on Windows | Converted to one PNG a page and drawn through GDI |
 | `raw://` | Sent unchanged. Port 9100 has no stage that puts a raster on a page |
 
@@ -97,6 +97,31 @@ otherwise select a subset of the subset.
 gets a conforming encoder without writing one, and the core package pays no dependency for
 either. Both take the same bitmap: top line first, chunky pixels, no padding between the
 lines.
+
+A page header describes the page as CUPS writes it, because strict firmware compares the
+fields and reports a page size mismatch when they disagree. The sheet is sized in whole pixels
+rounded down, so an A4 page at 300 dpi is 2480 by 3507 pixels and 595 by 841 points, never a
+fraction larger than the paper. The `ImageBox` covers the whole page. The page is named only
+with a size it has: the job's media name when its size is within 1 mm of the page, otherwise
+the first of the printer's `media-supported` names that is, otherwise no name at all. A name
+that encodes no size, such as `letter`, is never written.
+
+## What each channel does to each format
+
+| Format | `spooler://` on Windows | `spooler://` on Linux and macOS, and `cups://` | `ipp://` and `ipps://` | `raw://` |
+| :--- | :--- | :--- | :--- | :--- |
+| PDF | Converted to one PNG a page and drawn through GDI on the paper of the queue | Passed through; CUPS renders it | Passed through when the printer lists it and the job needs no rendering; converted to PWG Raster otherwise; sent unchanged when the printer reads nothing the converter writes | Sent unchanged |
+| PNG and JPEG | Drawn through GDI, which applies the orientation, the scaling, the placement and the smoothing switch | Passed through; CUPS scales it onto the page | Sent as it is: the library converts documents only | Sent unchanged |
+| ZPL, EPL and the other printer languages | Sent with the `RAW` datatype, unchanged | Sent as `application/vnd.cups-raw`; a queue with a driver may still convert it | Sent as the language or as `application/octet-stream`, whichever the printer names | Sent unchanged |
+
+An image that declares no resolution is 96 dpi to GDI+ and 200 dpi to CUPS, so the same bare
+file prints about half as wide on Windows. Declare the resolution in the file to get the same
+page on both.
+
+Wherever a row sends the payload without rendering it, the options only a renderer applies —
+`Placement`, `Smoothing`, `MediaSizeSource.Document` and `ConverterName` — are listed in
+`PrintJobInfo.DroppedOptionDetails` with the reason, and logged as event 2041. A raw channel
+carries no job template at all, so it reports every option the job set.
 
 ## Can a raw send print a PDF?
 

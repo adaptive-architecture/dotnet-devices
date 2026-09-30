@@ -18,6 +18,8 @@ internal sealed class JobOutcome
     public string Result { get; set; } = Failed;
 
     public string Detail { get; set; }
+
+    public IReadOnlyList<string> DroppedOptions { get; set; } = [];
 }
 
 // Submits a job and reports what became of it, one line at a time. The page shows those
@@ -59,8 +61,10 @@ internal sealed class PrintJobRunner
         if (raw && accepts.Accepts == false)
         {
             outcome.Result = JobOutcome.Skipped;
-            outcome.Detail = $"the channel does not read {contentType}";
-            yield return LogLineDto.Warn($"Skipped: this channel does not read {contentType}.");
+            outcome.Detail = $"the sample skipped this raw job; the channel reports it does not read {contentType}";
+            yield return LogLineDto.Warn(
+                $"Not sent: the sample skipped this raw job, because the channel reports it does not read {contentType}. " +
+                "Nothing reached the printer. A raw job is not converted, so a format the channel does not read would only waste paper.");
             if (accepts.Reads is not null)
             {
                 yield return LogLineDto.Warn($"This channel reads: {accepts.Reads}");
@@ -123,9 +127,11 @@ internal sealed class PrintJobRunner
         }
 
         yield return LogLineDto.Say($"Job {submitted.JobId} submitted ({submitted.State}).");
-        if (submitted.DroppedOptions.Count > 0)
+        outcome.DroppedOptions = submitted.DroppedOptions;
+        foreach (var dropped in submitted.DroppedOptionDetails)
         {
-            yield return LogLineDto.Warn($"Dropped options: {String.Join(", ", submitted.DroppedOptions)}");
+            yield return LogLineDto.Warn(
+                $"Dropped {dropped.Option} at the {dropped.Stage} stage, because {dropped.Reason}. The sheet shows the printer's own setting for it.");
         }
 
         if (raw)
@@ -333,7 +339,17 @@ internal sealed class PrintJobRunner
             foreach (var outcome in matching)
             {
                 yield return new LogLineDto($"  {outcome.What} — {outcome.Detail}", Level(group));
+                if (outcome.DroppedOptions.Count > 0)
+                {
+                    yield return LogLineDto.Warn($"    printed without: {String.Join(", ", outcome.DroppedOptions)}");
+                }
             }
+        }
+
+        var withoutOptions = outcomes.FindAll(static outcome => outcome.DroppedOptions.Count > 0).Count;
+        if (withoutOptions > 0)
+        {
+            yield return LogLineDto.Warn($"{withoutOptions} job(s) printed without an option they asked for.");
         }
 
         var unfinished = outcomes.FindAll(static outcome => outcome.Result == JobOutcome.StillPrinting).Count;

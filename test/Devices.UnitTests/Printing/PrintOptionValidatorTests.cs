@@ -65,7 +65,12 @@ public class PrintOptionValidatorTests
         Assert.Null(result.Duplex);
         Assert.Null(result.MediaSize);
         Assert.Equal(2, result.Copies);
-        Assert.Equal(["Duplex", "MediaSize"], dropped);
+        Assert.Equal(["Duplex", "MediaSize"], dropped.Select(d => d.Option));
+        Assert.All(dropped, option =>
+        {
+            Assert.Equal(PrintOptionStage.PrinterCapabilities, option.Stage);
+            Assert.Equal("the printer does not list the value among its capabilities", option.Reason);
+        });
 
         // The caller's own instance must not be mutated by Drop.
         Assert.Equal(2, options.Copies);
@@ -133,7 +138,7 @@ public class PrintOptionValidatorTests
 
         var result = PrintOptionValidator.Apply(options, monochrome, out var dropped);
 
-        Assert.Equal([nameof(PrintOptions.ColorMode)], dropped);
+        Assert.Equal([nameof(PrintOptions.ColorMode)], dropped.Select(d => d.Option));
         Assert.Null(result!.ColorMode);
     }
 
@@ -150,7 +155,7 @@ public class PrintOptionValidatorTests
 
         var result = PrintOptionValidator.Apply(options, OneTrayPrinter(), out var dropped);
 
-        Assert.Equal([option], dropped);
+        Assert.Equal([option], dropped.Select(d => d.Option));
         Assert.Null(Value(result, option));
     }
 
@@ -202,7 +207,7 @@ public class PrintOptionValidatorTests
 
         var result = PrintOptionValidator.Apply(options, configuration, out var dropped);
 
-        Assert.Equal([nameof(PrintOptions.MediaSource)], dropped);
+        Assert.Equal([nameof(PrintOptions.MediaSource)], dropped.Select(d => d.Option));
         Assert.Null(result.MediaSource);
     }
 
@@ -283,7 +288,7 @@ public class PrintOptionValidatorTests
         var applied = PrintOptionValidator.Apply(options, configuration, out var dropped);
 
         Assert.Null(applied.Orientation);
-        Assert.Equal([nameof(PrintOptions.Orientation)], dropped);
+        Assert.Equal([nameof(PrintOptions.Orientation)], dropped.Select(d => d.Option));
     }
 
     [Fact]
@@ -321,7 +326,7 @@ public class PrintOptionValidatorTests
         var applied = PrintOptionValidator.Apply(options, configuration, out var dropped);
 
         Assert.Null(applied.Scaling);
-        Assert.Equal([nameof(PrintOptions.Scaling)], dropped);
+        Assert.Equal([nameof(PrintOptions.Scaling)], dropped.Select(d => d.Option));
     }
 
     // An empty list is "the printer said nothing", so the option passes unchanged.

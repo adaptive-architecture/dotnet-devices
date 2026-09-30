@@ -12,12 +12,12 @@ internal sealed class IppContext
     {
     }
 
-    public IppContext(HttpClient httpClient, IppTransportOptions? options)
+    public IppContext(HttpClient httpClient, IppTransportOptions? options, ILoggerFactory? loggerFactory = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         Client = httpClient;
         Options = options ?? new IppTransportOptions();
-        Logger = IppLog.Create(Options.LoggerFactory);
+        Logger = IppLog.Create(loggerFactory ?? Options.LoggerFactory);
     }
 
     public HttpClient Client { get; }

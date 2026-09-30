@@ -1,4 +1,6 @@
-﻿namespace AdaptArch.Devices.Printing.Ipp;
+﻿using Microsoft.Extensions.Logging;
+
+namespace AdaptArch.Devices.Printing.Ipp;
 
 /// <summary>
 /// Prints to and queries a network printer over IPP (Internet Printing Protocol).
@@ -17,6 +19,7 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
     private readonly IppContext _context;
     private readonly IppEndpointResolver _resolver;
     private PrinterConfiguration? _configuration;
+    private ILogger? _logger;
     private bool _disposed;
 
     /// <summary>
@@ -102,6 +105,19 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
     /// </remarks>
     public PrintFormatPolicy Formats { get; init; } = PrintFormatPolicy.Default;
 
+    /// <summary>
+    /// Gets the factory that makes the log of the options a job lost. Defaults to
+    /// <c>null</c>, which falls back to <see cref="IppTransportOptions.LoggerFactory"/>, and
+    /// then writes nothing.
+    /// </summary>
+    /// <remarks>
+    /// An application that uses <c>AddDevices()</c> or <c>AddPrinters()</c> needs no call
+    /// here: the registration takes the <see cref="ILoggerFactory"/> of the container.
+    /// </remarks>
+    public ILoggerFactory? LoggerFactory { get; init; }
+
+    private ILogger Logger => LazyInitializer.EnsureInitialized(ref _logger, () => PrintingLog.Create(LoggerFactory ?? _context.Options.LoggerFactory));
+
     /// <inheritdoc />
     /// <exception cref="NotSupportedException">Thrown when an option is not supported by the printer and <see cref="PrintOptions.OnUnsupported"/> is <see cref="UnsupportedOptionBehavior.Throw"/>.</exception>
     /// <exception cref="InvalidOperationException">Thrown when no IPP endpoint answers, or the printer reports an IPP error.</exception>
@@ -115,7 +131,7 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         var effectiveOptions = options;
-        IReadOnlyList<string> dropped = [];
+        IReadOnlyList<DroppedOption> dropped = [];
         if (options is not null && options.OnUnsupported != UnsupportedOptionBehavior.Send)
         {
             var configuration = await GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
@@ -143,9 +159,12 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
 
         var submission = await ConvertIfNeededAsync(payload, format, effectiveOptions, cancellationToken).ConfigureAwait(false);
 
-        return await _resolver.RunAsync(
+        var job = await _resolver.RunAsync(
             (uri, token) => IppRequests.SubmitAsync(_context, uri, Id, new IppSubmission(submission.Payload, submission.Format, submission.Options, dropped), token),
             cancellationToken).ConfigureAwait(false);
+        PrintOptionValidator.Prepend(job, submission.Dropped);
+        PrintingLog.ReportDropped(Logger, job);
+        return job;
     }
 
     // A raster is only readable at a resolution the printer rasters at, so the request is
@@ -195,8 +214,8 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
 
         var left = margins.Left.ToPixels(dpi);
         var top = margins.Top.ToPixels(dpi);
-        var width = media.Width.ToPixels(dpi) - left - margins.Right.ToPixels(dpi);
-        var height = media.Height.ToPixels(dpi) - top - margins.Bottom.ToPixels(dpi);
+        var width = media.Width.ToWholePixels(dpi) - left - margins.Right.ToPixels(dpi);
+        var height = media.Height.ToWholePixels(dpi) - top - margins.Bottom.ToPixels(dpi);
         return width > 0 && height > 0 ? new ImageRectangle(left, top, width, height) : null;
     }
 
@@ -225,7 +244,7 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
     // is registered for it. Everything else passes through: a printer that lists the format
     // reads the document itself, which is always better than a raster of it -- unless the job
     // named the converter, which is the one way of saying otherwise.
-    private async Task<(PrinterPayload Payload, string Format, PrintOptions? Options)> ConvertIfNeededAsync(
+    private async Task<(PrinterPayload Payload, string Format, PrintOptions? Options, IReadOnlyList<DroppedOption> Dropped)> ConvertIfNeededAsync(
         PrinterPayload payload,
         string format,
         PrintOptions? options,
@@ -233,7 +252,10 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
     {
         if (Formats.KindOf(payload.ContentType) != PrinterFormatKind.Document)
         {
-            return (payload, format, options);
+            return (payload, format, options, Unrendered(
+                options,
+                $"the library renders only documents, so {payload.ContentType} goes to the printer as it is",
+                nameof(PrintOptions.ConverterName)));
         }
 
         // The converter is looked for before the format list is read, because an application
@@ -246,7 +268,7 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
             // sending the document unchanged would both be the wrong answer to a question
             // the caller did ask.
             PrintConverters.ThrowIfNamed(Formats, payload.ContentType, options?.ConverterName);
-            return (payload, format, options);
+            return (payload, format, options, Unrendered(options, $"no converter is registered for {payload.ContentType}"));
         }
 
         var configuration = await GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
@@ -264,7 +286,11 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
             && !NeedsRendering(options)
             && supported.Contains(payload.ContentType, StringComparer.OrdinalIgnoreCase))
         {
-            return (payload, format, options);
+            return (payload, format, options, PrintOptionValidator.Unapplied(
+                options,
+                PrintOptionStage.Conversion,
+                "the printer reads the document itself, so the library renders nothing",
+                nameof(PrintOptions.Smoothing)));
         }
 
         var target = IppDocumentFormat.NegotiateConversionTarget(supported, converter);
@@ -274,14 +300,11 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
             // but a job that named a converter should not have to infer from a printed page
             // that the name went nowhere.
             var unreachable = _resolver.Resolved ?? await _resolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
-            IppLog.DocumentNotConverted(
-                _context.Logger,
-                payload.ContentType,
-                unreachable,
-                options?.ConverterName is null
-                    ? "the printer reads no format the converter writes"
-                    : $"the printer reads no format converter '{options.ConverterName}' writes");
-            return (payload, format, options);
+            var reason = options?.ConverterName is null
+                ? "the printer reads no format the converter writes"
+                : $"the printer reads no format converter '{options.ConverterName}' writes";
+            IppLog.DocumentNotConverted(_context.Logger, payload.ContentType, unreachable, reason);
+            return (payload, format, options, Unrendered(options, reason, nameof(PrintOptions.ConverterName)));
         }
 
         var endpoint = _resolver.Resolved ?? await _resolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
@@ -301,8 +324,9 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
             SheetBack = configuration.PwgRasterSheetBack,
             Duplex = options?.Duplex,
             MediaName = mediaName,
-            MediaWidthPixels = media?.Width.ToPixels(dpi),
-            MediaHeightPixels = media?.Height.ToPixels(dpi),
+            MediaSizeNames = configuration.MediaSizes,
+            MediaWidthPixels = media?.Width.ToWholePixels(dpi),
+            MediaHeightPixels = media?.Height.ToWholePixels(dpi),
             FitArea = ResolveFitArea(options, media, configuration.DefaultMediaMargins, dpi),
             Scaling = options?.Scaling,
             Orientation = options?.Orientation,
@@ -337,8 +361,16 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
                 : PrintOptionValidator.WithoutPageRanges(options);
         }
 
-        return (PrinterPayload.FromBytes(documents[0], target), target, converted);
+        return (PrinterPayload.FromBytes(documents[0], target), target, converted, []);
     }
+
+    // What only a renderer applies, lost on a job that is sent as it is.
+    private static DroppedOption[] Unrendered(PrintOptions? options, string reason, params string[] more) =>
+        PrintOptionValidator.Unapplied(
+            options,
+            PrintOptionStage.Conversion,
+            reason,
+            [nameof(PrintOptions.Placement), nameof(PrintOptions.Smoothing), nameof(PrintOptions.MediaSizeSource), .. more]);
 
     /// <inheritdoc />
     /// <exception cref="InvalidOperationException">Thrown when no IPP endpoint answers, or the printer reports an IPP error.</exception>

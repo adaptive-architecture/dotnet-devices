@@ -19,6 +19,12 @@ Read [docs/](docs/README.md) for progressive discovery of the architecture, pack
   (`String.Empty`, `Int32.MaxValue`) and for `nameof(String)`, where the keyword is
   not legal. Roslynator `RCS1013` is off, and `roslynator_use_var = always` keeps
   `RCS1264` in agreement.
+- **No print option is dropped silently**: on every channel, each `PrintOptions` member is
+  either applied or reported in `PrintJobInfo.DroppedOptionDetails` as a `DroppedOption`
+  with its `PrintOptionStage` and a reason written for a person, and the printer type logs it
+  through event 2041 (`PrintingLog.ReportDropped`). A new member must also be set in
+  `EveryOption()` and handled by `PrintOptionValidator.SetOptions`; `PrintOptionsCoverageTests`
+  fails until it is.
 - **License is Apache 2.0**.
 - **Naming**: `AdaptArch.$(MSBuildProjectName)` for package/namespace/assembly; packages live under `src/`, tests under `test/`, samples under `samples/`; solution is the modern `.slnx` format.
 - **Dependencies are reviewed, never casual**: a core `src/` package may take a runtime NuGet
