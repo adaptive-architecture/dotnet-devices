@@ -14,6 +14,9 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
 {
     private static readonly Uri DefaultBaseUri = new("ipp://localhost:631/");
 
+    // CUPS_PTYPE_DEFAULT: the server sets it in printer-type on its default queue.
+    private const int PrinterTypeDefault = 0x20000;
+
     // One client for every driver: the target is fixed, and a client per driver would
     // leak a connection pool each time the factory makes one. It connects through the
     // daemon's domain socket where there is one; see CupsLocalSocket.
@@ -27,8 +30,12 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     // name alone.
     private readonly (string Host, int Port)? _server;
 
+    // The default a user set locally, which lp prefers over the server's. Null where only
+    // the server default applies.
+    private readonly Func<string?>? _userDefault;
+
     public CupsSpoolerDriver(PrintFormatPolicy? formats = null, IppTransportOptions? options = null)
-        : this(SharedClient.Value, DefaultBaseUri, formats, options)
+        : this(SharedClient.Value, DefaultBaseUri, formats, options, userDefault: CupsUserDefault.Find)
     {
     }
 
@@ -52,7 +59,8 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         Uri baseUri,
         PrintFormatPolicy? formats = null,
         IppTransportOptions? options = null,
-        (string Host, int Port)? server = null)
+        (string Host, int Port)? server = null,
+        Func<string?>? userDefault = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(baseUri);
@@ -63,6 +71,7 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         _baseUri = baseUri;
         _formats = formats ?? PrintFormatPolicy.Default;
         _server = server;
+        _userDefault = userDefault;
     }
 
     // Every identifier this driver hands out, so a queue of a named server never reports
@@ -92,6 +101,7 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         var attributes = response.PrintersAttributes ?? [];
         var raw = operations.LastRawResponse;
         List<DiscoveredPrinter> printers = new(attributes.Length);
+        var userDefault = _userDefault?.Invoke();
 
         // An indexed loop, not a Where: the raw groups line up with the typed attributes
         // by position, and skipping an entry with a filter would shift every one after it.
@@ -102,7 +112,12 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
                 continue;
             }
 
-            printers.Add(MapDiscovered(attributes[i], IppRawAttributes.ReadText(raw, i, "device-uri")));
+            // A user default that names no queue marks none, as lp then fails rather than
+            // falling back to the server.
+            var isDefault = userDefault is null
+                ? (IppRawAttributes.ReadInteger(raw, i, "printer-type") & PrinterTypeDefault) is > 0
+                : String.Equals(userDefault, attributes[i].PrinterName, StringComparison.Ordinal);
+            printers.Add(MapDiscovered(attributes[i], IppRawAttributes.ReadText(raw, i, "device-uri"), isDefault));
         }
 
         return printers;
@@ -111,13 +126,14 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     // The name is taken and the address is built from the server this driver was pointed
     // at. printer-uri-supported is deliberately ignored: a CUPS server answers it with the
     // host name it believes it has, which is often not one the client can reach.
-    private DiscoveredPrinter MapDiscovered(PrinterDescriptionAttributes attributes, string? deviceUri)
+    private DiscoveredPrinter MapDiscovered(PrinterDescriptionAttributes attributes, string? deviceUri, bool isDefault)
     {
         var name = attributes.PrinterName!;
         var id = IdFor(name);
         PrinterInfo info = new(id, attributes.PrinterInfo ?? name)
         {
             Location = attributes.PrinterLocation,
+            IsDefault = isDefault,
         };
         return new DiscoveredPrinter(id, EndpointFor(name), info)
         {

@@ -28,6 +28,48 @@ public class CupsSpoolerDriverTests
     }
 
     [Fact]
+    public async Task EnumeratePrintersAsync_ReportsTheQueueCupsMarksAsTheServerDefault()
+    {
+        var printers = await EnumerateTwoQueuesAsync(userDefault: null);
+
+        Assert.False(printers.Single(printer => printer.Id.Authority == "lobby").Info.IsDefault);
+        Assert.True(printers.Single(printer => printer.Id.Authority == "office").Info.IsDefault);
+    }
+
+    [Fact]
+    public async Task EnumeratePrintersAsync_PrefersTheUserDefaultToTheServerDefault()
+    {
+        var printers = await EnumerateTwoQueuesAsync(userDefault: "lobby");
+
+        Assert.True(printers.Single(printer => printer.Id.Authority == "lobby").Info.IsDefault);
+        Assert.False(printers.Single(printer => printer.Id.Authority == "office").Info.IsDefault);
+    }
+
+    [Fact]
+    public async Task EnumeratePrintersAsync_MarksNoQueueWhenTheUserDefaultNamesNone()
+    {
+        var printers = await EnumerateTwoQueuesAsync(userDefault: "gone");
+
+        Assert.All(printers, printer => Assert.False(printer.Info.IsDefault));
+    }
+
+    // 0x23 is the enum tag CUPS answers printer-type with; 0x20000 is its default bit.
+    private static Task<IReadOnlyList<DiscoveredPrinter>> EnumerateTwoQueuesAsync(string userDefault)
+    {
+        var body = IppMessages.Response(0x0000,
+            (0x42, "printer-name", "lobby"),
+            (0x23, "printer-type", 0x0004),
+            (0x04, null, null),
+            (0x42, "printer-name", "office"),
+            (0x23, "printer-type", 0x20004));
+        CupsSpoolerDriver driver = new(
+            new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(body))),
+            new Uri("ipp://localhost:631/"),
+            userDefault: () => userDefault);
+        return driver.EnumeratePrintersAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task SubmitAsync_SendsToTheQueueUriOnTheLocalDaemon()
     {
         // 0x02 is the job-attributes group: a job answer populates from no other tag.

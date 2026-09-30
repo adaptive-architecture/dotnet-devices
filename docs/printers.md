@@ -776,6 +776,28 @@ Native Windows calls cannot run in this repository's test suite or CI, which bot
 Linux. [Windows manual tests](windows-manual-tests.md) lists what a person must check by
 hand.
 
+### The default queue
+
+`PrinterInfo.IsDefault`, and through it `PrinterDevice.IsDefault`, marks the queue a
+print command would pick when it is given none. Windows reports the queue the spooler
+marks as default. On Linux and macOS the driver reports the queue `lp` would pick. It
+follows the order libcups uses and stops at the first one that names a queue:
+
+1. `LPDEST`, then `PRINTER`. A `PRINTER` of `lp` is ignored, as libcups ignores it.
+2. The `Default` line of `~/.cups/lpoptions`, which `lpoptions -d` writes. It is not read
+   for a process that runs as root.
+3. The `Default` line of `$CUPS_SERVERROOT/lpoptions`, or of `/etc/cups/lpoptions` when
+   the variable is unset.
+4. The server default, which `lpadmin -d` sets. CUPS marks it in the `printer-type` of each
+   queue that `CUPS-Get-Printers` returns, so finding it costs no extra request.
+
+An instance (`office/draft`) counts as its queue. When steps 1–3 name a queue that does not
+exist, no queue is the default. The server default does not stand in, because `lp` fails
+in that case too. The macOS "use last printer" preference is not read, because reading it
+needs CoreFoundation. A queue of a named [CUPS server](#a-cups-server-from-any-operating-system)
+reports the server default only, because the settings of this machine do not apply to
+another host.
+
 ### Queue defaults on CUPS
 
 A spooler job carries only the options it sets, so every option it leaves unset takes the

@@ -6,7 +6,7 @@ namespace AdaptArch.Devices.Printing.Ipp;
 
 // Reads an attribute the typed model of SharpIppNext does not carry, from the raw
 // response. IppMarkers does the same for the "marker-*" attributes; this is the general
-// form of it, used for the CUPS "device-uri" and "job-printer-state-message".
+// form of it, used for the CUPS "device-uri", "printer-type" and "job-printer-state-message".
 internal static class IppRawAttributes
 {
     /// <summary>
@@ -28,6 +28,16 @@ internal static class IppRawAttributes
     /// <returns>The value, or <c>null</c> when the printer did not report it.</returns>
     public static string? ReadJobText(IIppResponseMessage? response, int index, string name) =>
         ReadText(response?.JobAttributes, index, name);
+
+    /// <summary>
+    /// Reads an integer or enum attribute from one printer group of a response.
+    /// </summary>
+    /// <param name="response">The raw response, or <c>null</c> when none was captured.</param>
+    /// <param name="index">The index of the printer group.</param>
+    /// <param name="name">The attribute name.</param>
+    /// <returns>The value, or <c>null</c> when the printer did not report it as a number.</returns>
+    public static int? ReadInteger(IIppResponseMessage? response, int index, string name) =>
+        Int32.TryParse(ReadText(response, index, name), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : null;
 
     /// <summary>
     /// Reads every value of a keyword attribute from one printer group of a response.
