@@ -114,6 +114,57 @@ public class IppLogTests
     }
 
     [Fact]
+    public async Task GetJobAsync_ACompletedJobWithAPrinterMessageIsAWarning()
+    {
+        // What CUPS reports for a job the device behind a forwarding queue refused: the state
+        // and the reasons of a job that printed, and the backend's complaint as the message.
+        FakeLoggerFactory factory = new();
+
+        _ = await ReadJobAsync(factory, 9, "Unable to add document to print job.");
+
+        var warning = Assert.Single(factory.WithId(1022));
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Contains("Unable to add document to print job.", warning.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(9, "")]
+    [InlineData(5, "Unable to add document to print job.")]
+    public async Task GetJobAsync_OnlyACompletedJobWithAPrinterMessageIsAWarning(int jobState, string message)
+    {
+        // A job that printed on CUPS carries an empty message; a job still printing is not
+        // done, so what its printer says is no verdict on it yet.
+        FakeLoggerFactory factory = new();
+
+        _ = await ReadJobAsync(factory, jobState, message);
+
+        Assert.Empty(factory.WithId(1022));
+    }
+
+    private static async Task<PrintJobInfo> ReadJobAsync(FakeLoggerFactory factory, int jobState, string message)
+    {
+        var job = IppMessages.Response(
+            0x0000,
+            0x02,
+            (0x21, "job-id", 7),
+            (0x23, "job-state", jobState),
+            (0x44, "job-state-reasons", "processing-to-stop-point"),
+            (0x41, "job-printer-state-message", message));
+        var requestCount = 0;
+        IppMessages.StubHandler handler = new(_ =>
+        {
+            requestCount++;
+            return requestCount == 1
+                ? IppMessages.Ok(IppMessages.Response(0x0000, (0x23, "printer-state", 3)))
+                : IppMessages.Ok(job);
+        });
+        IppPrintJobQueue queue = new(Endpoint, new HttpClient(handler), new IppTransportOptions { LoggerFactory = factory });
+
+        var read = await queue.GetJobAsync(PrinterId.ForIpp("printer.local"), "7", TestContext.Current.CancellationToken);
+        return Assert.IsType<PrintJobInfo>(read);
+    }
+
+    [Fact]
     public async Task PrintAsync_APrinterThatListsNoFormatIsAWarning()
     {
         // The cause of "my label printed as a page of source": the printer named no format

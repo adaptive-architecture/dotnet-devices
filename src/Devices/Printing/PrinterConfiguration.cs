@@ -205,7 +205,8 @@ public sealed class PrinterConfiguration
     /// <c>https</c>, <c>implicitclass</c> and an IPP <c>dnssd</c> service forward. CUPS
     /// passes a printer-language job through every queue unchanged, but a forwarding queue
     /// sends it on as <c>application/octet-stream</c>, and the printer at the other end
-    /// decides whether it reads it. See
+    /// decides whether it reads it. A job that printer refuses is still reported as
+    /// completed; only <see cref="PrintJobInfo.PrinterStateMessage"/> tells. See
     /// <see href="https://adaptive-architecture.github.io/dotnet-devices/docs/troubleshooting.html">Troubleshooting</see>.
     /// </remarks>
     public bool? ForwardsOverIpp { get; init; }

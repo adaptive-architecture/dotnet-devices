@@ -1,4 +1,4 @@
-# A CUPS daemon with a few queues, so the spooler and the cups:// channel run against the
+﻿# A CUPS daemon with a few queues, so the spooler and the cups:// channel run against the
 # real thing instead of a hand-written answer. CUPS is an IPP server, which is why one
 # container serves both channels.
 FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
@@ -33,6 +33,10 @@ RUN printf '%s\n' \
     '  JobPrivateValues default' \
     '  SubscriptionPrivateAccess default' \
     '  SubscriptionPrivateValues default' \
+    '  <Limit Cancel-Job>' \
+    '    Require user @OWNER' \
+    '    Order deny,allow' \
+    '  </Limit>' \
     '  <Limit All>' \
     '    Order deny,allow' \
     '  </Limit>' \
@@ -41,7 +45,10 @@ RUN printf '%s\n' \
 
 # The stock policy asks for authentication on Cancel-Job and Set-Job-Attributes unless the
 # caller owns the job. Nothing here has a user account, so the policy above allows every
-# operation instead.
+# operation but Cancel-Job, which keeps the stock owner rule: cupsd takes the owner from the
+# requesting-user-name without authentication, and a request that names no user, or another
+# one, gets HTTP 401 (the stock rule also admits administrators, and nothing here has one). That is what a library that cancelled without a name met on every real
+# CUPS, and what a policy that allowed everything hid from these tests.
 # Testcontainers publishes the daemon on a random host port, so every request arrives with a
 # Host: field cupsd has never heard of and rejects as a DNS-rebinding attempt. ServerAlias *
 # is the setting CUPS documents for exactly that.

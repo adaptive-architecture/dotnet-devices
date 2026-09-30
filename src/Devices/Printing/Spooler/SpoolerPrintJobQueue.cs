@@ -63,6 +63,11 @@ public sealed class SpoolerPrintJobQueue : IPrintJobQueue
         Driver.GetJobAsync(QueueName(printerId), jobId, cancellationToken);
 
     /// <inheritdoc />
+    /// <remarks>
+    /// On CUPS the request names the user this process runs as, the owner
+    /// <see cref="PrintOptions.RequestingUserName"/> gives a job by default. Without
+    /// authentication, CUPS's stock policy lets only the owner and its administrators cancel.
+    /// </remarks>
     public Task<bool> CancelJobAsync(PrinterId printerId, string jobId, CancellationToken cancellationToken) =>
         Driver.CancelJobAsync(QueueName(printerId), jobId, cancellationToken);
 

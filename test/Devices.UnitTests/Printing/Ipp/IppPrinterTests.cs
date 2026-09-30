@@ -139,7 +139,9 @@ public class IppPrinterTests
             TestContext.Current.CancellationToken);
 
         Assert.Contains("kiosk-7", Encoding.Latin1.GetString(handler.RequestBodies[^2]), StringComparison.Ordinal);
-        Assert.Contains(PrintOptions.DefaultRequestingUserName, Encoding.Latin1.GetString(handler.RequestBodies[^1]), StringComparison.Ordinal);
+        // Unset, it is the user this process runs as, which is what lp sends.
+        var processUser = String.IsNullOrWhiteSpace(Environment.UserName) ? PrintOptions.DefaultRequestingUserName : Environment.UserName;
+        Assert.Contains(processUser, Encoding.Latin1.GetString(handler.RequestBodies[^1]), StringComparison.Ordinal);
     }
 
     [Fact]

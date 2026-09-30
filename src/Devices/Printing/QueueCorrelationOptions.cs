@@ -45,7 +45,7 @@ public sealed class QueueCorrelationOptions
 
     /// <summary>
     /// Gets or sets the <c>requesting-user-name</c> every request of the correlation
-    /// carries. Defaults to <see cref="PrintOptions.DefaultRequestingUserName"/>.
+    /// carries. Defaults to the user this process runs as, as <see cref="PrintOptions.RequestingUserName"/> does.
     /// </summary>
     /// <remarks>
     /// A printer may report only the jobs of the user that asked. One name for every channel
@@ -74,6 +74,5 @@ public sealed class QueueCorrelationOptions
     /// </remarks>
     public TimeSpan CleanupTimeout { get; set; } = TimeSpan.FromSeconds(5);
 
-    internal string EffectiveUserName =>
-        String.IsNullOrWhiteSpace(RequestingUserName) ? PrintOptions.DefaultRequestingUserName : RequestingUserName;
+    internal string EffectiveUserName => PrintOptions.EffectiveUserName(RequestingUserName);
 }

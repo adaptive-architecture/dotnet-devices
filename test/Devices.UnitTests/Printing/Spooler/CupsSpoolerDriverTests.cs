@@ -641,6 +641,24 @@ public class CupsSpoolerDriverTests
     }
 
     [Fact]
+    public async Task SubmitAndCancel_NameTheUserThisProcessRunsAs()
+    {
+        // lp and cancel do the same. CUPS records the name as the owner, and its stock policy
+        // answers a Cancel-Job that names no user with HTTP 401.
+        var job = IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 7), (0x23, "job-state", 3));
+        IppMessages.CapturingHandler handler = new(job);
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+        var processUser = String.IsNullOrWhiteSpace(Environment.UserName) ? PrintOptions.DefaultRequestingUserName : Environment.UserName;
+
+        _ = await driver.SubmitAsync("lobby", PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl), null, TestContext.Current.CancellationToken);
+        _ = await driver.CancelJobAsync("lobby", "7", TestContext.Current.CancellationToken);
+
+        var printJob = Assert.Single(handler.RequestBodies, body => Encoding.Latin1.GetString(body).Contains("^XA^XZ", StringComparison.Ordinal));
+        Assert.Contains(processUser, Encoding.Latin1.GetString(printJob), StringComparison.Ordinal);
+        Assert.Contains(processUser, Encoding.Latin1.GetString(handler.RequestBodies[^1]), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CancelJobAsync_ReturnsFalseWhenThePrinterDoesNotKnowTheJob()
     {
         // 0x0406 is client-error-not-found.

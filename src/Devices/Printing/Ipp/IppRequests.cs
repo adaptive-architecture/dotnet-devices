@@ -33,7 +33,7 @@ internal static class IppRequests
                 PrinterUri = uri,
                 DocumentFormat = new DocumentFormat(documentFormat, true),
                 JobName = options?.JobName,
-                RequestingUserName = options?.RequestingUserName ?? PrintOptions.DefaultRequestingUserName,
+                RequestingUserName = PrintOptions.EffectiveUserName(options?.RequestingUserName),
             },
             JobTemplateAttributes = IppJobTemplateMapper.Map(options),
         };
@@ -220,6 +220,14 @@ internal static class IppRequests
             if (job is not null)
             {
                 IppLog.JobRead(context.Logger, job.JobId, uri, job.State, job.Detail, job.PrinterStateMessage ?? job.StateMessage);
+
+                // CUPS gives a job the device refused the state and the reasons of one that
+                // printed; only the text of its log tells the two apart. A read of the whole
+                // queue does not warn, or every call would repeat it for the job history.
+                if (job.State == PrintJobState.Completed && !String.IsNullOrWhiteSpace(job.PrinterStateMessage))
+                {
+                    IppLog.JobCompletedWithMessage(context.Logger, job.JobId, uri, job.PrinterStateMessage);
+                }
             }
 
             return job;
@@ -231,14 +239,11 @@ internal static class IppRequests
         }
     }
 
-    public static Task<bool> CancelJobAsync(IppContext context, Uri uri, string jobId, CancellationToken cancellationToken) =>
-        CancelJobAsync(context, uri, jobId, null, cancellationToken);
-
-    // The user name is optional because the queue callers never sent one and a printer that
-    // never asked for one must keep behaving as it did. The correlation does send one: a
-    // server with an owner-based cancel policy refuses to take back an anonymous request's
-    // job, which would leave the tracer in the queue.
-    public static async Task<bool> CancelJobAsync(IppContext context, Uri uri, string jobId, string? requestingUserName, CancellationToken cancellationToken)
+    // The name is always sent. CUPS answers a Cancel-Job that names no user with an
+    // authentication challenge whatever the policy says about the owner, and a printer that
+    // never asks for one ignores it. The correlation passes its own, so a tracer is taken
+    // back under the name it was created with.
+    public static async Task<bool> CancelJobAsync(IppContext context, Uri uri, string jobId, string requestingUserName, CancellationToken cancellationToken)
     {
         if (!Int32.TryParse(jobId, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
         {

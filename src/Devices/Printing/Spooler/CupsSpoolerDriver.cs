@@ -270,7 +270,7 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     public Task<bool> CancelJobAsync(string queueName, string jobId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.CancelJobAsync(_context, QueueUri(queueName), jobId, cancellationToken);
+        return IppRequests.CancelJobAsync(_context, QueueUri(queueName), jobId, PrintOptions.EffectiveUserName(null), cancellationToken);
     }
 
     // The escape also covers a name handed to this driver directly, without an endpoint.

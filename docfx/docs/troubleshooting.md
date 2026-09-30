@@ -198,6 +198,7 @@ An event identifier is stable. It is never reused for another meaning and never 
 | 1011 | Debug | An IPP operation finished, with its IPP status code. |
 | 1012 | Debug | An IPP operation failed, with its IPP status code and its cause. |
 | 1021 | Debug | A job was read, with its state, its reasons and its message. |
+| 1022 | Warning | A job read back is completed, yet its printer reported a message. **On a CUPS queue that forwards over IPP this is how a job the device refused looks**; see [A label prints on one CUPS queue and not another](#a-label-prints-on-one-cups-queue-and-not-another). |
 | 1030 | Debug | The document format a job was sent with. |
 | 1031 | Warning | The printer listed no format it knows, so the job went as `application/octet-stream`. **This is the cause of a label that prints as a page of source.** |
 | 1032 | Information | A document was converted to a raster, because the printer reads no format of the document itself. **The printer received a raster and not the document you handed in**, so the fonts and the vectors are the converter's rendering of them. |
@@ -334,11 +335,24 @@ queue is raw, has a driver or is driverless. The backend is what differs:
 | `ipp`, `ipps`, `http`, `https`, `implicitclass`, or `dnssd` to an `_ipp` or `_ipps` service | The bytes, sent on over IPP as `application/octet-stream` | `true` |
 
 A printer at the end of a forwarding queue decides for itself whether it reads the bytes, even
-when it lists `application/octet-stream`. One that does not answers
-`client-error-attributes-or-values-not-supported`. CUPS then keeps the job and retries it until
-it is cancelled, and the job's message may say *Unable to add document to print job* or only
-that it is printing. `Validate-Job` passing does not show that the printer will read the bytes. Most AirPrint queues on macOS are forwarding queues (`dnssd://`),
-and macOS refuses to create a raw queue at all.
+when it lists `application/octet-stream`. `Validate-Job` passing does not show that it will. One
+that does not answers `client-error-attributes-or-values-not-supported`, and **CUPS then reports
+the job as completed**: the state and the reasons are those of a job that printed.
+
+| | `State` | `StateReasons` | `PrinterStateMessage` |
+| :--- | :--- | :--- | :--- |
+| The job printed | `Completed` | `processing-to-stop-point` | empty |
+| The device refused it | `Completed` | `processing-to-stop-point` | *Unable to add document to print job.* |
+
+So on a forwarding queue a `Completed` job only says that CUPS handed it on. Read
+`PrinterStateMessage` from `GetJobAsync`, or watch for event 1022, which warns when a job read
+back is completed and its printer said something. The message is the text of the CUPS log, so it
+may be in another language, and it is a hint rather than a verdict. A device that never ends its
+own copy of the refused job may also answer the next jobs with `server-error-busy`, and CUPS
+then retries them until they are cancelled.
+
+Most AirPrint queues on macOS are forwarding queues (`dnssd://`), and macOS refuses to create a
+raw queue at all.
 
 Read it from `GetConfigurationAsync`:
 

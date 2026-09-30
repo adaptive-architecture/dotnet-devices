@@ -121,16 +121,15 @@ public class IppQueueCorrelationTests
     }
 
     [Fact]
-    public async Task CancelJobAsync_CarriesTheRequestingUserNameOnlyWhenOneIsGiven()
+    public async Task CancelJobAsync_CarriesTheRequestingUserName()
     {
         var ok = IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 41), (0x23, "job-state", 7));
         IppMessages.CapturingHandler handler = new(ok);
         using HttpClient client = new(handler);
 
         _ = await IppRequests.CancelJobAsync(new IppContext(client), Uri, "41", "kiosk-7", TestContext.Current.CancellationToken);
-        _ = await IppRequests.CancelJobAsync(new IppContext(client), Uri, "41", TestContext.Current.CancellationToken);
 
+        Assert.Contains("requesting-user-name", TextOf(handler.RequestBodies[0]), StringComparison.Ordinal);
         Assert.Contains("kiosk-7", TextOf(handler.RequestBodies[0]), StringComparison.Ordinal);
-        Assert.DoesNotContain("kiosk-7", TextOf(handler.RequestBodies[1]), StringComparison.Ordinal);
     }
 }
