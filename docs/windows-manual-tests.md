@@ -55,7 +55,7 @@ keeps the native calls behind a seam, so everything around them is testable.
 | Platform guard | `WindowsSpoolerDriverTests` | All seven `ISpoolerDriver` methods throw `PlatformNotSupportedException` on a machine that is not Windows, before any native call. |
 | Spooler buffer protocol | `WindowsSpoolerDriverSeamTests` | `EnumPrinters`, `GetPrinter` and `EnumJobs` are asked for the size and then for the data; an array of `JOB_INFO_2` is read back without misalignment, which is the check the structure layout only gets here; a queue with no driver reports no media rather than a guess. |
 | Spooler error paths | `WindowsSpoolerDriverSeamTests` | A short `WritePrinter` keeps writing until the document is whole and a failed one deletes the job with `JOB_CONTROL_DELETE`, so no truncated label commits; a write that makes no progress fails instead of looping; `ERROR_INVALID_PARAMETER` from `SetJob` is a `false` and any other code is an exception; a failed `OpenPrinter` closes nothing, because it leaves the handle undefined; a device mode shorter than `DEVMODEW` is refused rather than written over. |
-| Spooler job routing | `WindowsSpoolerDriverSeamTests` | A printer language goes out raw, an image and a document go through GDI, a copy count loops on the raw path and rides the device mode on the GDI path, and a page range reaches the converter on the document path only. |
+| Spooler job routing | `WindowsSpoolerDriverSeamTests` | A printer language goes out raw, an image and a document go through GDI, a copy count writes one page per copy into one raw job and rides the device mode on the GDI path, and a page range reaches the converter on the document path only. |
 | GDI page loop | `WindowsGdiImagePrinterTests` | Every page of a job is in one document; each page is written to its own temporary file, which is read back intact and deleted afterwards; a page that fails aborts the document rather than ending it and leaves no graphics, image or device context open; the resolution arithmetic reaches GDI+ as the rectangle it drew, and a page from a converter uses the resolution it was rendered at rather than the 96 the encoder left behind. |
 | PDF render limits | `PdfRenderLimitsTests` | The resolution is clamped to what an engine renders well, and a page over the pixel cap keeps its shape because the cap belongs to the longer side. It is one suite for both engines, in `Devices.UnitTests`, so it runs on any operating system. |
 | Windows package surface | `WindowsPrintingTests` | `PdfConverter` reads PDF only and writes both PNG and PWG Raster, and adding it to `PrinterManagerOptions.Converters` enables PDF for one manager without touching the process. |
@@ -203,9 +203,9 @@ complete sequence: `OpenPrinter`, `StartDocPrinter`, `StartPagePrinter`, `WriteP
   queue reports, and confirm `DroppedOptions` is empty. Then open the job in the Windows
   print queue window, read its **Properties**, and confirm the values agree. A `MediaSize`
   or `MediaSource` name that the queue never reported must come back in `DroppedOptions`.
-- Set `Copies = 3`. The print queue window must show **three** jobs, each with the same
-  document name, and the returned `PrintJobInfo.JobId` must be the first of them.
-  `PrintJobInfo.Detail` must read `Copy 1 of 3. Each copy is a separate spooler job.`
+- Set `Copies = 3`. The print queue window must show **one** job, whose id is the returned
+  `PrintJobInfo.JobId`, and `PrintJobInfo.Detail` must be empty. On a queue whose port is a
+  file, the file must hold the payload three times over and nothing else.
 - Set both `ResolutionDpi` and `Quality`. `DroppedOptions` must name `Quality` only, and
   the job must carry the resolution.
 - Send a job with a `DEVMODE` to a queue whose driver reports a short device mode, if you

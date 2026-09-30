@@ -190,8 +190,8 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
     // Data type RAW: printer languages such as ZPL pass through unchanged. The mapped
     // options travel in a DEVMODE built by the driver; the rest go to DroppedOptions.
-    // Copies are printed as one document each, because a RAW queue never reads dmCopies,
-    // and the reported job is the first of them.
+    // A RAW queue never reads dmCopies, so every copy is written into the one document
+    // as a page of its own.
     //
     // PNG and JPEG take a second path below: they are drawn onto a GDI printer device
     // context so the driver rasterises the page. Sent as RAW, they would reach a
@@ -505,21 +505,12 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 DataType = dataTypePtr,
             };
 
-            var firstJobId = 0;
-            for (var copy = 0; copy < copies; copy++)
-            {
-                var jobId = SubmitDocument(printerHandle, documentInfo, bytes);
-                if (copy == 0)
-                {
-                    firstJobId = jobId;
-                }
-            }
+            var jobId = SubmitDocument(printerHandle, documentInfo, bytes, copies);
 
-            SpoolerLog.JobSpooled(_logger, queueName, firstJobId, bytes.Length, payload.ContentType);
-            return Task.FromResult(new PrintJobInfo(firstJobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
+            SpoolerLog.JobSpooled(_logger, queueName, jobId, bytes.Length * copies, payload.ContentType);
+            return Task.FromResult(new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
             {
                 JobName = options?.JobName,
-                Detail = copies == 1 ? null : $"Copy 1 of {copies}. Each copy is a separate spooler job.",
                 DroppedOptionDetails = dropped,
             });
         }
@@ -536,13 +527,11 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         }
     }
 
-    // One document: start, write, end. A failure after StartDocPrinter deletes the job, so
-    // no truncated document commits. A failure on a later copy leaves the copies before it
-    // in the queue, which is the same as a paper jam after the first copy.
-    private int SubmitDocument(nint printerHandle, WindowsSpoolerInterop.DocInfo1 documentInfo, byte[] bytes)
+    // One document with one page per copy. A failure after StartDocPrinter deletes the
+    // job, so neither a truncated document nor some of the copies commit.
+    private int SubmitDocument(nint printerHandle, WindowsSpoolerInterop.DocInfo1 documentInfo, byte[] bytes, int copies)
     {
         var jobId = 0;
-        var pageStarted = false;
         var written = false;
         try
         {
@@ -552,23 +541,16 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 ThrowLastError(nameof(WindowsSpoolerInterop.StartDocPrinter));
             }
 
-            if (!_interop.StartPagePrinter(printerHandle))
+            for (var copy = 0; copy < copies; copy++)
             {
-                ThrowLastError(nameof(WindowsSpoolerInterop.StartPagePrinter));
+                WritePage(printerHandle, bytes);
             }
 
-            pageStarted = true;
-            WriteAll(printerHandle, bytes);
             written = true;
             return jobId;
         }
         finally
         {
-            if (pageStarted)
-            {
-                _ = _interop.EndPagePrinter(printerHandle);
-            }
-
             if (jobId > 0)
             {
                 if (!written)
@@ -578,6 +560,23 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
                 _ = _interop.EndDocPrinter(printerHandle);
             }
+        }
+    }
+
+    private void WritePage(nint printerHandle, byte[] bytes)
+    {
+        if (!_interop.StartPagePrinter(printerHandle))
+        {
+            ThrowLastError(nameof(WindowsSpoolerInterop.StartPagePrinter));
+        }
+
+        try
+        {
+            WriteAll(printerHandle, bytes);
+        }
+        finally
+        {
+            _ = _interop.EndPagePrinter(printerHandle);
         }
     }
 

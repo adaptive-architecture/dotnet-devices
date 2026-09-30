@@ -83,6 +83,9 @@ internal sealed class FakeWindowsSpoolerInterop : IWindowsSpoolerInterop
 
     public int FailureError { get; set; }
 
+    /// <summary>Calls to FailingCall that succeed before it starts failing.</summary>
+    public int FailingCallSuccesses { get; set; }
+
     /// <summary>Bytes WritePrinter accepts per call; 0 means all of them.</summary>
     public int WriteChunk { get; set; }
 
@@ -364,7 +367,7 @@ internal sealed class FakeWindowsSpoolerInterop : IWindowsSpoolerInterop
 
     private bool Fails(string call)
     {
-        if (!String.Equals(FailingCall, call, StringComparison.Ordinal))
+        if (!String.Equals(FailingCall, call, StringComparison.Ordinal) || FailingCallSuccesses-- > 0)
         {
             return false;
         }
