@@ -54,16 +54,14 @@ library the logger it already has, which is the cost this dependency was taken t
 The type is an abstraction that Microsoft keeps stable, so it does not tie the library to
 one logging implementation.
 
-Read [Troubleshooting](troubleshooting.md) for what the log reports and how to turn it on.
+Read [Troubleshooting](https://adaptive-architecture.github.io/dotnet-devices/docs/troubleshooting.html) for what the log reports and how to turn it on.
 
 PWG Raster adds no package either. `PwgRasterWriter` in the core package writes PWG 5102.4
 by hand: a 1796-octet page header and a PackBits-like run-length encoding, which is a few
 hundred lines of managed code with no reflection and no platform call. URF (Apple Raster)
 adds none either: `UrfWriter` shares the page encoding through the `RasterWriter` base and
-writes only a 32-octet header of its own, the layout CUPS writes. Both take `RasterOptions`,
-`RasterColorSpace` and `RasterSheetBack`, which were named `PwgRasterOptions`,
-`PwgRasterColorSpace` and `PwgRasterSheetBack` before URF shared them. They are public, so an
-application that already has a rasterizer can write a conforming document without one. What
+writes only a 32-octet header of its own, the layout CUPS writes. What the writers offer an
+application is in [Page placement](https://adaptive-architecture.github.io/dotnet-devices/docs/page-placement.html#the-raster-primitives). What
 stays per-platform is turning a document into pixels, and on Windows that is the in-box
 engine the package below already uses.
 
@@ -79,26 +77,10 @@ nothing to review.
 
 ### Two packages for the same row
 
-`AdaptArch.Devices.Pdfium` and `AdaptArch.Devices.Windows` both read PDF and both write PNG
-and PWG Raster, so on Windows either serves any channel that converts. They are
-interchangeable rather than complementary, and which to take is a judgement about cost:
-
-| | `AdaptArch.Devices.Windows` | `AdaptArch.Devices.Pdfium` |
-| :--- | :--- | :--- |
-| Platforms | Windows 10 and later, and Windows Server with the Desktop Experience | Windows, Linux and macOS, x64 and ARM alike |
-| Download | Nothing; the engine is in-box | About 170 MB restored, about 7.5 MB deployed for one RID |
-| Not served | Server Core, Nano Server, Server 2012 R2 | Nothing |
-
-An application that prints PDF only on a desktop Windows machine should prefer the Windows
-package and download nothing. Everything else wants this one.
-
-A process may enable both. The first converter registered for a content type is the one that
-runs, so it enables the one it prefers first, and a job that wants the other names it:
-`new PrintOptions { ConverterName = "PDFium" }`. The two converters are called `"Windows"` and
-`"PDFium"`, and `PrintFormatPolicy.ConvertersFor` lists what a process can be asked for.
-`PrinterManagerOptions.RequiredConverters` makes every job of a format use one of them, so a
-PDF renders the same on every platform. See
-[printers.md](printers.md#two-converters-for-one-format).
+`AdaptArch.Devices.Pdfium` and `AdaptArch.Devices.Windows` both read PDF and write the same
+formats, so on Windows either serves any channel that converts. They are interchangeable
+rather than complementary: which to take, and how a process that enables both chooses between
+them, is in [Document formats](https://adaptive-architecture.github.io/dotnet-devices/docs/document-formats.html#a-document-the-printer-cannot-read).
 
 ### Windows-only package instead of a Windows-only dependency
 
@@ -110,14 +92,10 @@ rejected), so the renderer lives in `AdaptArch.Devices.Windows`
 dependency of its own: the `-windows` TFM resolves the SDK projection implicitly,
 and the calls only run on Windows 10 and later, where the engine ships in-box. The
 core package keeps no Windows SDK reference and stays dependency-free; the Windows
-package supplies one public `IPrintPayloadConverter`
-(`WindowsPrinting.PdfConverter`), which an application registers through
-`PrinterManagerOptions.Converters` or, for the whole process, with
-`WindowsPrinting.EnablePdfPrinting()`. Without a converter a PDF job fails
-with `NotSupportedException` before anything spools. The seam is an interface the
-application implements, so both sides stay trim- and AOT-safe with no reflection,
-and the same seam carries any other format (see
-[printers.md](printers.md#add-a-format-the-library-does-not-know)).
+package supplies one public `IPrintPayloadConverter` (`WindowsPrinting.PdfConverter`). The
+seam is an interface the application implements, so both sides stay trim- and AOT-safe with
+no reflection, and the same seam carries any other format (see
+[Add a format the library does not know](https://adaptive-architecture.github.io/dotnet-devices/docs/document-formats.html#add-a-format-the-library-does-not-know)).
 
 ### Approved exception: three transitive native packages
 
@@ -143,8 +121,8 @@ Three further things came out of the review and are worth stating:
   crashes rather than fails, which is why a test renders eight jobs at once.
 - **A native library is a process-wide crash surface and a CVE feed**, and PDFium parses
   untrusted input by definition. Watch upstream releases; the package tracks them closely.
-- **`libpdfium.dylib` ships unsigned.** This is nothing to a CLI or a service, and something
-  a notarized macOS `.app` bundle must sign for itself.
+- **`libpdfium.dylib` ships unsigned**, which a macOS application bundle must deal with; see
+  [Document formats](https://adaptive-architecture.github.io/dotnet-devices/docs/document-formats.html#a-document-the-printer-cannot-read).
 
 Trim and native AOT were measured, not assumed, as the rule requires. `PDFiumCore` binds
 through `dlopen`/`LoadLibrary` and `Marshal.GetDelegateForFunctionPointer` rather than

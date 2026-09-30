@@ -50,6 +50,13 @@ RUN printf '%s\n' \
 RUN sed -i 's/^FileDevice No/FileDevice Yes/' /etc/cups/cups-files.conf \
     && grep -q '^FileDevice' /etc/cups/cups-files.conf || echo 'FileDevice Yes' >> /etc/cups/cups-files.conf
 
+# A queue with a driver lists every format some filter chain can turn into its own, and
+# cups-filters reads URF by way of PDF. Without those two conversions the PWG-only queue
+# lists PWG Raster and no URF, which is what a PWG-only printer looks like to the library.
+# The raw queues still list URF: a raw queue lists every type CUPS knows, converted or not.
+RUN sed -i '/^image\/urf/d' /usr/share/cups/mime/mime.convs /usr/share/cups/mime/cupsfilters.convs
+
+COPY pwg-only.ppd /etc/cups/pwg-only.ppd
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

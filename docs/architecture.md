@@ -7,8 +7,8 @@ dotnet-devices/
 ├── src/                  # Source projects (NuGet packages)
 ├── test/                 # Unit and integration tests
 ├── samples/              # Usage demonstration projects (docs/samples/)
-├── docs/                 # Progressive-discovery documentation (this directory)
-├── docfx/                # DocFX site (rendered via GitHub Pages)
+├── docs/                 # Internal, technical documentation for contributors (this directory)
+├── docfx/                # Public, consumer-facing documentation site (GitHub Pages)
 ├── pipeline/             # Build and deployment scripts
 ├── .config/              # dotnet local tools (husky)
 ├── .husky/               # Git hooks
@@ -32,7 +32,7 @@ expressed in-process.
 
 The printing code is in `src/Devices/Printing`, in four layers: the models, the printers
 and their transports, the discovery sources, and one transport policy that every IPP
-connection follows. [Printers](printers.md) describes each layer and the reasons behind it.
+connection follows. [Printers](https://adaptive-architecture.github.io/dotnet-devices/docs/printers.html) describes each layer and the reasons behind it.
 
 ## Naming convention
 

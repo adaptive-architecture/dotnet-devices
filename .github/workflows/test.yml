@@ -30,11 +30,12 @@ jobs:
         with:
           global-json-file: global.json
 
+      # The repository has no lock files, so the key hashes what decides the restore: the
+      # central versions, the project files and the local tools.
       - uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
-          # Look to see if there is a cache hit for the corresponding requirements file
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json') }}
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj', '.config/dotnet-tools.json') }}
           restore-keys: |
             ${{ runner.os }}-nuget
 
@@ -76,6 +77,35 @@ jobs:
 
       - name: Build
         run: dotnet build --no-incremental
+
+      # The integration tests build their images when no image has the tag they compute.
+      # Building them here first, under the same tag, lets the layers come from the GitHub
+      # Actions cache instead of a package install on every run.
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Compute the integration image tags
+        id: images
+        run: |
+          echo "cups=$(sh ./pipeline/integration-image-tag.sh cups)" >> "$GITHUB_OUTPUT"
+          echo "ippeve=$(sh ./pipeline/integration-image-tag.sh ippeve)" >> "$GITHUB_OUTPUT"
+
+      - name: Build the CUPS image
+        uses: docker/build-push-action@v7
+        with:
+          context: test/Devices.IntegrationTests/docker/cups
+          tags: ${{ steps.images.outputs.cups }}
+          load: true
+          cache-from: type=gha,scope=cups
+          cache-to: type=gha,mode=max,scope=cups
+
+      - name: Build the IPP Everywhere image
+        uses: docker/build-push-action@v7
+        with:
+          context: test/Devices.IntegrationTests/docker/ippeve
+          tags: ${{ steps.images.outputs.ippeve }}
+          load: true
+          cache-from: type=gha,scope=ippeve
+          cache-to: type=gha,mode=max,scope=ippeve
 
       - name: Run Unit Tests
         run: sh ./pipeline/unit-test.sh
@@ -154,7 +184,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json') }}
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj', '.config/dotnet-tools.json') }}
           restore-keys: |
             ${{ runner.os }}-nuget
 

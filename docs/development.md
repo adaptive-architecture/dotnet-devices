@@ -192,7 +192,7 @@ Two images, built from the Dockerfiles in `test/Devices.IntegrationTests/docker/
 
 | Image | What it is | What it covers |
 | :--- | :--- | :--- |
-| `cups` | A CUPS daemon with three queues: one that prints, one stopped so a job stays where a test can look at it, and a second live one so the enumeration has more than one answer. | `cups://` end to end, and `spooler://`, which on Linux and macOS *is* a local CUPS daemon. |
+| `cups` | A CUPS daemon with four queues: one that prints, one stopped so a job stays where a test can look at it, a second live one so the enumeration has more than one answer, and one that takes PWG Raster and no URF. | `cups://` end to end, `spooler://`, which on Linux and macOS *is* a local CUPS daemon, and a PDF rendered to URF, or to PWG Raster where the queue lists no URF. |
 | `ippeve` | `ippeveprinter`, the CUPS project's own IPP Everywhere test server. The formats it advertises come from an environment variable. | Capabilities, job lifecycle, and the choice between sending a PDF and converting it, taken from the printer's own answer. |
 
 ```bash
@@ -203,13 +203,16 @@ dotnetup dotnet test test/Devices.IntegrationTests/Devices.IntegrationTests.cspr
   counts, so there is no separate opt-in: a machine without Docker fails them. The rest of
   the suite is unaffected, and the tests in `RawPrintingTests` need no container at all.
 - `TESTCONTAINERS_RYUK_DISABLED=true` is exported by `pipeline/unit-test.sh` when `CI` is set.
-- **An image that is already present is reused**, so a run costs no package install. After
-  editing a Dockerfile, remove the tag to get the new one:
-  `docker rmi adaptarch-devices-cups:integration-tests adaptarch-devices-ippeve:integration-tests`.
+- **An image is tagged with a hash of its directory**, which
+  `pipeline/integration-image-tag.sh` prints. An image with that tag is reused, so a run
+  costs no package install, and editing a file of the image changes the tag, so the next run
+  builds the new one. Old tags stay behind; remove them with `docker rmi` when you like.
+- CI builds both images before the tests, under the same tags, with the GitHub Actions layer
+  cache. `ContainerImagesTests` fails if the script and the fixture disagree on a tag.
 - A Docker daemon whose containers cannot resolve DNS on the default bridge network cannot
-  build these images. Build them once by hand with `docker build --network host -t
-  adaptarch-devices-cups:integration-tests test/Devices.IntegrationTests/docker/cups` (and
-  the same for `ippeve`); the tests then reuse them.
+  build these images. Build them once by hand with
+  `docker build --network host -t "$(sh ./pipeline/integration-image-tag.sh cups)" test/Devices.IntegrationTests/docker/cups`
+  (and the same for `ippeve`); the tests then reuse them.
 
 `CupsSpoolerDriver` fixes the local daemon at `ipp://localhost:631/` (through its domain
 socket where there is one), and binding a container
@@ -217,6 +220,49 @@ to port 631 of the developer's machine would fight the `cupsd` already there. Th
 `spooler://` tests therefore build that one driver on its internal constructor with the
 container's address; everything above it is the shipped code. `Directory.Build.props` grants
 the integration assembly the same `InternalsVisibleTo` the unit tests have.
+
+Native Windows calls cannot run in this repository's test suite or CI, which both run on
+Linux. `WindowsSpoolerDeviceModeMapper` holds the whole name-to-number mapping and calls no
+native code, so the unit tests prove it on Linux; [Windows manual tests](windows-manual-tests.md)
+lists what a person must check by hand.
+
+## Diagnosing a local CUPS
+
+Two scripts check the CUPS daemon of this machine without printing anything.
+
+### The local spooler did not answer
+
+`CupsSpoolerDriver` reaches the daemon through its domain socket, which is what wakes an idle
+macOS `cupsd` ([Spooler and CUPS](https://adaptive-architecture.github.io/dotnet-devices/docs/spooler-and-cups.html#two-drivers-one-api)). If
+discovery still logs `Discovery source Spooler failed`, check the daemon:
+
+```bash
+sh ./pipeline/cups-state.sh       # the socket, launchd or systemd, the process, TCP 631
+sh ./pipeline/cups-state.sh -w    # the same, then wake the daemon and list its queues
+```
+
+Without `-w` the script does not start the daemon. The TCP probe does count as a client,
+though, so running it in a loop keeps an idle daemon awake.
+
+### A PDF lands in a different place on a Linux queue
+
+A CUPS channel sends every PDF job it does not render with its media, `print-scaling` and
+`fit-to-page`, so that Quartz on macOS centres the page (see
+[Queue defaults on CUPS](https://adaptive-architecture.github.io/dotnet-devices/docs/spooler-and-cups.html#queue-defaults-on-cups)).
+cups-filters is expected to read `print-scaling` first and ignore `fit-to-page`. To check that
+a Linux machine does, without printing:
+
+```bash
+sh ./pipeline/cups-fit-check.sh [queue] [pdf] [media]   # defaults: the default queue, the 4x6 label, A4
+```
+
+It runs `cupsfilter` up to `pdftopdf` three times: with `print-scaling=auto`, with
+`fit-to-page` added, and with `fit-to-page` alone as a control. It then measures where the page
+landed each time, and exits 0 on PASS and 1 on FAIL. It needs `cupsfilter`, `pdftoppm`
+(poppler-utils) and `python3`, and `sudo` when the queue's PPD is readable only by root.
+
+It passes on Ubuntu 26.04 with cups-filters 2.0.1 and libcupsfilters 2.1.1, where `pdftopdf`
+does its placement, through an Epson L6270 PPD with the 4x6 label on A4.
 
 ## Trim and native AOT
 
@@ -234,9 +280,8 @@ The sample references `AdaptArch.Devices.Pdfium` on every platform and calls its
 `EnablePdfPrinting()` unconditionally, even on Windows where the in-box engine already
 answered for PDF. That is what keeps this gate honest: a reference nothing calls is one the
 trimmer removes whole, and the publish would then be green having proven nothing about it.
-The dependency costs about 170 MB of native packages on restore; a RID-specific publish
-deploys one `libpdfium` of about 7.5 MB, and a framework-dependent publish with no RID
-copies every identifier it restored.
+What the native packages cost on restore and on publish is in
+[Packages](packages.md#approved-exception-three-transitive-native-packages).
 
 The sample is built to keep that publish green;
 [samples/printer-manager.md](samples/printer-manager.md#building-with-trimming-and-native-aot)
@@ -269,12 +314,14 @@ dotnetup dotnet format
 
 Each fact has one home:
 
-- `docs/` — this documentation: the architecture, the packages, and the rules and reasons
-  behind the printing code. Written for a contributor.
-- `docfx/` — the published site: one page for each capability area, plus the API reference
-  DocFX generates from the XML documentation comments. Written for a consumer.
+- `docfx/docs/` — the published site, and the only home of what the library does: formats,
+  channels, options, placement, status and troubleshooting. Written for a consumer. DocFX
+  adds the API reference it generates from the XML documentation comments.
+- `docs/` — how the repository is built and why: the architecture, the packages and their
+  dependencies, development, samples and the manual tests. Written for a contributor. It
+  links to the published site for behaviour instead of restating it.
 - XML documentation comments — the per-member reference. Keep a longer explanation in
-  `docs/` and link to it, so the same text is not maintained twice.
+  `docfx/docs/` and link to its published page, so the same text is not maintained twice.
 
 ```bash
 sh ./pipeline/serve-docs.sh

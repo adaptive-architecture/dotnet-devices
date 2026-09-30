@@ -7,10 +7,11 @@ using Xunit;
 namespace AdaptArch.Devices.IntegrationTests.Fixtures;
 
 /// <summary>
-/// A CUPS daemon with three queues. One daemon serves the whole assembly, so the queues are
+/// A CUPS daemon with four queues. One daemon serves the whole assembly, so the queues are
 /// split by purpose rather than by test: <see cref="RawQueue"/> prints and keeps the bytes,
 /// <see cref="HeldQueue"/> never prints so a job stays where a test can look at it, and
-/// <see cref="SecondQueue"/> only exists to give the enumeration more than one answer.
+/// <see cref="SecondQueue"/> only exists to give the enumeration more than one answer, and
+/// <see cref="PwgQueue"/> takes PWG Raster and no URF, so a rendered job falls back to it.
 /// <see cref="RawQueue"/> is also the server default.
 /// </summary>
 public sealed class CupsFixture : IAsyncLifetime
@@ -19,6 +20,7 @@ public sealed class CupsFixture : IAsyncLifetime
     public const string RawQueue = "raw-queue";
     public const string HeldQueue = "held-queue";
     public const string SecondQueue = "second-queue";
+    public const string PwgQueue = "pwg-queue";
 
     private const ushort ContainerPort = 631;
 

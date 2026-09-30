@@ -32,6 +32,11 @@ cupsdisable held-queue
 lpadmin -p second-queue -E -v file:/var/spool/out/second.prn -m raw \
     -D 'Second passthrough queue' -L 'Integration tests'
 
+# A queue that takes PWG Raster and no URF, and passes it through to the file unchanged, so
+# the renderer falls back from URF and a test reads back the raster it sent.
+lpadmin -p pwg-queue -E -v file:/var/spool/out/pwg.prn -P /etc/cups/pwg-only.ppd \
+    -D 'PWG Raster only queue' -L 'Integration tests'
+
 # The server default, so the default flag of CUPS-Get-Printers has a queue to mark.
 lpadmin -d raw-queue
 

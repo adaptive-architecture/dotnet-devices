@@ -9,7 +9,10 @@ The same code reaches a CUPS server over the network, with the `cups` scheme.
 system spooler through one of two drivers, chosen at run time:
 
 - **`CupsSpoolerDriver`** — Linux and macOS. CUPS runs its own IPP server on `localhost:631`,
-  so this driver sends the same IPP requests, aimed at the local daemon. It needs no native
+  so this driver sends the same IPP requests, aimed at the local daemon. It connects through the
+  daemon's domain socket (`/private/var/run/cupsd` on macOS, `/run/cups/cups.sock` on Linux)
+  where one exists, because macOS starts `cupsd` on demand from that socket and refuses
+  `localhost:631` while the daemon is idle; it falls back to TCP otherwise. It needs no native
   interop, which is also what makes it the driver behind the `cups` scheme.
 - **`WindowsSpoolerDriver`** — Windows, through `winspool.drv`. Windows has no local IPP server,
   so this driver is the one part of the library that calls native code.
@@ -62,11 +65,12 @@ Two rules decide what a field can hold:
 - `dmPrintQuality` holds either a resolution in dots per inch or a `DMRES_*` quality name. A job
   that sets both keeps the resolution, because it is the exact number the caller gave.
 
-`Copies` is applied by printing the document once for each copy, because a queue with the `RAW`
-data type never reads `dmCopies`. Each copy is a separate spooler job and the returned
-`PrintJobInfo` names the first of them, so a failure on a later copy leaves the earlier copies in
-the queue — which is what a paper jam also does. **Image jobs are the exception**: the GDI path
-honours `dmCopies`, so one job prints every copy.
+`Copies` is applied by writing the payload once for each copy, each as a page of one spooler job,
+because a queue with the `RAW` data type never reads `dmCopies`. The printer receives the same
+bytes as it would from one job per copy, but `PrintJobInfo.JobId` names every copy: cancelling it
+cancels them all, and a failure part-way deletes the job, so no copy is left in the queue. Copies
+the spooler has already sent to the printer can still print. **Image and PDF jobs are the
+exception**: the GDI path honours `dmCopies`.
 
 `MediaType`, `OutputBin`, `PageRanges` and `NumberUp` have no `DEVMODE` field, so the driver
 reports them in `PrintJobInfo.DroppedOptions`, or refuses the job before it spools when `OnUnsupported` is `Throw`. Two more are
@@ -76,6 +80,11 @@ carried only in part for printer languages: `dmScale` is a percentage and not a 
 `ReversePortrait` are dropped as well. **Image jobs lay out with GDI instead** and honour every
 orientation and every scaling mode, so neither is dropped there. IPP and CUPS carry all of them.
 
+**A short device mode is refused, not worked around.** A job fails with
+`InvalidOperationException` when the driver reports a device mode smaller than `DEVMODEW`,
+because writing the fields back would overwrite the driver-private data behind it.
+
+The defaults on `PrinterConfiguration` come from the same device mode.
 [Page placement](page-placement.md) covers how a GDI image job is sized and positioned.
 
 ### Queue names
@@ -85,10 +94,27 @@ none of `/`, `?` and `#`, which would end the path segment the CUPS driver build
 and a Windows connection name such as `\\server\queue` are accepted, and two names are equal
 without regard to case, as Windows and CUPS compare them.
 
-> [!NOTE]
-> Native Windows calls cannot run in this repository's test suite or CI, which both run on Linux.
-> Everything around the native calls is tested through seams; the calls themselves are checked by
-> hand on real Windows hardware.
+## The default queue
+
+`PrinterInfo.IsDefault`, and through it `PrinterDevice.IsDefault`, marks the queue a print
+command would pick when it is given none. Windows reports the queue the spooler marks as
+default. On Linux and macOS the driver reports the queue `lp` would pick. It follows the order
+libcups uses and stops at the first one that names a queue:
+
+1. `LPDEST`, then `PRINTER`. A `PRINTER` of `lp` is ignored, as libcups ignores it.
+2. The `Default` line of `~/.cups/lpoptions`, which `lpoptions -d` writes. It is not read for a
+   process that runs as root.
+3. The `Default` line of `$CUPS_SERVERROOT/lpoptions`, or of `/etc/cups/lpoptions` when the
+   variable is unset.
+4. The server default, which `lpadmin -d` sets. CUPS marks it in the `printer-type` of each
+   queue that `CUPS-Get-Printers` returns, so finding it costs no extra request.
+
+An instance (`office/draft`) counts as its queue. When steps 1–3 name a queue that does not
+exist, no queue is the default. The server default does not stand in, because `lp` fails in that
+case too. The macOS "use last printer" preference is not read, because reading it needs
+CoreFoundation. A queue of a named [CUPS server](#a-cups-server-from-any-operating-system)
+reports the server default only, because the settings of this machine do not apply to another
+host.
 
 ## Queue defaults on CUPS
 
@@ -105,11 +131,15 @@ shows how far apart they can be:
   with cups-filters. With no media in the job it takes the PDF's own page size as the media, so a
   4 by 6 inch label sent to a printer loaded with A4 arrives as a 4 by 6 inch page and the printer
   reports a size mismatch. With `media=A4` it draws the page from the PDF's origin, against the
-  bottom left of the sheet, and ignores `print-scaling`. Only the CUPS job attribute
-  `fit-to-page` makes it centre the page, fitting it as `auto` does. The library therefore sends
-  every PDF job with its media (the job's own, or the queue's default), `print-scaling` (the
-  job's, or `auto`) and `fit-to-page`. Linux reads `print-scaling` first and centres the page as
-  it always did, and the Windows spooler places it the same way with GDI.
+  bottom left of the sheet, and ignores `print-scaling`: `none`, `fit` and `auto` gave the same
+  output. Only the CUPS job attribute `fit-to-page` makes it centre the page, and it then fits
+  exactly as `auto` does: a page that fits keeps its size, a larger one is shrunk into the
+  printable area, and a landscape page is turned onto portrait media. The library therefore
+  sends every PDF job it does not render with its media (the job's own, or the queue's
+  `media-default`), `print-scaling` (the job's, or `auto`) and `fit-to-page`. Linux reads
+  `print-scaling` first and centres the page as it always did, and the Windows spooler places it
+  the same way with GDI. A job with `MediaSizeSource.Document` is sent with neither media nor
+  fit, and Quartz prints the page at its own size.
 
 To see and change them:
 
@@ -117,8 +147,9 @@ To see and change them:
 - Set the option on the job to override one, such as `Duplex = DuplexMode.Simplex`, or change the
   queue itself with `lpadmin -p <queue> -o Duplex=None`.
 - A job that must land in the same place on every platform asks for a
-  [placement](page-placement.md), which the library renders rather than leaving it to the queue.
-  On CUPS a placement is still open work.
+  [placement](page-placement.md) and names or requires a converter, so the library renders the
+  page rather than leaving it to the queue. Without a converter, CUPS places the page and the
+  placement is reported dropped.
 
 > [!NOTE]
 > This was measured with `lpoptions`, `ipptool` and `cupsfilter` on macOS 27 against an EPSON

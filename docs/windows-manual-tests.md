@@ -286,13 +286,10 @@ takes the same path against the real spooler.
 
 ## What the driver does not do yet
 
-- **`MediaType`, `OutputBin`, `PageRanges` and `NumberUp` reach nothing.** A `DEVMODE` has
-  no field for a page range, for pages per sheet or for an output bin, and `dmMediaType`
-  needs a `DMMEDIA_*` number that the spooler does not pair with a name. The driver always
-  names these four in `PrintJobInfo.DroppedOptions`.
-- **A short device mode is refused, not worked around.** `SubmitAsync` throws when a driver
-  reports a device mode smaller than `DEVMODEW`, because writing the fields back would
-  overwrite the driver-private tail behind it. No driver in use reports one.
+- **`MediaType`, `OutputBin`, `PageRanges` and `NumberUp` reach nothing**, and a short device
+  mode is refused; [Spooler and CUPS](https://adaptive-architecture.github.io/dotnet-devices/docs/spooler-and-cups.html#what-a-device-mode-can-and-cannot-hold)
+  says what a caller sees. `dmMediaType` needs a `DMMEDIA_*` number that the spooler does not
+  pair with a name, and no driver in use reports a short device mode.
 - **`GetJobAsync` lists the jobs and then selects one.** The `GetJobW` entry point can fetch
   one job directly. The current code is correct but does more work than it must.
 

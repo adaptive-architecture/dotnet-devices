@@ -26,29 +26,43 @@ raw://192.168.1.5                                the raw channel, port 9100 impl
 raw://192.168.1.5:9101                           a port that is not the default
 ipp://192.168.1.5                                the IPP channel, port 631 implied
 ipps://[2001:db8::5]:8631                        an IPv6 literal is bracketed
-ipp://e3b0c442-98fc-1c14-9afb-4c8996fb9242       the identity form
+ipp://e3b0c442-98fc-1c14-9afb-4c8996fb9242       the identity form, port 631 implied
+ipps://e3b0c442-98fc-1c14-9afb-4c8996fb9242:443  an identity on a port that is not the default
 spooler://EPSON_L6270                            a print queue
 spooler://%5C%5Cserver%5Cqueue                   a Windows connection name, escaped
-cups://printsrv/EPSON_L6270                      a queue of a CUPS server
+cups://printsrv/EPSON_L6270                      a queue of a CUPS server, port 631 implied
 cups://printsrv:8631/Front%20Desk                a port that is not the default, and an escaped name
 ```
 
 **An address form can be opened with no discovery**, because the scheme gives the endpoint
 type and the default port. An **identity form** names no address and has to be resolved
 through `IPrinterManager`, which knows where the device was found. `IsDeviceIdentity` says
-which of the two you hold.
+which of the two you hold, and takes no part in equality.
 
 **`DeviceKey` is the authority with any `:port` stripped**, so `raw://192.168.1.5` and
 `ipp://192.168.1.5` are one device. A `cups` key keeps the server *and* the queue, because
 one server holds many queues and its host alone would fuse a whole fleet into one device.
 
+**`cups` is the one authority that carries a path.** A CUPS server holds many queues, so the
+host alone names no channel. It has no identity form either: what it names is a queue of a
+server, and a device reports no queue.
+
+**An identity form carries the port too**, by the same rule: written when it is not the
+default of the scheme, left out when it is. Once a device has named itself, the port is all
+that tells two of its channels apart, and without it a printer that answers one scheme on two
+ports would report one identifier twice. It still takes no part in `DeviceKey`, so those
+channels stay one device.
+
 Only a UUID is ever written as an identity authority: a serial number reads exactly like a
 host name or a queue name, so putting one there would make the text ambiguous. A serial
 number still groups the channels of a device, through `PrinterDeviceKey`.
 
-`Parse`, `TryParse` and `ToString` round-trip. `TryGetHost`, `TryGetQueueName`,
-`TryGetDeviceIdentity` and `TryCreateEndpoint` read the parts — and a call site that wants a
-host gets `false` for an identity form, which is exactly the case that needs a discovery.
+`Parse`, `TryParse` and `ToString` round-trip. A port equal to the default of the scheme is
+dropped, a queue name is percent-escaped, and a `urn:uuid:` prefix is not accepted: it is an
+input to `PrinterId.ForDeviceUuid`, never a canonical identifier. `TryGetHost`,
+`TryGetQueueName`, `TryGetDeviceIdentity` and `TryCreateEndpoint` read the parts — and a call
+site that wants a host gets `false` for an identity form, which is exactly the case that needs
+a discovery.
 
 ## Endpoints
 

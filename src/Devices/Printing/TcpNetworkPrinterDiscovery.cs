@@ -20,7 +20,7 @@ public sealed class TcpNetworkPrinterDiscovery : INetworkPrinterDiscovery
     /// <remarks>
     /// An application that uses <c>AddDevices()</c> or <c>AddPrinters()</c> needs no call
     /// here: the registration takes the <see cref="ILoggerFactory"/> of the container.
-    /// Read <see href="https://github.com/adaptive-architecture/dotnet-devices/blob/main/docs/troubleshooting.md">Troubleshooting</see>.
+    /// Read <see href="https://adaptive-architecture.github.io/dotnet-devices/docs/troubleshooting.html">Troubleshooting</see>.
     /// </remarks>
     public ILoggerFactory? LoggerFactory { get; init; }
 
