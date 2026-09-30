@@ -99,8 +99,8 @@ The rules run in this order:
 1. **A channel that reported it does not read the content type is dropped.** A channel that
    reported nothing has refused nothing, so it stays. `PrinterDevice.Accepts` is the judgement,
    and `NotSupportedException` is thrown only when every channel refused.
-2. **A printer language takes a channel that sends the bytes unchanged.** ZPL, EPL, CPCL and
-   ESC/POS are read by the printer firmware, so a channel that converts the job prints the
+2. **A printer language takes a channel that sends the bytes unchanged.** ZPL, EPL, CPCL,
+   ESC/POS and DPL are read by the printer firmware, so a channel that converts the job prints the
    command source instead of the label.
 3. **Every other format takes a channel with a job queue**, so the job can be watched after it
    is sent.

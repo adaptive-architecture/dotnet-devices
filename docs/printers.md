@@ -99,7 +99,7 @@ There is no USB endpoint and no `usb` scheme; see [USB printers](#usb-printers).
 
 `PrinterPayload` carries bytes plus a `ContentType`, so transports and spoolers can route
 it correctly. `PrinterContentTypes` holds the constants (`Zpl`, `Epl`, `Cpcl`, `EscPos`,
-`Text`, `Png`, `Jpeg`, `Pdf`, `OctetStream`).
+`Dpl`, `Text`, `Png`, `Jpeg`, `Pdf`, `OctetStream`).
 
 ```csharp
 PrinterPayload payload = PrinterPayload.FromString("^XA^FO50,50^ADN,36,20^FDHello^FS^XZ", PrinterContentTypes.Zpl);
@@ -172,8 +172,8 @@ instances, so a caller cannot change what other callers see.
 ## Document formats and raw printer languages
 
 A payload keeps its `ContentType` end to end over a raw TCP channel, but an IPP server
-reads the `document-format` attribute and may convert the job. The four printer command
-languages — `Zpl`, `Epl`, `Cpcl` and `EscPos` — are not formats an IPP server knows, so the
+reads the `document-format` attribute and may convert the job. The five printer command
+languages — `Zpl`, `Epl`, `Cpcl`, `EscPos` and `Dpl` — are not formats an IPP server knows, so the
 library chooses the format it sends for them. Every other content type is sent unchanged.
 
 **A format a printer lists is not a file it can read.** IPP defines `image/jpeg` as JFIF,
@@ -1206,8 +1206,8 @@ The rules run in this order:
 1. **A channel that reported it does not read the content type is dropped.** A channel that
    reported nothing has refused nothing, so it stays. `PrinterDevice.Accepts` is the
    judgement, and `NotSupportedException` is thrown only when every channel refused.
-2. **A printer language takes a channel that sends the bytes unchanged.** ZPL, EPL, CPCL
-   and ESC/POS are read by the printer firmware, so a channel that converts the job prints
+2. **A printer language takes a channel that sends the bytes unchanged.** ZPL, EPL, CPCL,
+   ESC/POS and DPL are read by the printer firmware, so a channel that converts the job prints
    the command source instead of the label.
 3. **Every other format takes a channel with a job queue**, so the job can be watched after
    it is sent.

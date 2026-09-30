@@ -13,6 +13,7 @@ public class WindowsSpoolerContentTests
     [InlineData("image/png", "Image")]
     [InlineData("image/jpeg", "Image")]
     [InlineData("application/vnd.zebra-zpl", "Raw")]
+    [InlineData("application/vnd.datamax-dpl", "Raw")]
     [InlineData("application/octet-stream", "Raw")]
     [InlineData("text/plain", "Raw")]
     public void Classify_RoutesByContentType(string contentType, string expected)

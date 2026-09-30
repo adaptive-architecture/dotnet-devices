@@ -7,8 +7,8 @@ format the library does not know.
 ## Printer command languages
 
 A payload keeps its `ContentType` end to end over a raw TCP channel, but an IPP server reads
-the `document-format` attribute and may convert the job. The four printer command languages —
-`Zpl`, `Epl`, `Cpcl` and `EscPos` — are not formats an IPP server knows, so the library
+the `document-format` attribute and may convert the job. The five printer command languages —
+`Zpl`, `Epl`, `Cpcl`, `EscPos` and `Dpl` — are not formats an IPP server knows, so the library
 chooses the format it sends for them. Every other content type is sent unchanged.
 
 Two wrong choices are possible, and the library avoids both:

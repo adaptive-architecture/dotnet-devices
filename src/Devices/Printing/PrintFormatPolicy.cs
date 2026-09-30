@@ -19,6 +19,7 @@ public sealed class PrintFormatPolicy
         new(PrinterContentTypes.Epl, PrinterFormatKind.RawLanguage, "EPL"),
         new(PrinterContentTypes.Cpcl, PrinterFormatKind.RawLanguage),
         new(PrinterContentTypes.EscPos, PrinterFormatKind.RawLanguage),
+        new(PrinterContentTypes.Dpl, PrinterFormatKind.RawLanguage),
         new(PrinterContentTypes.Pdf, PrinterFormatKind.Document, "PDF"),
         new(PrinterContentTypes.Png, PrinterFormatKind.Image, "PNG"),
         new(PrinterContentTypes.Jpeg, PrinterFormatKind.Image, "JPEG"),

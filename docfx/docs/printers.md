@@ -93,7 +93,7 @@ foreach (var device in devices)
 ## Payloads
 
 `PrinterPayload` carries bytes plus a `ContentType`, so transports and spoolers can route it
-correctly. `PrinterContentTypes` holds the constants (`Zpl`, `Epl`, `Cpcl`, `EscPos`, `Text`,
+correctly. `PrinterContentTypes` holds the constants (`Zpl`, `Epl`, `Cpcl`, `EscPos`, `Dpl`, `Text`,
 `Png`, `Jpeg`, `Pdf`, `OctetStream`).
 
 ```csharp

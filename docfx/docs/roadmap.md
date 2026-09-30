@@ -11,7 +11,7 @@ What the library does today, what it does not, and which of the gaps are meant t
 | Printer manager | One entry point that runs every source, groups the channels into one device per physical printer, and prints, reads a status or watches a job by identifier. |
 | Printer capabilities | Media sizes, trays, media types, output bins, qualities, pages per sheet, and the defaults the printer applies when a job asks for nothing. |
 | Printer status | Over IPP, and over SNMP version 2c, which adds the serial number and the page count. |
-| Document formats | ZPL, EPL, CPCL and ESC/POS mapped to a `document-format` the peer accepts without converting the job. A PDF prints five ways; see [Document formats](document-formats.md). |
+| Document formats | ZPL, EPL, CPCL, ESC/POS and DPL mapped to a `document-format` the peer accepts without converting the job. A PDF prints five ways; see [Document formats](document-formats.md). |
 | Page placement | The five PWG fit modes, an anchor and an offset in a physical unit, a smoothing switch, a media size the printer has no name for, and a media size taken from the document. See [Page placement](page-placement.md). |
 | Raster | `PwgRasterWriter`, `PngWriter` and `RasterCanvas` are all public, so an application with its own rasterizer can use them. |
 | Diagnostics | Each state reason separately, the readable messages, the transport that answered, structured failures, an optional capture of the raw IPP answer, and a graded log over the whole stack. |
