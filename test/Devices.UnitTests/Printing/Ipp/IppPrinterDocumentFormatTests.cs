@@ -1,6 +1,7 @@
 ﻿using System.Text;
 using AdaptArch.Devices.Printing;
 using AdaptArch.Devices.Printing.Ipp;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace AdaptArch.Devices.UnitTests.Printing.Ipp;
@@ -396,6 +397,138 @@ public class IppPrinterDocumentFormatTests
 
         Assert.Equal(0, converter.Calls);
         Assert.Contains(PrinterContentTypes.Pdf, body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PrintAsync_ANamedConverterThePrinterCannotTake_ReportsTheConverterAsDropped()
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster) { Name = "Named" };
+
+        var job = await PrintPdfJobAsync(
+            converter,
+            new PrintOptions { ConverterName = "Named" },
+            PrinterContentTypes.Pdf,
+            PrinterContentTypes.Jpeg);
+
+        var dropped = Assert.Single(job.DroppedOptionDetails);
+        Assert.Equal(nameof(PrintOptions.ConverterName), dropped.Option);
+        Assert.Equal(PrintOptionStage.Conversion, dropped.Stage);
+        Assert.Equal("the printer reads no format converter 'Named' writes", dropped.Reason);
+    }
+
+    // Smoothing alone never makes a job render, so on a PDF the printer reads it goes nowhere.
+    [Fact]
+    public async Task PrintAsync_SmoothingOnAPdfThePrinterReads_IsReportedAsDropped()
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+
+        var job = await PrintPdfJobAsync(converter, new PrintOptions { Smoothing = false }, PrinterContentTypes.Pdf);
+
+        Assert.Equal(0, converter.Calls);
+        var dropped = Assert.Single(job.DroppedOptionDetails);
+        Assert.Equal(nameof(PrintOptions.Smoothing), dropped.Option);
+        Assert.Equal(PrintOptionStage.Conversion, dropped.Stage);
+        Assert.Equal("the printer reads the document itself, so the library renders nothing", dropped.Reason);
+    }
+
+    [Fact]
+    public async Task PrintAsync_APlacementWithNoConverter_IsReportedAsDropped()
+    {
+        OperationHandler handler = new(AttributesResponse(PrinterContentTypes.Pdf), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler));
+
+        var job = await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { Placement = new PrintPlacement { Anchor = PrintAnchor.TopLeft } },
+            TestContext.Current.CancellationToken);
+
+        var dropped = Assert.Single(job.DroppedOptionDetails);
+        Assert.Equal(nameof(PrintOptions.Placement), dropped.Option);
+        Assert.Equal(PrintOptionStage.Conversion, dropped.Stage);
+        Assert.Equal("no converter is registered for application/pdf", dropped.Reason);
+    }
+
+    [Fact]
+    public async Task PrintAsync_AnImage_ReportsWhatOnlyARendererApplies()
+    {
+        OperationHandler handler = new(AttributesResponse(PrinterContentTypes.Png), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler));
+
+        var job = await printer.PrintAsync(
+            PrinterPayload.FromBytes(new byte[] { 0x89 }, PrinterContentTypes.Png),
+            new PrintOptions
+            {
+                Placement = new PrintPlacement { Anchor = PrintAnchor.TopLeft },
+                Smoothing = false,
+                ConverterName = "Any",
+                Copies = 2,
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [nameof(PrintOptions.Placement), nameof(PrintOptions.Smoothing), nameof(PrintOptions.ConverterName)],
+            job.DroppedOptions);
+        Assert.All(job.DroppedOptionDetails, dropped =>
+        {
+            Assert.Equal(PrintOptionStage.Conversion, dropped.Stage);
+            Assert.Equal("the library renders only documents, so image/png goes to the printer as it is", dropped.Reason);
+        });
+    }
+
+    [Fact]
+    public async Task PrintAsync_LogsEachDroppedOptionOnce()
+    {
+        FakeLoggerFactory log = new();
+        OperationHandler handler = new(AttributesResponse(PrinterContentTypes.Png), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler)) { LoggerFactory = log };
+
+        _ = await printer.PrintAsync(
+            PrinterPayload.FromBytes(new byte[] { 0x89 }, PrinterContentTypes.Png),
+            new PrintOptions { Smoothing = false },
+            TestContext.Current.CancellationToken);
+
+        var entry = Assert.Single(log.WithId(2041));
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains(nameof(PrintOptions.Smoothing), entry.Message, StringComparison.Ordinal);
+    }
+
+    // A4 is 2480.31 by 3507.87 pixels at 300 dpi. A canvas rounded to the nearest pixel is a
+    // fraction taller than the sheet, which strict firmware reads as a larger one.
+    [Fact]
+    public async Task PrintAsync_ComposesOntoACanvasNoLargerThanTheSheetAndPassesThePrinterNames()
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        OperationHandler handler = new(
+            IppMessages.Response(0x0000,
+                (0x49, "document-format-supported", PrinterContentTypes.PwgRaster),
+                (0x44, "media-supported", "iso_a4_210x297mm"),
+                (0x44, null, "na_letter_8.5x11in"),
+                (0x44, "media-default", "iso_a4_210x297mm")),
+            JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler)) { Formats = new PrintFormatPolicy(null, [converter]) };
+
+        _ = await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            null,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2480, converter.LastContext.MediaWidthPixels);
+        Assert.Equal(3507, converter.LastContext.MediaHeightPixels);
+        Assert.Equal(["iso_a4_210x297mm", "na_letter_8.5x11in"], converter.LastContext.MediaSizeNames);
+    }
+
+    private static async Task<PrintJobInfo> PrintPdfJobAsync(
+        FakeConverter converter,
+        PrintOptions options,
+        params string[] supported)
+    {
+        OperationHandler handler = new(AttributesResponse(supported), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler)) { Formats = new PrintFormatPolicy(null, [converter]) };
+
+        return await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            options,
+            TestContext.Current.CancellationToken);
     }
 
     private static async Task<string> PrintPdfAsync(

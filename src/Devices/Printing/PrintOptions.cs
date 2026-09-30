@@ -111,8 +111,9 @@ public sealed class PrintOptions
     /// Library-only, like <see cref="ConverterName"/>: no printer protocol carries it, so it
     /// is applied while the page is drawn or composed. A placement on a payload that would
     /// otherwise pass through unchanged makes the job convert, because a page nobody renders
-    /// cannot be moved. It is reported in <see cref="PrintJobInfo.DroppedOptions"/> on a
-    /// channel that renders nothing at all, which is the raw one.
+    /// cannot be moved. It is reported in <see cref="PrintJobInfo.DroppedOptionDetails"/>
+    /// wherever nothing renders the page: the raw channel, CUPS, a Windows queue that takes
+    /// the payload as RAW, an image sent over IPP, and a document that is sent unconverted.
     /// </remarks>
     public PrintPlacement? Placement { get; set; }
 

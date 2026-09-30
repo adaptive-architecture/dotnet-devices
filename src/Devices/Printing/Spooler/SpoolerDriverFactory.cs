@@ -7,11 +7,12 @@ internal static class SpoolerDriverFactory
 {
     // Each driver owns whatever it needs, so no caller supplies an HttpClient. The IPP
     // policy reaches the CUPS driver only: it speaks IPP, and the Windows driver does not.
+    // The log reaches both.
     public static ISpoolerDriver Create(
         PrintFormatPolicy? formats = null,
         IppTransportOptions? options = null,
         ILoggerFactory? loggerFactory = null) =>
         OperatingSystem.IsWindows()
             ? new WindowsSpoolerDriver(formats, loggerFactory)
-            : new CupsSpoolerDriver(formats, options);
+            : new CupsSpoolerDriver(formats, options, loggerFactory);
 }

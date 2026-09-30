@@ -513,9 +513,11 @@ public sealed class PrinterManager : IPrinterManager
             // A job name and a user name are personal data, so they are at Debug and never
             // in an entry a reader may leave on in production.
             PrintingLog.JobNamed(_logger, job.JobId, id, job.JobName, options?.RequestingUserName);
-            if (job.DroppedOptions.Count > 0 && _logger.IsEnabled(LogLevel.Warning))
+            if (job.DroppedOptions.Count > 0 && _logger.IsEnabled(LogLevel.Debug))
             {
+#pragma warning disable CA1873 // Guarded by IsEnabled above
                 PrintingLog.OptionsDropped(_logger, id, String.Join(", ", job.DroppedOptions), job.JobId);
+#pragma warning restore CA1873
             }
 
             return job;
@@ -711,8 +713,12 @@ public sealed class PrinterManager : IPrinterManager
         PrintingLog.PrintChannelChosen(_logger, contentType, id, chosen.Endpoint, usable.Count, wantsPassthrough);
 
         // The fallback took a channel that does not do what the format needs. A label sent
-        // this way prints its command source, and nothing else says so.
-        if (!Fits(chosen, wantsPassthrough) && wantsPassthrough)
+        // this way prints its command source, and nothing else says so. An application whose
+        // transports offer no passthrough chose that, and a warning on every label would
+        // teach it to ignore the log.
+        if (!Fits(chosen, wantsPassthrough)
+            && wantsPassthrough
+            && _options.Transports.Any(static scheme => PrinterSchemes.GivesPassthrough(scheme, OperatingSystem.IsWindows())))
         {
             PrintingLog.PrintChannelGivesNoPassthrough(_logger, contentType, id, chosen.Endpoint);
         }

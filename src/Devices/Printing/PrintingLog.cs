@@ -77,8 +77,25 @@ internal static partial class PrintingLog
 
     // 2040 block: formats and options.
 
-    [LoggerMessage(EventId = 2040, Level = LogLevel.Warning, Message = "Printer {PrinterId} dropped the options {Dropped} from job {JobId}, so the job prints with the settings of the queue instead.")]
+    // Debug: each printer type raises 2041 for every option, so this summary would repeat it.
+    [LoggerMessage(EventId = 2040, Level = LogLevel.Debug, Message = "Printer {PrinterId} dropped the options {Dropped} from job {JobId}, so the job prints with the settings of the queue instead.")]
     public static partial void OptionsDropped(ILogger logger, PrinterId printerId, string dropped, string jobId);
+
+    [LoggerMessage(EventId = 2041, Level = LogLevel.Warning, Message = "Job {JobId} for printer {PrinterId} printed without the option {Option}, dropped at the {Stage} stage because {Reason}. The sheet shows the printer's own setting for it.")]
+    public static partial void OptionDropped(ILogger logger, string jobId, PrinterId printerId, string option, PrintOptionStage stage, string reason);
+
+    public static void ReportDropped(ILogger logger, PrintJobInfo job)
+    {
+        if (!logger.IsEnabled(LogLevel.Warning))
+        {
+            return;
+        }
+
+        foreach (var dropped in job.DroppedOptionDetails)
+        {
+            OptionDropped(logger, job.JobId, job.PrinterId, dropped.Option, dropped.Stage, dropped.Reason);
+        }
+    }
 
     // 2050 block: job milestones. A job name is personal data, so it is at Debug only.
 

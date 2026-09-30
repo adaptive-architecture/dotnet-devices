@@ -19,13 +19,13 @@ internal sealed class FakeSpoolerDriver : ISpoolerDriver
     public int ConfigurationReads { get; private set; }
 
     // The options the scripted driver reports as not applied.
-    public IReadOnlyList<string> DroppedOptions { get; set; } = [];
+    public IReadOnlyList<DroppedOption> DroppedOptions { get; set; } = [];
 
     public Task<PrintJobInfo> SubmitAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         SubmittedQueues.Add(queueName);
         SubmittedPayloads.Add(payload);
-        return Task.FromResult(new PrintJobInfo("11", PrinterId.ForSpooler(queueName), PrintJobState.Queued) { DroppedOptions = DroppedOptions });
+        return Task.FromResult(new PrintJobInfo("11", PrinterId.ForSpooler(queueName), PrintJobState.Queued) { DroppedOptionDetails = DroppedOptions });
     }
 
     public PrinterIdentity? Identity { get; set; }

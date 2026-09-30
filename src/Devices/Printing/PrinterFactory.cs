@@ -74,8 +74,9 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
     }
 
     /// <summary>
-    /// Gets the factory that makes the log. Defaults to <c>null</c>, which writes nothing.
-    /// The log category is <c>AdaptArch.Devices.Printing</c>.
+    /// Gets the factory that makes the log of every printer this factory opens. Defaults to
+    /// <c>null</c>, which falls back to <see cref="IppTransportOptions.LoggerFactory"/>, and
+    /// then writes nothing. The log category is <c>AdaptArch.Devices.Printing</c>.
     /// </summary>
     /// <remarks>
     /// An application that uses <c>AddDevices()</c> or <c>AddPrinters()</c> needs no call
@@ -89,6 +90,8 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
     /// may use. Defaults to <see cref="PrintFormatPolicy.Default"/>.
     /// </summary>
     public PrintFormatPolicy Formats { get; init; } = PrintFormatPolicy.Default;
+
+    private ILoggerFactory? EffectiveLoggerFactory => LoggerFactory ?? _options.LoggerFactory;
 
     private PrinterFactory(HttpClient httpClient, IppTransportOptions options, bool ownsClient)
     {
@@ -110,18 +113,18 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
         if (printer.Endpoint is NetworkPrinterEndpoint network)
         {
             return network.Scheme is PrinterScheme.Ipp or PrinterScheme.Ipps
-                ? new IppPrinter(network, _httpClient, null, _options) { Formats = Formats }
+                ? new IppPrinter(network, _httpClient, null, _options) { Formats = Formats, LoggerFactory = EffectiveLoggerFactory }
                 : OpenRaw(network);
         }
 
         if (printer.Endpoint is SpoolerPrinterEndpoint spooler)
         {
-            return new SpoolerPrinter(spooler) { Formats = Formats, IppTransport = _options };
+            return new SpoolerPrinter(spooler) { Formats = Formats, IppTransport = _options, LoggerFactory = EffectiveLoggerFactory };
         }
 
         if (printer.Endpoint is CupsPrinterEndpoint cups)
         {
-            return new CupsPrinter(cups, _httpClient, _options, Formats);
+            return new CupsPrinter(cups, _httpClient, _options, Formats) { LoggerFactory = EffectiveLoggerFactory };
         }
 
         throw new NotSupportedException($"Endpoint type '{printer.Endpoint.GetType().Name}' is not supported.");
@@ -149,7 +152,8 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
         return Task.FromResult(Open(new DiscoveredPrinter(id, endpoint, new PrinterInfo(id, id.Authority))));
     }
 
-    private RawPrinter OpenRaw(NetworkPrinterEndpoint endpoint) => new(endpoint, _snmpStatusClient, _ippStatusClient);
+    private RawPrinter OpenRaw(NetworkPrinterEndpoint endpoint) =>
+        new(endpoint, _snmpStatusClient, _ippStatusClient) { LoggerFactory = EffectiveLoggerFactory };
 
     /// <summary>
     /// Disposes the internally managed <see cref="HttpClient"/>, if this instance owns one.

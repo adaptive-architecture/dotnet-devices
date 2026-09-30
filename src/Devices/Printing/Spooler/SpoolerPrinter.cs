@@ -15,6 +15,7 @@ public sealed class SpoolerPrinter : IPrinter
     private readonly string _queueName;
     private ISpoolerDriver? _driver;
     private PrinterConfiguration? _configuration;
+    private ILogger? _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SpoolerPrinter"/> class, using the
@@ -56,6 +57,8 @@ public sealed class SpoolerPrinter : IPrinter
     // set only the transport policy still gets the log.
     private ILoggerFactory? EffectiveLoggerFactory => LoggerFactory ?? IppTransport?.LoggerFactory;
 
+    private ILogger Logger => LazyInitializer.EnsureInitialized(ref _logger, () => PrintingLog.Create(EffectiveLoggerFactory));
+
     // The driver is built on first use, because the formats are set by an object
     // initializer that runs after the constructor. LazyInitializer, not "??=": this type may
     // be a singleton, and two concurrent first calls must not each build a driver.
@@ -88,21 +91,16 @@ public sealed class SpoolerPrinter : IPrinter
         ArgumentNullException.ThrowIfNull(payload);
 
         var effectiveOptions = options;
-        IReadOnlyList<string> dropped = [];
+        IReadOnlyList<DroppedOption> dropped = [];
         if (options is not null && options.OnUnsupported != UnsupportedOptionBehavior.Send)
         {
             var configuration = await GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
             effectiveOptions = PrintOptionValidator.Apply(options, configuration, out dropped);
         }
 
-        // The driver can drop options of its own, but never one already removed here.
-        // A collection expression over two lists emits a compiler wrapper type that the
-        // trimmer cannot keep intact, with no analyzer warning. A plain list is safe.
         var job = await Driver.SubmitAsync(_queueName, payload, effectiveOptions, cancellationToken).ConfigureAwait(false);
-        List<string> allDropped = new(dropped.Count + job.DroppedOptions.Count);
-        allDropped.AddRange(dropped);
-        allDropped.AddRange(job.DroppedOptions);
-        job.DroppedOptions = allDropped;
+        PrintOptionValidator.Prepend(job, dropped);
+        PrintingLog.ReportDropped(Logger, job);
         return job;
     }
 

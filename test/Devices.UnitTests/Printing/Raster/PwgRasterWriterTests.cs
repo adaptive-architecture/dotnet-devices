@@ -215,20 +215,81 @@ public class PwgRasterWriterTests
     }
 
     [Fact]
-    public void WritePage_NamesTheMediaWhenTheOptionsDo()
+    public void WritePage_SizesAnA4PageAsCupsDoes()
+    {
+        // A4 at 100 dpi is 826.77 by 1169.29 pixels and 595.28 by 841.89 points. Both are
+        // rounded down, so the page never claims to be larger than the sheet.
+        MemoryStream stream = new();
+        PwgRasterWriter writer = new(stream, new PwgRasterOptions { ResolutionDpi = 100, ColorSpace = PwgRasterColorSpace.Grayscale8 });
+        writer.WritePage(new byte[826 * 1169], 826, 1169);
+        var header = Header(stream.ToArray());
+
+        Assert.Equal(594u, ReadUInt32(header, 352));
+        Assert.Equal(841u, ReadUInt32(header, 356));
+    }
+
+    [Fact]
+    public void WritePage_TheImageBoxCoversThePage()
+    {
+        var header = Header(WriteGray(600, 300, new byte[600 * 300]));
+
+        Assert.Equal(0u, ReadUInt32(header, 464));
+        Assert.Equal(0u, ReadUInt32(header, 468));
+        Assert.Equal(600u, ReadUInt32(header, 472));
+        Assert.Equal(300u, ReadUInt32(header, 476));
+    }
+
+    [Fact]
+    public void WritePage_KeepsTheMediaNameOfAPageOfThatSize()
+    {
+        Assert.Equal("iso_a4_210x297mm", NameOfA4Page("iso_a4_210x297mm", []));
+        Assert.Equal("PwgRaster", ReadCString(Header(WriteGray(1, 1, [0x00])), 0));
+    }
+
+    [Fact]
+    public void WritePage_NamesThePageFromThePrinterListWhenTheMediaNameDoesNotFit()
+    {
+        // The job named a label, but the page is A4: the header must not contradict itself.
+        Assert.Equal("iso_a4_210x297mm", NameOfA4Page("na_index-4x6_4x6in", ["na_letter_8.5x11in", "iso_a4_210x297mm"]));
+    }
+
+    [Fact]
+    public void WritePage_NamesNoPageThatNoSizeFits()
+    {
+        // 100 by 150 mm is 1.6 mm narrower than 4 by 6 inches, which strict firmware rejects.
+        MemoryStream stream = new();
+        PwgRasterWriter writer = new(stream, new PwgRasterOptions
+        {
+            ResolutionDpi = 100,
+            ColorSpace = PwgRasterColorSpace.Grayscale8,
+            MediaName = "iso_a4_210x297mm",
+            MediaSizeNames = ["na_index-4x6_4x6in"],
+        });
+
+        writer.WritePage(new byte[393 * 590], 393, 590);
+
+        Assert.Equal("", ReadCString(Header(stream.ToArray()), 1732));
+    }
+
+    [Fact]
+    public void WritePage_NeverWritesANameThatEncodesNoSize()
+    {
+        Assert.Equal("", NameOfA4Page("a4", ["letter", "a4"]));
+    }
+
+    private static string NameOfA4Page(string mediaName, IReadOnlyList<string> mediaSizeNames)
     {
         MemoryStream stream = new();
         PwgRasterWriter writer = new(stream, new PwgRasterOptions
         {
+            ResolutionDpi = 100,
             ColorSpace = PwgRasterColorSpace.Grayscale8,
-            MediaName = "iso_a4_210x297mm",
+            MediaName = mediaName,
+            MediaSizeNames = mediaSizeNames,
         });
 
-        writer.WritePage([0x00], 1, 1);
-
-        var header = Header(stream.ToArray());
-        Assert.Equal("iso_a4_210x297mm", ReadCString(header, 1732));
-        Assert.Equal("PwgRaster", ReadCString(header, 0));
+        writer.WritePage(new byte[826 * 1169], 826, 1169);
+        return ReadCString(Header(stream.ToArray()), 1732);
     }
 
     // PWG 5102.4 section 4.4.1. The specification works this exact bitmap through, so a

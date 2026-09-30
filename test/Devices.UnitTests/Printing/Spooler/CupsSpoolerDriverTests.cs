@@ -90,6 +90,36 @@ public class CupsSpoolerDriverTests
         Assert.Equal("/printers/lobby", request.RequestUri.AbsolutePath);
     }
 
+    // CUPS receives the document as it is, so what only a renderer applies never reaches it.
+    [Fact]
+    public async Task SubmitAsync_ReportsWhatNoIppAttributeCarries()
+    {
+        var body = IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 7), (0x23, "job-state", 3));
+        IppMessages.StubHandler handler = new(_ => IppMessages.Ok(body));
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        var job = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions
+            {
+                Copies = 2,
+                Placement = new PrintPlacement { Anchor = PrintAnchor.TopLeft },
+                Smoothing = false,
+                MediaSizeSource = MediaSizeSource.Document,
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [nameof(PrintOptions.MediaSizeSource), nameof(PrintOptions.Placement), nameof(PrintOptions.Smoothing)],
+            job.DroppedOptions);
+        Assert.All(job.DroppedOptionDetails, dropped =>
+        {
+            Assert.Equal(PrintOptionStage.Channel, dropped.Stage);
+            Assert.Equal("CUPS receives the document as it is, and no IPP attribute carries it", dropped.Reason);
+        });
+    }
+
     [Fact]
     public async Task SubmitAsync_SendsAPrinterLanguageAsTheCupsRawFormat()
     {

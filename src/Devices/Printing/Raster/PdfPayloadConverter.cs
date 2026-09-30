@@ -110,6 +110,7 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
             Duplex = context.Duplex,
             SheetBack = PwgRaster.SheetBackFor(context.SheetBack),
             MediaName = context.MediaName,
+            MediaSizeNames = context.MediaSizeNames,
         });
 
         foreach (var page in pages)

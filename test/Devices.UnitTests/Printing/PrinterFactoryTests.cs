@@ -44,6 +44,36 @@ public class PrinterFactoryTests
         _ = Assert.IsType<SpoolerPrinter>(printer);
     }
 
+    // Without it a raw printer opened through the manager has no log, so the events of the
+    // raw channel could never fire.
+    [Fact]
+    public void Open_HandsItsLoggerFactoryToEveryPrinter()
+    {
+        FakeLoggerFactory log = new();
+        using PrinterFactory factory = new() { LoggerFactory = log };
+
+        var raw = Assert.IsType<RawPrinter>(factory.Open(Found(NetworkPrinterEndpoint.Raw("printer.local"))));
+        var spooler = Assert.IsType<SpoolerPrinter>(factory.Open(Found(new SpoolerPrinterEndpoint("Lobby"))));
+        using var ipp = Assert.IsType<IppPrinter>(factory.Open(Found(NetworkPrinterEndpoint.Ipp("printer.local"))));
+        var cups = Assert.IsType<CupsPrinter>(factory.Open(Found(new CupsPrinterEndpoint("cups.local", "Lobby"))));
+
+        Assert.Same(log, raw.LoggerFactory);
+        Assert.Same(log, spooler.LoggerFactory);
+        Assert.Same(log, ipp.LoggerFactory);
+        Assert.Same(log, cups.LoggerFactory);
+    }
+
+    [Fact]
+    public void Open_FallsBackToTheLoggerFactoryOfTheTransport()
+    {
+        FakeLoggerFactory log = new();
+        using PrinterFactory factory = new(new IppTransportOptions { LoggerFactory = log });
+
+        var raw = Assert.IsType<RawPrinter>(factory.Open(Found(NetworkPrinterEndpoint.Raw("printer.local"))));
+
+        Assert.Same(log, raw.LoggerFactory);
+    }
+
     [Fact]
     public async Task OpenAsync_MakesASpoolerPrinterForASpoolerIdentifier()
     {

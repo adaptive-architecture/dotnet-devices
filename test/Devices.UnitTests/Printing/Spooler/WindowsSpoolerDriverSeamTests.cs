@@ -373,6 +373,78 @@ public class WindowsSpoolerDriverSeamTests
     }
 
     [Fact]
+    public async Task SubmitAsync_APrinterLanguage_ReportsWhatNothingRenders()
+    {
+        FakeWindowsSpoolerInterop interop = new();
+
+        var job = await DriverFor(interop).SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
+            new PrintOptions
+            {
+                MediaType = "labels",
+                Placement = new PrintPlacement { Anchor = PrintAnchor.TopLeft },
+                Smoothing = false,
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [
+                new DroppedOption(nameof(PrintOptions.MediaType), PrintOptionStage.DeviceMode, "a Windows device mode has no field for it, or the driver of the queue does not offer the value"),
+                new DroppedOption(nameof(PrintOptions.Placement), PrintOptionStage.Channel, "the RAW data type sends the bytes as they are, and nothing renders them"),
+                new DroppedOption(nameof(PrintOptions.Smoothing), PrintOptionStage.Channel, "the RAW data type sends the bytes as they are, and nothing renders them"),
+            ],
+            job.DroppedOptionDetails);
+    }
+
+    // GDI draws the placement and the smoothing, so only what it cannot do is reported.
+    [Fact]
+    public async Task SubmitAsync_AnImage_ReportsTheConverterAndTheDocumentMediaSize()
+    {
+        FakeWindowsSpoolerInterop interop = new();
+        var png = new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A };
+
+        var job = await DriverFor(interop).SubmitAsync(
+            "lobby",
+            PrinterPayload.FromBytes(png, PrinterContentTypes.Png),
+            new PrintOptions
+            {
+                Placement = new PrintPlacement { Anchor = PrintAnchor.TopLeft },
+                Smoothing = false,
+                ConverterName = "Any",
+                MediaSizeSource = MediaSizeSource.Document,
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [
+                new DroppedOption(nameof(PrintOptions.ConverterName), PrintOptionStage.Conversion, "the library does not convert an image"),
+                new DroppedOption(nameof(PrintOptions.MediaSizeSource), PrintOptionStage.Conversion, "GDI draws the page on the paper of the queue"),
+            ],
+            job.DroppedOptionDetails);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_ADocument_ReportsTheDocumentMediaSize()
+    {
+        WindowsSpoolerDriver driver = new(
+            new FakeWindowsSpoolerInterop(),
+            new FakeWindowsGdiImagePrinter(),
+            isWindows: true,
+            new PrintFormatPolicy(null, [new RecordingPdfConverter(pages: 1)]));
+
+        var job = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromBytes(new byte[] { 1 }, PrinterContentTypes.Pdf),
+            new PrintOptions { MediaSizeSource = MediaSizeSource.Document },
+            TestContext.Current.CancellationToken);
+
+        var dropped = Assert.Single(job.DroppedOptionDetails);
+        Assert.Equal(nameof(PrintOptions.MediaSizeSource), dropped.Option);
+        Assert.Equal(PrintOptionStage.Conversion, dropped.Stage);
+    }
+
+    [Fact]
     public async Task GetConfigurationAsync_ReadsTheCapabilityListsOfTheDriver()
     {
         FakeWindowsSpoolerInterop interop = new();

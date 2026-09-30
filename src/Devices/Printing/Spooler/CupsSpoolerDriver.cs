@@ -1,5 +1,6 @@
 ﻿using System.Linq;
 using AdaptArch.Devices.Printing.Ipp;
+using Microsoft.Extensions.Logging;
 using SharpIpp.Models.Requests;
 using SharpIpp.Protocol.Models;
 
@@ -34,8 +35,8 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     // the server default applies.
     private readonly Func<string?>? _userDefault;
 
-    public CupsSpoolerDriver(PrintFormatPolicy? formats = null, IppTransportOptions? options = null)
-        : this(SharedClient.Value, DefaultBaseUri, formats, options, userDefault: CupsUserDefault.Find)
+    public CupsSpoolerDriver(PrintFormatPolicy? formats = null, IppTransportOptions? options = null, ILoggerFactory? loggerFactory = null)
+        : this(SharedClient.Value, DefaultBaseUri, formats, options, userDefault: CupsUserDefault.Find, loggerFactory: loggerFactory)
     {
     }
 
@@ -60,14 +61,15 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         PrintFormatPolicy? formats = null,
         IppTransportOptions? options = null,
         (string Host, int Port)? server = null,
-        Func<string?>? userDefault = null)
+        Func<string?>? userDefault = null,
+        ILoggerFactory? loggerFactory = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(baseUri);
 
         // The whole policy, not only the log: the raw-response switch must reach a CUPS
         // queue as well, because that is the channel a stopped spooler job runs on.
-        _context = new IppContext(httpClient, options);
+        _context = new IppContext(httpClient, options, loggerFactory);
         _baseUri = baseUri;
         _formats = formats ?? PrintFormatPolicy.Default;
         _server = server;
@@ -142,17 +144,26 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         };
     }
 
-    // The options are validated above this driver, so nothing is dropped here.
+    // CUPS receives the document as it is, and no IPP attribute carries what only a renderer
+    // applies, so those options are reported here; the rest were validated above this driver.
     public Task<PrintJobInfo> SubmitAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
         ArgumentNullException.ThrowIfNull(payload);
+        var dropped = PrintOptionValidator.Unapplied(
+            options,
+            PrintOptionStage.Channel,
+            "CUPS receives the document as it is, and no IPP attribute carries it",
+            nameof(PrintOptions.Placement),
+            nameof(PrintOptions.Smoothing),
+            nameof(PrintOptions.MediaSizeSource));
+
         // The daemon is CUPS by construction, so the format needs no negotiation.
         return IppRequests.SubmitAsync(
             _context,
             QueueUri(queueName),
             IdFor(queueName),
-            new IppSubmission(payload, IppDocumentFormat.ForCups(payload.ContentType, _formats), options, []),
+            new IppSubmission(payload, IppDocumentFormat.ForCups(payload.ContentType, _formats), options, dropped),
             cancellationToken);
     }
 

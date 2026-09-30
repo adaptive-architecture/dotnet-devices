@@ -5,6 +5,8 @@
 /// </summary>
 public sealed class PrintJobInfo
 {
+    private IReadOnlyList<DroppedOption> _droppedOptionDetails = [];
+
     /// <summary>
     /// Initializes a new instance of the <see cref="PrintJobInfo"/> class.
     /// </summary>
@@ -107,10 +109,29 @@ public sealed class PrintJobInfo
     public IReadOnlyList<IppAttributeSnapshot> RawAttributes { get; set; } = [];
 
     /// <summary>
-    /// Gets or sets the options that did not reach the device. An option is listed when
-    /// <see cref="UnsupportedOptionBehavior.Drop"/> removed it, or when the channel cannot
-    /// apply it at all, as the Windows spooler does for an option that no device mode
-    /// field can carry.
+    /// Gets the names of the options that did not reach the device, one for each entry of
+    /// <see cref="DroppedOptionDetails"/>.
     /// </summary>
-    public IReadOnlyList<string> DroppedOptions { get; set; } = [];
+    public IReadOnlyList<string> DroppedOptions { get; private set; } = [];
+
+    /// <summary>
+    /// Gets or sets every option that did not reach the device, with the stage that dropped
+    /// it and the reason. Defaults to empty.
+    /// </summary>
+    /// <remarks>
+    /// An option is listed when <see cref="UnsupportedOptionBehavior.Drop"/> removed it, or
+    /// when the path the job took cannot apply it: a Windows device mode with no field for
+    /// it, a conversion that did not run, or a channel that carries no job template. The
+    /// sheet then shows the printer's own setting for that option.
+    /// </remarks>
+    public IReadOnlyList<DroppedOption> DroppedOptionDetails
+    {
+        get => _droppedOptionDetails;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            _droppedOptionDetails = value;
+            DroppedOptions = value.Select(dropped => dropped.Option).ToArray();
+        }
+    }
 }

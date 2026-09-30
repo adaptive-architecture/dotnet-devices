@@ -46,6 +46,10 @@ public sealed class PwgRasterWriter
 
     private const int PointsPerInch = 72;
 
+    // One millimetre, in hundredths: a page named with a size further from its own is
+    // reported by strict firmware as a page size mismatch.
+    private const int NameTolerance = 100;
+
     private readonly Stream _destination;
     private readonly PwgRasterOptions _options;
     private readonly int _bytesPerPixel;
@@ -214,12 +218,16 @@ public sealed class PwgRasterWriter
         WriteInt32(header, 456, crossFeed);
         WriteInt32(header, 460, feed);
 
-        // Section 4.3.2.9: the ImageBox fields are zero when the content area is unknown,
-        // which it is: the caller handed us pixels and said nothing about their margins.
+        // Section 4.3.2.9: the whole page, as CUPS writes it. Firmware may read a zero box
+        // as an empty page.
+        WriteUInt32(header, 464, 0);                                        // ImageBoxLeft
+        WriteUInt32(header, 468, 0);                                        // ImageBoxTop
+        WriteUInt32(header, 472, (uint)width);                              // ImageBoxRight
+        WriteUInt32(header, 476, (uint)height);                             // ImageBoxBottom
         WriteUInt32(header, 484, 0);                                        // PrintQuality: default
         WriteUInt32(header, 508, 0);                                        // VendorIdentifier
         WriteUInt32(header, 512, 0);                                        // VendorLength
-        WriteCString(header, 1732, _options.MediaName);
+        WriteCString(header, 1732, PageSizeName(width, height));
 
         _destination.Write(header);
     }
@@ -311,8 +319,22 @@ public sealed class PwgRasterWriter
     private ReadOnlySpan<byte> Unit(ReadOnlySpan<byte> line, int index) =>
         line.Slice(index * _bytesPerPixel, _bytesPerPixel);
 
+    // Rounded down, as CUPS does, so the page never claims to be larger than it is.
     private int ToPoints(int pixels) =>
-        (int)Math.Round((double)pixels * PointsPerInch / _options.ResolutionDpi, MidpointRounding.AwayFromZero);
+        (int)Math.Floor(((double)pixels * PointsPerInch / _options.ResolutionDpi) + 1e-6);
+
+    private string? PageSizeName(int width, int height) =>
+        Fits(_options.MediaName, width, height)
+            ? _options.MediaName
+            : _options.MediaSizeNames.FirstOrDefault(name => Fits(name, width, height));
+
+    private bool Fits(string? name, int width, int height) =>
+        PwgMediaNames.TryParse(name, out var size)
+        && size is not null
+        && Math.Abs(size.Width.HundredthsOfMillimeter - ToHundredthsOfMillimeter(width)) <= NameTolerance
+        && Math.Abs(size.Height.HundredthsOfMillimeter - ToHundredthsOfMillimeter(height)) <= NameTolerance;
+
+    private double ToHundredthsOfMillimeter(int pixels) => pixels * 2540.0 / _options.ResolutionDpi;
 
     private static void WriteCString(Span<byte> header, int offset, string? value)
     {

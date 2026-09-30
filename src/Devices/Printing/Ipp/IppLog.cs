@@ -41,7 +41,7 @@ internal static partial class IppLog
     [LoggerMessage(EventId = 1033, Level = LogLevel.Debug, Message = "The job of {ContentType} for {Endpoint} converted to {Bytes} bytes of {Target}.")]
     public static partial void DocumentConversionSize(ILogger logger, string contentType, Uri endpoint, int bytes, string target);
 
-    [LoggerMessage(EventId = 1034, Level = LogLevel.Warning, Message = "The job of {ContentType} for {Endpoint} is not converted, because {Reason}, so it is sent unchanged and the printer may refuse it.")]
+    [LoggerMessage(EventId = 1034, Level = LogLevel.Debug, Message = "The job of {ContentType} for {Endpoint} is not converted, because {Reason}, so it is sent unchanged and the printer may refuse it.")]
     public static partial void DocumentNotConverted(ILogger logger, string contentType, Uri endpoint, string reason);
 
     [LoggerMessage(EventId = 1035, Level = LogLevel.Debug, Message = "The job of {ContentType} of {Bytes} octets is submitted to {Endpoint}.")]

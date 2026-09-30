@@ -35,6 +35,6 @@ internal static partial class SpoolerLog
 
     // 4020 block: the device mode.
 
-    [LoggerMessage(EventId = 4020, Level = LogLevel.Warning, Message = "The driver of queue {QueueName} did not apply the options {Options}. Windows carries no media type, output bin, page range or pages per sheet in a device mode.")]
+    [LoggerMessage(EventId = 4020, Level = LogLevel.Debug, Message = "The driver of queue {QueueName} did not apply the options {Options}. Windows carries no media type, output bin, page range or pages per sheet in a device mode.")]
     public static partial void DeviceModeOptionsDropped(ILogger logger, string queueName, string options);
 }
