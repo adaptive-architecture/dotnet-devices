@@ -322,6 +322,38 @@ on:
 Both exception types derive from `InvalidOperationException`, so an existing `catch` block still
 catches them.
 
+### A label prints on one CUPS queue and not another
+
+CUPS does not convert a printer-language job. The library sends ZPL, EPL, CPCL and ESC/POS as
+`application/vnd.cups-raw`, and CUPS hands those bytes to the backend unchanged whether the
+queue is raw, has a driver or is driverless. The backend is what differs:
+
+| `device-uri` of the queue | What reaches the device | `ForwardsOverIpp` |
+| :--- | :--- | :--- |
+| `usb`, `socket`, `lpd`, `file`, or `dnssd` to a non-IPP service | The bytes, unchanged | `false` |
+| `ipp`, `ipps`, `http`, `https`, `implicitclass`, or `dnssd` to an `_ipp` or `_ipps` service | The bytes, sent on over IPP as `application/octet-stream` | `true` |
+
+A printer at the end of a forwarding queue decides for itself whether it reads the bytes, even
+when it lists `application/octet-stream`. One that does not answers
+`client-error-attributes-or-values-not-supported`. CUPS then keeps the job and retries it until
+it is cancelled, and the job's message may say *Unable to add document to print job* or only
+that it is printing. `Validate-Job` passing does not show that the printer will read the bytes. Most AirPrint queues on macOS are forwarding queues (`dnssd://`),
+and macOS refuses to create a raw queue at all.
+
+Read it from `GetConfigurationAsync`:
+
+```csharp
+var configuration = await printer.GetConfigurationAsync(cancellationToken);
+if (configuration.ForwardsOverIpp == true)
+{
+    // Prefer a raw:// or ipp:// channel to the device itself, if the manager found one.
+}
+```
+
+`null` means the channel is not a CUPS queue, or CUPS did not report a `device-uri`. Neither
+the make and model nor the presence of a PPD is a dependable signal: macOS generates a PPD for
+every AirPrint queue, and both texts are free-form.
+
 ## Read the raw answer
 
 When no mapped field names the cause, read what the printer sent. Turn the switch on:

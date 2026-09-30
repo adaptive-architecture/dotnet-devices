@@ -92,4 +92,26 @@ public class DeviceUriParserTests
     [InlineData("not-a-uuid")]
     public void NormalizeUuid_ReturnsNullWhenTheValueIsNotOne(string value) =>
         Assert.Null(DeviceUriParser.NormalizeUuid(value));
+
+    [Theory]
+    [InlineData("ipp://192.168.1.5:631/ipp/print", true)]
+    [InlineData("ipps://printer.local/ipp/print", true)]
+    [InlineData("https://printer.local/ipp/print", true)]
+    [InlineData("implicitclass://EPSON_L6270_Series/", true)]
+    [InlineData("dnssd://EPSON%20L6270%20Series._ipps._tcp.local./?uuid=cfe92100-67c4-11d4-a45f-e0bb9e5f1d5b", true)]
+    [InlineData("dnssd://Printer._ipp._tcp.local/?uuid=e3248000-80ce-11db-8000-3c2af4a0d21d", true)]
+    [InlineData("dnssd://Printer._pdl-datastream._tcp.local/", false)]
+    [InlineData("socket://192.168.1.5:9100", false)]
+    [InlineData("lpd://printer.local/queue", false)]
+    [InlineData("usb://Zebra/ZTC%20ZD421?serial=X4TY012345", false)]
+    [InlineData("file:/var/spool/out/raw.prn", false)]
+    public void ForwardsOverIpp_ReadsTheBackendOfTheQueue(string uri, bool expected) =>
+        Assert.Equal(expected, DeviceUriParser.ForwardsOverIpp(uri));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("not a uri")]
+    public void ForwardsOverIpp_ReturnsNullWhenThereIsNoDeviceUri(string uri) =>
+        Assert.Null(DeviceUriParser.ForwardsOverIpp(uri));
 }

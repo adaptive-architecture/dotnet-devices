@@ -122,12 +122,15 @@ The rules run in this order:
 This is a real gain: a printer found through the spooler is printed to over its raw channel,
 without the caller having to look for that channel.
 
-**A CUPS-only device still gets the label.** CUPS gives no promise — only a raw queue passes the
-bytes to the backend untouched, a queue with a driver or a driverless (IPP Everywhere) queue
-converts the job, and CUPS reports no dependable attribute that tells them apart. Rule 5
-therefore sends over the CUPS queue anyway, as `application/vnd.cups-raw`, which is the format a
-raw queue needs and which stops CUPS from re-typing the job. Sending is better than refusing,
-because refusing helps nobody and the format is correct either way.
+**A CUPS-only device still gets the label.** Rule 5 sends over the CUPS queue as
+`application/vnd.cups-raw`, which stops CUPS from re-typing the job: on a raw queue, a queue
+with a driver and a driverless (IPP Everywhere) queue alike, CUPS hands the bytes to the backend
+unchanged. What CUPS cannot promise is the device behind the queue. A queue that forwards over
+IPP sends the bytes on as `application/octet-stream`, and the printer at the other end decides
+whether it reads them; `PrinterConfiguration.ForwardsOverIpp` says which kind of queue it is
+(see [Troubleshooting](troubleshooting.md#a-label-prints-on-one-cups-queue-and-not-another)).
+Sending is better than refusing, because refusing helps nobody and the format is correct either
+way.
 
 `GetStatusAsync` and `WatchJobAsync` carry no payload, so they always prefer a channel with a
 job queue.

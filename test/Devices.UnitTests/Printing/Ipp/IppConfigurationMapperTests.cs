@@ -252,4 +252,28 @@ public class IppConfigurationMapperTests
         Assert.Empty(configuration.PwgRasterTypes);
         Assert.Empty(configuration.PwgRasterResolutionsDpi);
     }
+
+    [Theory]
+    [InlineData("ipp://192.168.1.5:631/ipp/print", true)]
+    [InlineData("socket://192.168.1.5:9100", false)]
+    public async Task Map_ReadsWhetherTheQueueForwardsOverIpp(string deviceUri, bool expected)
+    {
+        var body = IppMessages.Response(0x0000, (0x45, "device-uri", deviceUri));
+        (var attributes, var raw) = await IppMessages.DecodeWithRawAsync(body);
+
+        var configuration = IppConfigurationMapper.Map(Id, attributes, raw);
+
+        Assert.Equal(expected, configuration.ForwardsOverIpp);
+    }
+
+    [Fact]
+    public async Task Map_LeavesForwardingUnknownForAPrinterWithNoDeviceUri()
+    {
+        var body = IppMessages.Response(0x0000, (0x44, "document-format-supported", PrinterContentTypes.Pdf));
+        (var attributes, var raw) = await IppMessages.DecodeWithRawAsync(body);
+
+        var configuration = IppConfigurationMapper.Map(Id, attributes, raw);
+
+        Assert.Null(configuration.ForwardsOverIpp);
+    }
 }
