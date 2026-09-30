@@ -75,6 +75,27 @@ Linux unaffected.
 [windows-manual-tests.md](windows-manual-tests.md#the-tests-that-run-themselves-on-windows)
 says how to pause the queue and why that matters.
 
+`test/Devices.CupsHostTests` runs against the CUPS daemon of the machine itself, over the local
+socket and under the stock policy — what the integration tests' container, whose policy allows
+everything, cannot show and a macOS runner, which has no Docker, cannot run at all. It checks
+that a job belongs to the user who printed it and that the same user can cancel it, that a PDF
+for the local daemon of a Mac is sent as URF, `ForwardsOverIpp` on both kinds of queue, and what
+CUPS reports for a job the device behind a forwarding queue refused. `pipeline/cups-host-queues.sh up`
+creates its two queues and prints the `DEVICES_CUPS_HELD_QUEUE` and
+`DEVICES_CUPS_FORWARDING_QUEUE` that turn it on; without them every test skips. The `macos` CI
+job runs it, and so can a developer on macOS or Linux:
+
+```sh
+eval "export $(sh ./pipeline/cups-host-queues.sh up | tr '\n' ' ')"
+dotnetup dotnet test --project test/Devices.CupsHostTests
+sh ./pipeline/cups-host-queues.sh down
+```
+
+**Run `down` and `up` again before a second run.** The forwarding queue ends at an
+`ippeveprinter`, which never ends its own copy of the job it refused and then answers every later
+job with `server-error-busy`; `up` restarts it. Nothing prints: the held queue is stopped and
+points at a port nothing listens on, and each test checks that before it sends anything.
+
 `test/Devices.TestSupport/` holds what more than one test project needs: `Pdf/MinimalPdf.cs`,
 which assembles a PDF around a list of objects so no fixture writes a cross-reference table
 of its own, and `Rasterization/`, the harness described below. It is a library rather than

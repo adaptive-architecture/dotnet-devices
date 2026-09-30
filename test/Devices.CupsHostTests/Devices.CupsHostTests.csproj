@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup Condition="'$(CONFIGURATION)' == 'Debug' Or '$(BuildDocFx)' == 'true'">
+    <ProjectReference Include="..\..\src\Devices\Devices.csproj" />
+    <ProjectReference Include="..\..\src\Devices.Pdfium\Devices.Pdfium.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(CONFIGURATION)' == 'Release' And '$(BuildDocFx)' != 'true'">
+    <PackageReference Include="AdaptArch.Devices" />
+    <PackageReference Include="AdaptArch.Devices.Pdfium" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Devices.TestSupport\Devices.TestSupport.csproj" />
+  </ItemGroup>
+
+</Project>
