@@ -8,7 +8,7 @@ Read [docs/](docs/README.md) for progressive discovery of the architecture, pack
 
 ## Non-negotiable conventions
 
-- **All `dotnet` operations go through `dotnetup`**: use `dotnetup dotnet build` / `test` / `restore` / `format` / `pack`, never the system `dotnet` directly.
+- **All `dotnet` operations go through `dotnetup`**: use `dotnetup dotnet build` / `test` / `restore` / `format` / `pack` rather than the system `dotnet`, because `dotnetup` resolves the SDK version this repository pins.
 - **RCS1090 is an error**: every `await` must call `.ConfigureAwait(false)`.
 - **Code style** (`.editorconfig`): C# 4-space indent + UTF-8 BOM, expression-bodied members preferred, no `this.`, `System.*` usings first, primary constructors disabled (IDE0290), switch expressions disabled (IDE0066).
 - **`var` for locals, keywords for declarations, BCL names only for static access**:
