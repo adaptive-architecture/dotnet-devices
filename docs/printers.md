@@ -150,6 +150,12 @@ names no endpoint. Resolve it through `IPrinterManager` first.
 when the printer reports an empty one. An explicit `false` is a capability statement, and
 both judge against it.
 
+Orientation is the option this most often catches. Many printers report
+`orientation-requested-supported` as portrait alone — an EPSON L6270 does — so a job that asks
+for `ReversePortrait` or a landscape value prints as if it had asked for nothing. Read
+`PrinterConfiguration.SupportedOrientations` before choosing one, or set `OnUnsupported` to
+`Drop` to see it named in `PrintJobInfo.DroppedOptions`.
+
 ### Disposal
 
 **A printer from `PrinterFactory` owns nothing and needs no disposal.** The factory keeps
@@ -769,6 +775,34 @@ names are equal without regard to case, as Windows and CUPS compare them.
 Native Windows calls cannot run in this repository's test suite or CI, which both run on
 Linux. [Windows manual tests](windows-manual-tests.md) lists what a person must check by
 hand.
+
+### Queue defaults on CUPS
+
+A spooler job carries only the options it sets, so every option it leaves unset takes the
+**queue's** default — and a queue's defaults are not the printer's. A driverless queue on
+macOS shows how far apart they can be. Measured with `lpoptions`, `ipptool` and `cupsfilter`
+on macOS 27 against an EPSON L6270, with nothing printed:
+
+- **Two-sided by default.** The queue's PPD reads `*DefaultDuplex: DuplexNoTumble` while the
+  printer reports `sides-default = one-sided`. A job that names no `Duplex` prints on both
+  sides through the spooler, and on one side over IPP.
+- **Reverse output order.** `*DefaultOutputOrder: Reverse`, so the first page of a job comes
+  out last.
+- **A PDF is not fitted.** macOS CUPS renders a PDF with Quartz and not with cups-filters.
+  With no media in the job it takes the PDF's own page size as the media, so a 4 by 6 inch
+  label sent to a printer loaded with A4 arrives as a 4 by 6 inch page and the printer reports
+  a size mismatch. With `media=A4` it draws the page from the PDF's origin, against the bottom
+  left of the sheet, and ignores `print-scaling`: `none`, `fit` and `auto` gave the same
+  output. Linux centres such a page on the default media, and the Windows spooler places it
+  with GDI.
+
+`lpoptions -p <queue> -l` lists a queue's options with the current value starred. Set the
+option on the job to override one — `Duplex = DuplexMode.Simplex` — or change the queue itself
+with `lpadmin -p <queue> -o Duplex=None`. A job that must land in the same place on every
+platform asks for a [placement](#where-a-page-lands-on-the-media), which the library renders
+rather than leaving it to the queue; on CUPS that is still open work (#29, #31). Recheck the
+list above with `cupsfilter` on another macOS version, since it is the queue and not the
+library that decides it.
 
 ## A CUPS server, from any operating system
 

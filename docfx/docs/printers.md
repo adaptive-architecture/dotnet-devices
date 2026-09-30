@@ -154,6 +154,12 @@ one and is never the wrong one for the payload.
 the printer reports an empty one. An explicit `false` is a capability statement, and both
 judge against it.
 
+Orientation is the option this most often catches. Many printers report
+`orientation-requested-supported` as portrait alone — an EPSON L6270 does — so a job that asks
+for `ReversePortrait` or a landscape value prints as if it had asked for nothing. Read
+`PrinterConfiguration.SupportedOrientations` before choosing one, or set `OnUnsupported` to
+`Drop` to see it named in `PrintJobInfo.DroppedOptions`.
+
 ### Disposal
 
 **A printer from `PrinterFactory` owns nothing and needs no disposal.** The factory keeps one

@@ -1,6 +1,6 @@
 {
   "name": "Queue sweep",
-  "description": "Nine documents through one queue. Each job changes exactly one option from the job before it, so a wrong page names its own option. The pages.pdf jobs are the ones that prove the raster path: on an IPP printer that does not read PDF they are rendered here and sent as PWG Raster, and every fault that path can have is visible on the sheet.",
+  "description": "Seven documents through one queue, grouped to save paper: most jobs change more than one option, so a wrong sheet is compared against its own description rather than the job before it. The pages.pdf jobs are the ones that prove the raster path: on an IPP printer that does not read PDF they are rendered here and sent as PWG Raster, and every fault that path can have is visible on the sheet.",
   "mode": "queue",
   "jobs": [
     {
@@ -25,15 +25,9 @@
     },
     {
       "file": "photo.jpeg",
-      "description": "a JPEG rotated 180 degrees",
+      "description": "a JPEG rotated 180 degrees, in grayscale, filling the media",
       "options": {
-        "orientation": "ReversePortrait"
-      }
-    },
-    {
-      "file": "photo.jpeg",
-      "description": "a JPEG in grayscale, filling the media",
-      "options": {
+        "orientation": "ReversePortrait",
         "colorMode": "Monochrome",
         "scaling": "Fill"
       }
@@ -47,22 +41,18 @@
     },
     {
       "file": "pages.pdf",
-      "description": "the same four pages in grayscale, which is one octet a pixel instead of three",
+      "description": "pages 1 and 3 in grayscale, which is one octet a pixel instead of three, duplex on the short edge: one sheet, turning like a flip pad",
       "options": {
-        "colorMode": "Monochrome"
+        "colorMode": "Monochrome",
+        "duplex": "ShortEdge",
+        "pageRanges": "1,3"
       }
     },
     {
       "file": "pages.pdf",
-      "description": "pages 2 and 4 only, selected by the converter and not by the printer",
+      "description": "pages 2 and 4, selected by the converter and not by the printer, duplex on the long edge: one sheet, turning like a book",
       "options": {
-        "pageRanges": "2,4"
-      }
-    },
-    {
-      "file": "pages.pdf",
-      "description": "four pages duplex on the long edge, to check the back-side transform",
-      "options": {
+        "pageRanges": "2,4",
         "duplex": "LongEdge"
       }
     }
