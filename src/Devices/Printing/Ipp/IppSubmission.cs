@@ -12,4 +12,7 @@ internal sealed record IppSubmission(
     // Job attributes no PrintOptions property maps to, appended as they are. Only a CUPS
     // queue is sent any: a server extension such as "fit-to-page" means nothing to a printer.
     public IReadOnlyList<IppAttribute> ExtraJobAttributes { get; init; } = [];
+
+    // The converter that rendered the payload, or null when it is sent as the caller gave it.
+    public string? ConverterUsed { get; init; }
 }

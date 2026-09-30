@@ -25,6 +25,7 @@ public sealed class PrinterConfiguration
         SupportedScalings = [];
         PwgRasterTypes = [];
         PwgRasterResolutionsDpi = [];
+        UrfSupported = [];
     }
 
     /// <summary>
@@ -182,4 +183,16 @@ public sealed class PrinterConfiguration
     /// prints every second page upside down or mirrored.
     /// </remarks>
     public string? PwgRasterSheetBack { get; init; }
+
+    /// <summary>
+    /// Gets the <c>urf-supported</c> keywords of the printer, such as <c>W8</c>,
+    /// <c>SRGB24</c>, <c>RS300-600</c> and <c>DM1</c>. An empty list means the printer did
+    /// not report them.
+    /// </summary>
+    /// <remarks>
+    /// Only a printer that lists <c>image/urf</c> in <see cref="SupportedDocumentFormats"/>
+    /// reports these. They name the colour spaces, the resolutions and the back-side
+    /// coordinate system an Apple Raster document must be written in.
+    /// </remarks>
+    public IReadOnlyList<string> UrfSupported { get; init; }
 }

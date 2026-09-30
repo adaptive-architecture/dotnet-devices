@@ -147,6 +147,36 @@ public class PrintFormatPolicyTests
     }
 
     [Fact]
+    public void RequiredConverterFor_AnswersTheNameTheFormatRequires()
+    {
+        PrintFormatPolicy policy = new(null, null, [new(PrinterContentTypes.Pdf, "PDFium")]);
+
+        Assert.Equal("PDFium", policy.RequiredConverterFor("APPLICATION/PDF"));
+        Assert.Null(policy.RequiredConverterFor(PrinterContentTypes.Png));
+    }
+
+    // No converter runs for an image or a printer language.
+    [Theory]
+    [InlineData(PrinterContentTypes.Png)]
+    [InlineData(PrinterContentTypes.Zpl)]
+    [InlineData("application/x-unknown")]
+    public void Constructor_RefusesToRequireAConverterForAFormatThatIsNotADocument(string contentType) =>
+        Assert.Throws<ArgumentException>(() => new PrintFormatPolicy(null, null, [new(contentType, "PDFium")]));
+
+    [Fact]
+    public void Constructor_RefusesABlankRequiredName() =>
+        Assert.Throws<ArgumentException>(() => new PrintFormatPolicy(null, null, [new(PrinterContentTypes.Pdf, " ")]));
+
+    [Fact]
+    public void BuildFormatPolicy_CarriesTheRequiredConverters()
+    {
+        PrinterManagerOptions options = new();
+        options.RequiredConverters[PrinterContentTypes.Pdf] = "PDFium";
+
+        Assert.Equal("PDFium", options.BuildFormatPolicy().RequiredConverterFor(PrinterContentTypes.Pdf));
+    }
+
+    [Fact]
     public void ConverterFor_NoName_KeepsThePreferredConverter()
     {
         const string ContentType = "application/x-unnamed-ask";

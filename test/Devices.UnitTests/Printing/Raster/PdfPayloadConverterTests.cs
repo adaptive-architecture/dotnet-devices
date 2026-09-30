@@ -66,7 +66,7 @@ public class PdfPayloadConverterTests
             byte[] pdf,
             PrintConversionContext context,
             int dpi,
-            PwgRasterColorSpace colorSpace,
+            RasterColorSpace colorSpace,
             CancellationToken cancellationToken)
         {
             RenderedAt = dpi;

@@ -27,11 +27,9 @@ public class PrinterSchemesTests
     [InlineData(PrinterScheme.Raw, false, PrintOptionSupports.None)]
     [InlineData(PrinterScheme.Ipp, true, PrintOptionSupports.All)]
     [InlineData(PrinterScheme.Ipps, false, PrintOptionSupports.All)]
-    // CUPS renders nothing, and a Windows device mode carries what has a field.
-    [InlineData(
-        PrinterScheme.Spooler,
-        false,
-        PrintOptionSupports.All & ~(PrintOptionSupports.Placement | PrintOptionSupports.Smoothing | PrintOptionSupports.MediaGeometry))]
+    // CUPS renders the geometry with a registered converter, and a Windows device mode
+    // carries what has a field.
+    [InlineData(PrinterScheme.Spooler, false, PrintOptionSupports.All)]
     [InlineData(
         PrinterScheme.Spooler,
         true,

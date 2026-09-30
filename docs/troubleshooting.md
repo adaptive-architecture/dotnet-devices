@@ -208,7 +208,7 @@ so "send us every line with event 2003" works against any version of the library
 | 1031 | Warning | The printer listed no format it knows, so the job went as `application/octet-stream`. **This is the cause of a label that prints as a page of source.** |
 | 1032 | Information | A document was converted to a raster, because the printer reads no format of the document itself. **The printer received a raster and not the document you handed in**, so the fonts and the vectors are the converter's rendering of them. |
 | 1033 | Debug | The size of the converted document, with the format it was converted to. |
-| 1034 | Debug | A document was **not** converted, with the reason, so it went unchanged and the printer may refuse it. Event 2041 reports the options it lost. It fires only when a converter is registered and the printer reads no format that converter writes; an application that registered no converter never meant to convert, and gets the printer's own rejection instead. |
+| 1034 | Debug | A document was **not** converted, with the reason, so it went unchanged and the printer may refuse it. Event 2041 reports the options it lost. It fires only when a converter is registered, the job named none, and the printer reads no format that converter writes; a job that named or required one fails instead; an application that registered no converter never meant to convert, and gets the printer's own rejection instead. |
 
 ### `AdaptArch.Devices.Printing.Discovery`
 

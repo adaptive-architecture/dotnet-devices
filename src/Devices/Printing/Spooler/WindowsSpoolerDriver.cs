@@ -243,7 +243,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         var jobName = options?.JobName ?? queueName;
 
         var renderDpi = WindowsSpoolerContent.RenderDpi(options?.ResolutionDpi);
-        var rendered = await ConvertAsync(
+        (var rendered, var converterUsed) = await ConvertAsync(
             queueName,
             payload.ContentType,
             bytes,
@@ -274,6 +274,8 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             return new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
             {
                 JobName = options?.JobName,
+                ConverterUsed = converterUsed,
+                SubmittedContentType = PrinterContentTypes.Png,
                 DroppedOptionDetails = dropped,
             };
         }
@@ -328,6 +330,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             return Task.FromResult(new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
             {
                 JobName = options?.JobName,
+                SubmittedContentType = payload.ContentType,
                 DroppedOptionDetails = dropped,
             });
         }
@@ -399,7 +402,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // A document format prints as images, so it needs a converter. Without one the job
     // fails here, before it exists, instead of spooling silence. PDF names the package
     // that carries the built-in converter, because that is the common case.
-    private async Task<IReadOnlyList<byte[]>> ConvertAsync(
+    private async Task<(IReadOnlyList<byte[]> Pages, string ConverterName)> ConvertAsync(
         string queueName,
         string contentType,
         byte[] data,
@@ -407,7 +410,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         PrintOptions? options,
         CancellationToken cancellationToken)
     {
-        var converterName = options?.ConverterName;
+        var converterName = PrintConverters.NameFor(_formats, contentType, options);
         var converter = _formats.ConverterFor(contentType, converterName);
         if (converter is null)
         {
@@ -427,7 +430,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         {
             throw new NotSupportedException(
                 $"The converter of '{contentType}' does not write '{PrinterContentTypes.Png}', which is the only format the Windows spooler draws: " +
-                $"register one that does. Queue '{queueName}' spooled nothing.");
+                $"register one that does. Queue '{queueName}' spooled nothing. PrintOptions.OnUnsupported does not apply to a named converter.");
         }
 
         // The media is deliberately absent: this path builds the device mode after it
@@ -448,12 +451,17 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 $"The converter of '{contentType}' returned no page, so queue '{queueName}' spooled nothing.");
         }
 
-        return pages;
+        return (pages, converter.Name);
     }
 
     private Task<PrintJobInfo> SubmitRawAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+
+        if (options?.ConverterName is string converterName)
+        {
+            throw PrintConverters.Unhonoured(converterName, payload.ContentType, PrinterId.ForSpooler(queueName), "the RAW data type sends the bytes as they are and nothing renders them");
+        }
 
         var request = WindowsSpoolerDeviceModeMapper.Build(options, MediaFor(queueName, options), SourcesFor(queueName, options));
         var dropped = Dropped(
@@ -466,8 +474,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 nameof(PrintOptions.FitArea),
                 nameof(PrintOptions.Placement),
                 nameof(PrintOptions.Smoothing),
-                nameof(PrintOptions.MediaSizeSource),
-                nameof(PrintOptions.ConverterName)));
+                nameof(PrintOptions.MediaSizeSource)));
         PrintOptionValidator.ThrowIfRefused(options, PrinterId.ForSpooler(queueName), dropped);
         var copies = options?.Copies ?? 1;
         var bytes = payload.Data.ToArray();
@@ -511,6 +518,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             return Task.FromResult(new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
             {
                 JobName = options?.JobName,
+                SubmittedContentType = payload.ContentType,
                 DroppedOptionDetails = dropped,
             });
         }

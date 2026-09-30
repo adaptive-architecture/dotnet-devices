@@ -78,8 +78,10 @@ public class PrintOptionsCoverageTests
         FakeLoggerFactory log = new();
         RawPrinter printer = new(NetworkPrinterEndpoint.Raw("127.0.0.1", port)) { LoggerFactory = log };
 
+        // An image, because a named converter on anything the library could render fails
+        // the job instead of being reported.
         var job = await printer.PrintAsync(
-            PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
+            PrinterPayload.FromBytes(new byte[] { 0x89, 0x50, 0x4E, 0x47 }, PrinterContentTypes.Png),
             EveryOption(),
             timeoutSource.Token);
         using var accepted = await acceptTask;
@@ -92,5 +94,19 @@ public class PrintOptionsCoverageTests
         });
         Assert.Equal(PrinterSettings().Length, log.WithId(2041).Count);
         Assert.All(log.WithId(2041), entry => Assert.Equal(LogLevel.Warning, entry.Level));
+        Assert.Equal(PrinterContentTypes.Png, job.SubmittedContentType);
+    }
+
+    [Fact]
+    public async Task RawPrinter_ANamedConverter_FailsBeforeConnecting()
+    {
+        RawPrinter printer = new(NetworkPrinterEndpoint.Raw("127.0.0.1", 9));
+
+        var error = await Assert.ThrowsAsync<NotSupportedException>(() => printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { ConverterName = "PDFium", OnUnsupported = UnsupportedOptionBehavior.Drop },
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("a raw channel sends the bytes as they are", error.Message, StringComparison.Ordinal);
     }
 }

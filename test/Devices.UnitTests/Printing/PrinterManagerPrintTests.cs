@@ -390,6 +390,30 @@ public class PrinterManagerPrintTests
         Assert.Equal(printer.Id, Assert.Single(factory.Opened).Id);
     }
 
+    // The printer may be opened with a policy of its own, so the required engine travels
+    // with the job and not only with the manager.
+    [Theory]
+    [InlineData(null, "Required")]
+    [InlineData("Own", "Own")]
+    public async Task PrintAsync_ARequiredConverter_ReachesThePrinterUnlessTheJobNamesItsOwn(string named, string expected)
+    {
+        var printer = FakePrinters.Reading("192.168.1.50", PrinterContentTypes.Pdf);
+        FakePrinterFactory factory = new();
+        PrinterManagerOptions options = new();
+        options.RequiredConverters[PrinterContentTypes.Pdf] = "Required";
+        PrinterManager manager = new(
+            new FakeMdnsDiscovery([printer]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor(), options);
+
+        _ = await manager.DiscoverAsync(null, TestContext.Current.CancellationToken);
+        _ = await manager.PrintAsync(
+            printer.Id,
+            Pdf(),
+            named is null ? null : new PrintOptions { ConverterName = named },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(expected, Assert.Single(factory.Printers).LastOptions.ConverterName);
+    }
+
     [Fact]
     public async Task PrintAsync_RefusesAFormatNoConverterReads()
     {

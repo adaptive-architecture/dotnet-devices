@@ -152,7 +152,7 @@ internal static class PrinterProjection
     }
 
     public static JobDto Job(PrintJobInfo job) =>
-        new(job.JobId, job.State.ToString(), job.Detail, job.DroppedOptions);
+        new(job.JobId, job.State.ToString(), job.Detail, job.DroppedOptions, job.ConverterUsed, job.SubmittedContentType);
 
     // The Windows spooler is the only channel that reports a device mode number, and the
     // number is what a person compares against the printer settings window.

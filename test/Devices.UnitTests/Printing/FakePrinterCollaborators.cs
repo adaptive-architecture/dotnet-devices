@@ -142,8 +142,13 @@ internal sealed class FakePrinter : IPrinter
 
     public PrinterInfo Info => _printer.Info;
 
-    public Task<PrintJobInfo> PrintAsync(PrinterPayload payload, PrintOptions options, CancellationToken cancellationToken) =>
-        Task.FromResult(new PrintJobInfo("1", Id, PrintJobState.Queued));
+    public PrintOptions LastOptions { get; private set; }
+
+    public Task<PrintJobInfo> PrintAsync(PrinterPayload payload, PrintOptions options, CancellationToken cancellationToken)
+    {
+        LastOptions = options;
+        return Task.FromResult(new PrintJobInfo("1", Id, PrintJobState.Queued));
+    }
 
     // Makes a status read fail the way a channel a printer advertises but cannot serve
     // does, such as an IPPS port whose certificate no longer negotiates.

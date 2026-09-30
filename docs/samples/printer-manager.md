@@ -27,8 +27,10 @@ The four tabs are:
   `PrintJobs/queue-sweep.json` (seven documents through one queue, grouped to save paper,
   each sheet checked against its own description), `PrintJobs/raw-sweep.json` (a JPEG, a ZPL
   label and an EPL label, unchanged), `PrintJobs/copies.json` (three copies of a ZPL label and
-  of a JPEG, each as one job) and `PrintJobs/pdf-placement.json` (where a 4 by 6 inch
-  label lands on larger stock, to be measured rather than judged). A set can also be uploaded, so the same test runs on Windows, Linux and
+  of a JPEG, each as one job), `PrintJobs/pdf-placement.json` (where a 4 by 6 inch
+  label lands on larger stock, to be measured rather than judged) and `PrintJobs/pdf-urf.json`
+  (PDFium rendering every PDF for a CUPS queue, which a macOS queue must receive as URF; each
+  submission logs the engine that rendered it and the format sent). A set can also be uploaded, so the same test runs on Windows, Linux and
   macOS and the results compare job by job. The run ends with a summary of what became of
   each job. The set is edited in the browser: one tab per job, named by the file it prints,
   with the same option controls the print tab builds from what the channel reported, and jobs
@@ -85,8 +87,9 @@ be measured with a ruler on real stock:
                "offsetXMillimeters": 15, "offsetYMillimeters": 10 } }
 ```
 
-A job that carries a placement or asks for the document's own media size is converted even
-where the printer reads the file itself, because a page nobody renders cannot be moved.
+A placement or the document's own media size applies on an IPP printer or a CUPS queue only
+when the job names a converter, because a page nobody renders cannot be moved and a converter
+that is merely registered does not take over; otherwise it is reported dropped.
 
 `converter` names the engine that renders a document, where the build registered more than
 one. It maps to `PrintOptions.ConverterName`, which also forces the conversion: an IPP printer

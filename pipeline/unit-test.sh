@@ -114,8 +114,10 @@ fi
 THRESHOLD=90
 THIN_LAYER='WindowsSpoolerInterop\.cs$|WindowsGdiInterop\.cs$|WindowsSpoolerInteropAdapter\.cs$|WindowsGdiInteropAdapter\.cs$|WindowsPdfRenderer\.cs$|WindowsPdfConverter\.cs$'
 
-awk -v threshold="$THRESHOLD" -v thin="$THIN_LAYER" '
-  /^SF:/ { file = substr($0, 4); skip = (file ~ thin) }
+# The pattern goes through the environment, because -v would read "\." as an escape and
+# match any character where the pattern means a dot.
+THIN_LAYER="$THIN_LAYER" awk -v threshold="$THRESHOLD" '
+  /^SF:/ { file = substr($0, 4); skip = (file ~ ENVIRON["THIN_LAYER"]) }
   /^DA:/ {
     if (skip) next
     split(substr($0, 4), field, ",")

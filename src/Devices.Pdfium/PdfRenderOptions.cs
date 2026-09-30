@@ -24,7 +24,7 @@ public sealed record PdfRenderOptions
     /// <summary>
     /// Gets the colour space of the pixels: three octets a pixel, or one.
     /// </summary>
-    public PwgRasterColorSpace ColorSpace { get; init; } = PwgRasterColorSpace.Srgb8;
+    public RasterColorSpace ColorSpace { get; init; } = RasterColorSpace.Srgb8;
 
     /// <summary>
     /// Gets the password that opens the document, or <c>null</c> for one that needs none.

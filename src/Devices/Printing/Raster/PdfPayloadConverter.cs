@@ -10,9 +10,10 @@
 /// <see cref="RenderAsync"/> with the one thing that is its own, so that a second engine
 /// cannot drift from the first.
 /// <para>
-/// It writes two formats, because the two channels that convert want different things: the
-/// Windows spooler draws PNG pages through GDI, and an IPP printer reads PWG Raster and
-/// never PNG. The target the context names decides which.
+/// It writes three formats, because the channels that convert want different things: the
+/// Windows spooler draws PNG pages through GDI, an IPP printer reads PWG Raster and never
+/// PNG, and an AirPrint printer or a macOS CUPS queue reads URF. The target the context
+/// names decides which.
 /// </para>
 /// </remarks>
 public abstract class PdfPayloadConverter : IPrintPayloadConverter
@@ -27,7 +28,7 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
     /// <inheritdoc />
     public bool CanEmit(string targetContentType) =>
         String.Equals(targetContentType, PrinterContentTypes.Png, StringComparison.OrdinalIgnoreCase)
-        || String.Equals(targetContentType, PrinterContentTypes.PwgRaster, StringComparison.OrdinalIgnoreCase);
+        || IsRaster(targetContentType);
 
     /// <inheritdoc />
     /// <remarks>
@@ -54,7 +55,7 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
         byte[] pdf,
         PrintConversionContext context,
         int dpi,
-        PwgRasterColorSpace colorSpace,
+        RasterColorSpace colorSpace,
         CancellationToken cancellationToken);
 
     /// <inheritdoc />
@@ -62,7 +63,7 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        return String.Equals(context.TargetContentType, PrinterContentTypes.PwgRaster, StringComparison.OrdinalIgnoreCase)
+        return IsRaster(context.TargetContentType)
             ? ConvertToRasterAsync(data, context, cancellationToken)
             : ConvertToPngAsync(data, context, cancellationToken);
     }
@@ -76,7 +77,7 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
         CancellationToken cancellationToken)
     {
         var renderDpi = PdfRenderLimits.ClampDpi(context.Dpi);
-        var pages = await RenderAsync(data, context, renderDpi, PwgRasterColorSpace.Srgb8, cancellationToken).ConfigureAwait(false);
+        var pages = await RenderAsync(data, context, renderDpi, RasterColorSpace.Srgb8, cancellationToken).ConfigureAwait(false);
 
         List<byte[]> images = new(pages.Count);
         foreach (var page in pages)
@@ -89,7 +90,7 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
         return images;
     }
 
-    // One PWG Raster stream carries every page, so this answers with a single document and
+    // One raster stream carries every page, so this answers with a single document and
     // not with one a page. Pages are written as they are rendered, because a document held
     // whole would cost more memory than the job it prints.
     private async Task<IReadOnlyList<byte[]>> ConvertToRasterAsync(
@@ -102,7 +103,7 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
         var pages = await RenderAsync(data, context, renderDpi, colorSpace, cancellationToken).ConfigureAwait(false);
 
         await using MemoryStream document = new();
-        PwgRasterWriter writer = new(document, new PwgRasterOptions
+        RasterOptions options = new()
         {
             ResolutionDpi = context.Dpi,
             ColorSpace = colorSpace,
@@ -111,7 +112,10 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
             SheetBack = PwgRaster.SheetBackFor(context.SheetBack),
             MediaName = context.MediaName,
             MediaSizeNames = context.MediaSizeNames,
-        });
+        };
+        RasterWriter writer = String.Equals(context.TargetContentType, PrinterContentTypes.Urf, StringComparison.OrdinalIgnoreCase)
+            ? new UrfWriter(document, options)
+            : new PwgRasterWriter(document, options);
 
         foreach (var page in pages)
         {
@@ -155,4 +159,8 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
             });
         return new ComposedPage(pixels, width, height);
     }
+
+    private static bool IsRaster(string contentType) =>
+        String.Equals(contentType, PrinterContentTypes.PwgRaster, StringComparison.OrdinalIgnoreCase)
+        || String.Equals(contentType, PrinterContentTypes.Urf, StringComparison.OrdinalIgnoreCase);
 }

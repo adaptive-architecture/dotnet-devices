@@ -156,6 +156,10 @@ one and is never the wrong one for the payload.
 the printer reports an empty one. An explicit `false` is a capability statement, and both
 judge against it.
 
+`OnUnsupported` does not cover `ConverterName`. A named or required converter that cannot
+run fails the job with `NotSupportedException` before anything is sent, whichever value is
+set, because it says which engine renders the job, not a setting the printer may ignore.
+
 Orientation is the option this most often catches. Many printers report
 `orientation-requested-supported` as portrait alone — an EPSON L6270 does — so a job that asks
 for `ReversePortrait` or a landscape value prints as if it had asked for nothing. Read

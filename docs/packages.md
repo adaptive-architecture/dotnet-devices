@@ -58,7 +58,11 @@ Read [Troubleshooting](troubleshooting.md) for what the log reports and how to t
 
 PWG Raster adds no package either. `PwgRasterWriter` in the core package writes PWG 5102.4
 by hand: a 1796-octet page header and a PackBits-like run-length encoding, which is a few
-hundred lines of managed code with no reflection and no platform call. It is public, so an
+hundred lines of managed code with no reflection and no platform call. URF (Apple Raster)
+adds none either: `UrfWriter` shares the page encoding through the `RasterWriter` base and
+writes only a 32-octet header of its own, the layout CUPS writes. Both take `RasterOptions`,
+`RasterColorSpace` and `RasterSheetBack`, which were named `PwgRasterOptions`,
+`PwgRasterColorSpace` and `PwgRasterSheetBack` before URF shared them. They are public, so an
 application that already has a rasterizer can write a conforming document without one. What
 stays per-platform is turning a document into pixels, and on Windows that is the in-box
 engine the package below already uses.
@@ -91,7 +95,9 @@ package and download nothing. Everything else wants this one.
 A process may enable both. The first converter registered for a content type is the one that
 runs, so it enables the one it prefers first, and a job that wants the other names it:
 `new PrintOptions { ConverterName = "PDFium" }`. The two converters are called `"Windows"` and
-`"PDFium"`, and `PrintFormatPolicy.ConvertersFor` lists what a process can be asked for. See
+`"PDFium"`, and `PrintFormatPolicy.ConvertersFor` lists what a process can be asked for.
+`PrinterManagerOptions.RequiredConverters` makes every job of a format use one of them, so a
+PDF renders the same on every platform. See
 [printers.md](printers.md#two-converters-for-one-format).
 
 ### Windows-only package instead of a Windows-only dependency

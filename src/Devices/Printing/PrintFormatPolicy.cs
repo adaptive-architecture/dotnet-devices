@@ -30,6 +30,7 @@ public sealed class PrintFormatPolicy
 
     private readonly Dictionary<string, PrinterFormat> _formats;
     private readonly List<IPrintPayloadConverter> _converters;
+    private readonly Dictionary<string, string> _requiredConverters;
 
     /// <summary>
     /// Gets the policy of an application that registered nothing of its own, plus every
@@ -43,6 +44,22 @@ public sealed class PrintFormatPolicy
     /// <param name="formats">The formats to add to the built-in ones. A content type that is already known is replaced.</param>
     /// <param name="converters">The converters to add to the ones given to <see cref="AddDefaultConverter"/>.</param>
     public PrintFormatPolicy(IEnumerable<PrinterFormat>? formats, IEnumerable<IPrintPayloadConverter>? converters)
+        : this(formats, converters, null)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PrintFormatPolicy"/> class with the
+    /// converter every job of a format must be rendered with.
+    /// </summary>
+    /// <param name="formats">The formats to add to the built-in ones. A content type that is already known is replaced.</param>
+    /// <param name="converters">The converters to add to the ones given to <see cref="AddDefaultConverter"/>.</param>
+    /// <param name="requiredConverters">The name of the converter each content type must be rendered with, as <see cref="PrinterManagerOptions.RequiredConverters"/> holds it.</param>
+    /// <exception cref="ArgumentException">Thrown when a required content type is not a <see cref="PrinterFormatKind.Document"/>, or a name is blank.</exception>
+    public PrintFormatPolicy(
+        IEnumerable<PrinterFormat>? formats,
+        IEnumerable<IPrintPayloadConverter>? converters,
+        IEnumerable<KeyValuePair<string, string>>? requiredConverters)
     {
         _formats = new Dictionary<string, PrinterFormat>(StringComparer.OrdinalIgnoreCase);
         foreach (var format in BuiltIn)
@@ -63,6 +80,26 @@ public sealed class PrintFormatPolicy
         if (converters is not null)
         {
             _converters.AddRange(converters);
+        }
+
+        _requiredConverters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach ((var contentType, var name) in requiredConverters ?? [])
+        {
+            // No converter runs for an image or a printer language, so requiring one would
+            // be a rule no job could keep.
+            if (KindOf(contentType) != PrinterFormatKind.Document)
+            {
+                throw new ArgumentException(
+                    $"Only a document format can require a converter, and '{contentType}' is {KindOf(contentType)}.",
+                    nameof(requiredConverters));
+            }
+
+            if (String.IsNullOrWhiteSpace(name))
+            {
+                throw new ArgumentException($"The converter required for '{contentType}' has a blank name.", nameof(requiredConverters));
+            }
+
+            _requiredConverters[contentType] = name;
         }
     }
 
@@ -88,6 +125,18 @@ public sealed class PrintFormatPolicy
             }
         }
     }
+
+    /// <summary>
+    /// Gets the name of the converter every job of the content type must be rendered with.
+    /// </summary>
+    /// <param name="contentType">The media type of the payload.</param>
+    /// <returns>The name, or <c>null</c> when the format requires none.</returns>
+    /// <remarks>
+    /// A job treats it as if it named the converter in <see cref="PrintOptions.ConverterName"/>,
+    /// unless it names one of its own.
+    /// </remarks>
+    public string? RequiredConverterFor(string contentType) =>
+        _requiredConverters.GetValueOrDefault(contentType);
 
     /// <summary>
     /// Gets what a printer does with the content type.

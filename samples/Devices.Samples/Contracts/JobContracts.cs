@@ -214,7 +214,13 @@ internal sealed class PrintRequest
     public PrintOptionsDto Options { get; set; }
 }
 
-internal sealed record JobDto(string JobId, string State, string Detail, IReadOnlyList<string> DroppedOptions);
+internal sealed record JobDto(
+    string JobId,
+    string State,
+    string Detail,
+    IReadOnlyList<string> DroppedOptions,
+    string ConverterUsed,
+    string SubmittedContentType);
 
 // One line of a live stream. The level colours the line; it does not change what happened.
 internal sealed record LogLineDto(string Text, string Level)

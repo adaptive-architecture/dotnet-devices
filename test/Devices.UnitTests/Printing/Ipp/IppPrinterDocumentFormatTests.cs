@@ -295,7 +295,7 @@ public class IppPrinterDocumentFormatTests
     [InlineData(null, new[] { 100 }, 100)]
     [InlineData(1200, new int[0], 1200)]
     public void ResolveDpi_PrefersAResolutionTheEngineRendersWell(int? asked, int[] supported, int expected) =>
-        Assert.Equal(expected, IppPrinter.ResolveDpi(asked, supported));
+        Assert.Equal(expected, IppDocumentConversion.ResolveDpi(asked, supported));
 
     [Fact]
     public async Task PrintAsync_AResolutionMovedForTheRaster_IsReportedAndNotSentAsAsked()
@@ -411,39 +411,128 @@ public class IppPrinterDocumentFormatTests
         Assert.Contains(PrinterContentTypes.PwgRaster, body, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task PrintAsync_ANamedConverterThePrinterCannotTake_StillSendsTheDocument()
+    // A named converter is a statement about the engine, not an option the printer may
+    // ignore, so no OnUnsupported value lets the document through unconverted.
+    [Theory]
+    [InlineData(UnsupportedOptionBehavior.Send)]
+    [InlineData(UnsupportedOptionBehavior.Drop)]
+    [InlineData(UnsupportedOptionBehavior.Throw)]
+    public async Task PrintAsync_ANamedConverterThePrinterCannotTake_FailsBeforeSending(UnsupportedOptionBehavior onUnsupported)
     {
-        // The printer reads the PDF and reads nothing this converter writes. Failing a job
-        // that will print correctly would be the worse answer, so it passes through; the log
-        // is what says the name went nowhere.
         FakeConverter converter = new(1, PrinterContentTypes.PwgRaster) { Name = "Named" };
+        OperationHandler handler = new(AttributesResponse(PrinterContentTypes.Pdf, PrinterContentTypes.Jpeg), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler)) { Formats = new PrintFormatPolicy(null, [converter]) };
 
-        var body = await PrintPdfAsync(
-            converter,
-            new PrintOptions { ConverterName = "Named" },
-            PrinterContentTypes.Pdf,
-            PrinterContentTypes.Jpeg);
+        var error = await Assert.ThrowsAsync<NotSupportedException>(() => printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { ConverterName = "Named", OnUnsupported = onUnsupported },
+            TestContext.Current.CancellationToken));
 
+        Assert.Contains("the printer reads no format converter 'Named' writes", error.Message, StringComparison.Ordinal);
+        Assert.Contains("PrintOptions.OnUnsupported does not apply to a named converter", error.Message, StringComparison.Ordinal);
         Assert.Equal(0, converter.Calls);
-        Assert.Contains(PrinterContentTypes.Pdf, body, StringComparison.Ordinal);
+        Assert.Null(handler.PrintJobBody);
     }
 
     [Fact]
-    public async Task PrintAsync_ANamedConverterThePrinterCannotTake_ReportsTheConverterAsDropped()
+    public async Task PrintAsync_ARequiredConverter_RendersAJobThatNamesNone()
     {
-        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster) { Name = "Named" };
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster) { Name = "Required" };
+        OperationHandler handler = new(AttributesResponse(PrinterContentTypes.Pdf, PrinterContentTypes.PwgRaster), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler))
+        {
+            Formats = new PrintFormatPolicy(null, [converter], [new(PrinterContentTypes.Pdf, "Required")]),
+        };
 
+        var job = await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            null,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, converter.Calls);
+        Assert.Equal("Required", job.ConverterUsed);
+        Assert.Equal(PrinterContentTypes.PwgRaster, job.SubmittedContentType);
+    }
+
+    [Fact]
+    public async Task PrintAsync_ADocumentThePrinterReads_RecordsThatNothingRenderedIt()
+    {
         var job = await PrintPdfJobAsync(
-            converter,
-            new PrintOptions { ConverterName = "Named" },
+            new FakeConverter(1, PrinterContentTypes.PwgRaster),
+            new PrintOptions(),
             PrinterContentTypes.Pdf,
-            PrinterContentTypes.Jpeg);
+            PrinterContentTypes.PwgRaster);
 
-        var dropped = Assert.Single(job.DroppedOptionDetails);
-        Assert.Equal(nameof(PrintOptions.ConverterName), dropped.Option);
-        Assert.Equal(PrintOptionStage.Conversion, dropped.Stage);
-        Assert.Equal("the printer reads no format converter 'Named' writes", dropped.Reason);
+        Assert.Null(job.ConverterUsed);
+        Assert.Equal(PrinterContentTypes.Pdf, job.SubmittedContentType);
+    }
+
+    // A queue that defaults to two-sided must not contradict the simplex raster header.
+    [Fact]
+    public async Task PrintAsync_AConvertedJob_AsksForOneSided()
+    {
+        var body = await PrintPdfAsync(
+            new FakeConverter(1, PrinterContentTypes.PwgRaster),
+            new PrintOptions { ConverterName = nameof(FakeConverter) },
+            PrinterContentTypes.PwgRaster);
+
+        Assert.Contains("one-sided", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PrintAsync_APrinterThatReadsBothRasters_IsSentPwgRaster()
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster, PrinterContentTypes.Urf);
+
+        var body = await PrintPdfAsync(
+            converter,
+            new PrintOptions { ConverterName = nameof(FakeConverter) },
+            PrinterContentTypes.Urf,
+            PrinterContentTypes.PwgRaster);
+
+        Assert.Equal(PrinterContentTypes.PwgRaster, converter.LastContext.TargetContentType);
+        Assert.Contains(PrinterContentTypes.PwgRaster, body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PrintAsync_AnAirPrintPrinter_IsSentUrfAtAResolutionItNamed()
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster, PrinterContentTypes.Urf);
+        var attributes = IppMessages.Response(
+            0x0000,
+            (0x49, "document-format-supported", PrinterContentTypes.Urf),
+            (0x44, "urf-supported", "W8"),
+            (0x44, null, "SRGB24"),
+            (0x44, null, "RS600"),
+            (0x44, null, "DM3"));
+        OperationHandler handler = new(attributes, JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler)) { Formats = new PrintFormatPolicy(null, [converter]) };
+
+        var job = await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { ConverterName = nameof(FakeConverter), ColorMode = PrintColorMode.Monochrome },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(PrinterContentTypes.Urf, job.SubmittedContentType);
+        Assert.Equal(PrinterContentTypes.Urf, converter.LastContext.TargetContentType);
+        Assert.Equal(600, converter.LastContext.Dpi);
+        Assert.Equal("sgray_8", converter.LastContext.RasterType);
+        Assert.Equal("rotated", converter.LastContext.SheetBack);
+    }
+
+    [Fact]
+    public async Task PrintAsync_APrinterLanguageNamingAConverter_FailsBeforeSending()
+    {
+        OperationHandler handler = new(AttributesResponse(PrinterContentTypes.Zpl), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler));
+
+        var error = await Assert.ThrowsAsync<NotSupportedException>(() => printer.PrintAsync(
+            PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
+            new PrintOptions { ConverterName = "Any" },
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("Converter 'Any'", error.Message, StringComparison.Ordinal);
+        Assert.Null(handler.PrintJobBody);
     }
 
     // Smoothing or a fit area alone never makes a job render, so on a PDF the printer reads
@@ -464,7 +553,24 @@ public class IppPrinterDocumentFormatTests
         var dropped = Assert.Single(job.DroppedOptionDetails);
         Assert.Equal(option, dropped.Option);
         Assert.Equal(PrintOptionStage.Conversion, dropped.Stage);
-        Assert.Equal("the printer reads the document itself, so the library renders nothing", dropped.Reason);
+        Assert.Equal("the printer reads the document itself and the job names no converter, so the library renders nothing", dropped.Reason);
+    }
+
+    // A registered converter is not an engine the job chose, so geometry alone renders nothing.
+    [Fact]
+    public async Task PrintAsync_APlacementWithAConverterNobodyNamed_IsSentUnchangedAndReported()
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+
+        var job = await PrintPdfJobAsync(
+            converter,
+            new PrintOptions { Placement = new PrintPlacement { Anchor = PrintAnchor.TopLeft }, MediaSizeSource = MediaSizeSource.Document },
+            PrinterContentTypes.Pdf,
+            PrinterContentTypes.PwgRaster);
+
+        Assert.Equal(0, converter.Calls);
+        Assert.Equal(PrinterContentTypes.Pdf, job.SubmittedContentType);
+        Assert.Equal([nameof(PrintOptions.MediaSizeSource), nameof(PrintOptions.Placement)], job.DroppedOptions);
     }
 
     [Fact]

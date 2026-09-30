@@ -43,6 +43,26 @@ public sealed class PrintJobInfo
     public string? JobName { get; set; }
 
     /// <summary>
+    /// Gets or sets the name of the converter that rendered the job, or <c>null</c> when the
+    /// library rendered nothing and the device or its driver read the payload itself.
+    /// </summary>
+    /// <remarks>
+    /// Set on the job a submission answers with. A job read back from a queue does not know it.
+    /// </remarks>
+    public string? ConverterUsed { get; set; }
+
+    /// <summary>
+    /// Gets or sets the format the library handed to the channel, such as
+    /// <c>image/urf</c> for a PDF rendered for a macOS CUPS queue, or <c>null</c> when
+    /// the job was read back from a queue.
+    /// </summary>
+    /// <remarks>
+    /// The Windows spooler is handed <c>image/png</c> pages for a rendered document, which it
+    /// draws through the driver.
+    /// </remarks>
+    public string? SubmittedContentType { get; set; }
+
+    /// <summary>
     /// Gets or sets the time at which the job was created.
     /// </summary>
     public DateTimeOffset CreatedAt { get; set; }

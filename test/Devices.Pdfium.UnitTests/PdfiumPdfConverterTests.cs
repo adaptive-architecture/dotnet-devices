@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.Text;
 using AdaptArch.Devices.Pdfium;
 using AdaptArch.Devices.Printing;
+using AdaptArch.Devices.Rasterization;
 using Xunit;
 
 namespace AdaptArch.Devices.Pdfium.UnitTests;
@@ -53,6 +54,32 @@ public class PdfiumPdfConverterTests
         var raster = Assert.Single(documents);
         Assert.Equal("RaS2", Encoding.ASCII.GetString(raster, 0, 4));
         Assert.Equal(3u, TotalPageCount(raster));
+    }
+
+    // URF is PWG Raster with another header, so the same page must carry the same pixels.
+    [Theory]
+    [InlineData("srgb_8")]
+    [InlineData("sgray_8")]
+    public async Task ConvertAsync_ToUrf_CarriesThePixelsPwgRasterDoes(string rasterType)
+    {
+        var pdf = TestPdf.WithPages(2);
+        var pwg = await Converter.ConvertAsync(
+            pdf, Context(PrinterContentTypes.PwgRaster, 150) with { RasterType = rasterType }, TestContext.Current.CancellationToken);
+        var urf = await Converter.ConvertAsync(
+            pdf, Context(PrinterContentTypes.Urf, 150) with { RasterType = rasterType }, TestContext.Current.CancellationToken);
+
+        var expected = PwgRasterReader.Read(Assert.Single(pwg));
+        (var count, var pages) = UrfReader.Read(Assert.Single(urf));
+        Assert.Equal(2, count);
+        Assert.Equal(expected.Count, pages.Count);
+        for (var i = 0; i < pages.Count; i++)
+        {
+            Assert.Equal(expected[i].Width, pages[i].Width);
+            Assert.Equal(expected[i].Height, pages[i].Height);
+            Assert.Equal(expected[i].BitsPerPixel, pages[i].BitsPerPixel);
+            Assert.Equal(150, pages[i].ResolutionDpi);
+            Assert.Equal(expected[i].Pixels, pages[i].Pixels);
+        }
     }
 
     [Theory]

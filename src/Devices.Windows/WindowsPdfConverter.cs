@@ -20,7 +20,7 @@ internal sealed class WindowsPdfConverter : PdfPayloadConverter
         byte[] pdf,
         PrintConversionContext context,
         int dpi,
-        PwgRasterColorSpace colorSpace,
+        RasterColorSpace colorSpace,
         CancellationToken cancellationToken) =>
         WindowsPdfRenderer.RenderAsync(pdf, dpi, context.PageRanges, colorSpace, context.DocumentPassword, cancellationToken);
 }

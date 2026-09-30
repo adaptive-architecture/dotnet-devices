@@ -187,22 +187,23 @@ public sealed class PrintOptions
     /// Unlike every other property here, this one is not a printer setting and never leaves
     /// the library: it picks an <see cref="IPrintPayloadConverter"/> by its
     /// <see cref="IPrintPayloadConverter.Name"/>, matched case-insensitively. An unset value
-    /// takes the converter the policy prefers, which is the first one registered for the
-    /// format.
+    /// takes the one <see cref="PrinterManagerOptions.RequiredConverters"/> requires for the
+    /// format, and otherwise the one the policy prefers, which is the first one registered.
     /// <para>
     /// Setting it also says the document itself is not what should be sent. An IPP printer
-    /// that reads the payload as it is normally receives it untouched, because its own
-    /// interpreter beats a raster of ours and the job is a fraction of the size; a job that
-    /// names a converter is converted anyway. Nobody names an engine as a preference, so
-    /// naming one is taken as asking for it to run. Where the printer reads nothing that
-    /// converter writes the document is still sent as it is, since a job that would have
-    /// printed correctly should not fail, and the reason is logged.
+    /// or a CUPS queue that reads the payload as it is normally receives it untouched,
+    /// because its own interpreter beats a raster of ours and the job is a fraction of the
+    /// size; a job that names a converter is converted anyway. Nobody names an engine as a
+    /// preference, so naming one is taken as asking for it to run.
     /// </para>
     /// <para>
-    /// A name no registered converter carries fails the job with
-    /// <see cref="NotSupportedException"/> rather than quietly rendering with another engine,
-    /// because a job that named one asked for that one.
+    /// A job whose converter cannot run fails with <see cref="NotSupportedException"/> before
+    /// anything is sent, whatever <see cref="OnUnsupported"/> says: when no registered
+    /// converter carries the name, when the printer reads nothing the converter writes, and
+    /// when the channel renders nothing, as a raw socket or a printer language does.
     /// <see cref="PrintFormatPolicy.ConvertersFor"/> lists what a process can be asked for.
+    /// A name on an image is the one exception: the library never converts an image, so the
+    /// name is reported in <see cref="PrintJobInfo.DroppedOptionDetails"/> instead.
     /// </para>
     /// </remarks>
     public string? ConverterName { get; set; }
@@ -245,5 +246,9 @@ public sealed class PrintOptions
     /// <see cref="UnsupportedOptionBehavior.Drop"/> then act as
     /// <see cref="UnsupportedOptionBehavior.Send"/>.
     /// </summary>
+    /// <remarks>
+    /// It does not cover <see cref="ConverterName"/>: a converter that cannot run always
+    /// fails the job.
+    /// </remarks>
     public UnsupportedOptionBehavior OnUnsupported { get; set; } = UnsupportedOptionBehavior.Send;
 }

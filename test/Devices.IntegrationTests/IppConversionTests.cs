@@ -84,7 +84,7 @@ public class IppConversionTests
         using IppPrinter printer = new(_printer.Endpoint);
 
         await using MemoryStream buffer = new();
-        PwgRasterWriter writer = new(buffer, new PwgRasterOptions { ResolutionDpi = 300, TotalPageCount = 1 });
+        PwgRasterWriter writer = new(buffer, new RasterOptions { ResolutionDpi = 300, TotalPageCount = 1 });
         const int width = 64;
         const int height = 8;
         writer.WritePage(new byte[writer.BytesPerLine(width) * height], width, height);

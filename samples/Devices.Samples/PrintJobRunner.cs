@@ -127,6 +127,9 @@ internal sealed class PrintJobRunner
         }
 
         yield return LogLineDto.Say($"Job {submitted.JobId} submitted ({submitted.State}).");
+        yield return LogLineDto.Say(submitted.ConverterUsed is null
+            ? $"Sent as {submitted.SubmittedContentType}; the library rendered nothing."
+            : $"Rendered by {submitted.ConverterUsed} and sent as {submitted.SubmittedContentType}.");
         outcome.DroppedOptions = submitted.DroppedOptions;
         foreach (var dropped in submitted.DroppedOptionDetails)
         {
