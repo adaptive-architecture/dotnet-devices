@@ -31,7 +31,8 @@ offers it. So the choice depends on the peer:
 
 `IppPrinter` reads `document-format-supported` from the cached `GetConfigurationAsync` result,
 so repeated raw jobs share one read and an application that registered no converter pays for
-no extra request. The Windows spooler submits with the `RAW` datatype, which already passes
+no extra request. `CupsSpoolerDriver` needs no negotiation, because its peer is CUPS by
+construction, and the Windows spooler submits with the `RAW` datatype, which already passes
 the bytes through unchanged. When a printer still rejects the format, the error names it.
 
 **A format a printer lists is not a file it can read.** IPP defines `image/jpeg` as JFIF, and
@@ -80,11 +81,17 @@ refuse, or it fails with `NotSupportedException` before anything spools.
 PdfiumPrinting.EnablePdfPrinting();
 ```
 
-**The target is `image/pwg-raster` and nothing else.** IPP Everywhere requires it of every
-printer, it is lossless, and one stream carries every page, so a converted document stays one
-document and needs no multi-document job. `image/png` is never offered to a printer: no IPP
-printer reads it, whatever a converter can write. The Windows spooler asks for it by name,
-which is the only place it is used.
+`WindowsPrinting.PdfConverter` and `PdfiumPrinting.PdfConverter` each write PNG for the
+Windows spooler, and PWG Raster and URF for an IPP printer or a CUPS queue, from one render.
+PDFium is not thread-safe, so `AdaptArch.Devices.Pdfium` renders one job at a time within a
+process. Its `libpdfium.dylib` ships unsigned: nothing to a CLI or a service, and something a
+notarized macOS `.app` bundle must sign for itself.
+
+**The target is a raster the printer names: PWG Raster or URF.** IPP Everywhere requires PWG
+Raster of every printer and AirPrint requires URF; both are lossless, and one stream carries
+every page, so a converted document stays one document and needs no multi-document job.
+`image/png` is never offered to a printer: no IPP printer reads it, whatever a converter can
+write. The Windows spooler asks for it by name, which is the only place it is used.
 
 Conversion happens only when all four hold: the payload is a `Document`, the printer does not
 list its content type, a converter is registered for it, and that converter writes a format
@@ -151,7 +158,8 @@ not say what it runs on, so it is offered URF first and PWG Raster second.
 
 URF is Apple Raster, the format `UrfWriter` writes. Its pages are encoded as PWG Raster's are,
 behind a 32-octet header, so `UrfWriter` and `PwgRasterWriter` share the `RasterWriter` base
-and the same `RasterOptions`.
+and the same `RasterOptions`, `RasterColorSpace` and `RasterSheetBack`. Those three were named
+`PwgRasterOptions`, `PwgRasterColorSpace` and `PwgRasterSheetBack` before URF shared them.
 
 ## Can a raw send print a PDF?
 
@@ -161,7 +169,9 @@ interpreter prints nothing, or prints the PDF source as text. The same rule appl
 to a label language.
 
 **Ask the channel, not the device.** The channels of one printer read different formats, and
-`document-format-supported` describes the IPP service alone. An EPSON L6270 answers like this:
+`document-format-supported` describes the IPP service alone. The `pdl` key of the DNS-SD
+advertisement, which the library keeps in `PrinterInfo.DriverName`, names what one channel
+reads, so it is the first place to look. An EPSON L6270 answers like this:
 
 ```text
 ipp channel  pdl = application/octet-stream, image/pwg-raster, image/urf, image/jpeg,
@@ -190,7 +200,14 @@ device.
 Two rules are built in. A CUPS queue names no printer language of its own and takes one as
 `application/vnd.cups-raw`, so a queue that lists that format carries a ZPL or an EPL label.
 And `application/octet-stream` is not read as an answer: nearly every channel lists it, and
-CUPS re-types such a job as `text/plain`.
+CUPS re-types such a job as `text/plain`. A printer that reports nothing did not refuse; it
+only did not answer.
+
+To print a PDF on a printer that has no PDF interpreter, enable a rasterizer package and send
+it as PDF: the library converts it to what the channel reads. Failing that, send it through a
+CUPS spooler queue, whose driver rasterises the document. Sending PDF bytes as `RAW` reaches a
+firmware that reads only its own page language, which prints nothing while the spooler still
+reports success.
 
 ## Add a format the library does not know
 
@@ -252,14 +269,21 @@ is not a rule for another. `PdfPayloadConverter` renders at the clamped value an
 page to `context.Dpi`, so its pixels are always at the resolution it was asked for.
 
 `PrinterManagerOptions.Converters` scopes a converter to one manager.
-`PrintFormatPolicy.AddDefaultConverter` registers one for the whole process, which is what
-`WindowsPrinting.EnablePdfPrinting()` and `PdfiumPrinting.EnablePdfPrinting()` call. A
+`PrintFormatPolicy.AddDefaultConverter` registers one for the whole process, which is what an
+application without a manager needs, and what `WindowsPrinting.EnablePdfPrinting()` and `PdfiumPrinting.EnablePdfPrinting()` call. A
 converter on the manager wins over a process one for the same format; among process converters
 the first registered for a content type is the one that runs.
 
-Registering a format changes four things: how `PrinterManager` routes the payload, the format
-sent over IPP, what `PrinterDevice.Accepts` answers, and whether the Windows spooler draws the
-job with GDI, converts it first, or passes it through as `RAW`.
+Registering a format changes four things:
+
+- **Routing.** `PrinterManager` sends a `RawLanguage` payload to a channel that keeps the
+  bytes, exactly as it does for ZPL.
+- **The format sent over IPP.** A registered language is protected with
+  `application/vnd.cups-raw`, so CUPS does not re-type it as text.
+- **`PrinterDevice.Accepts`.** The `CommandSet` of a format is the IEEE 1284 token matched
+  against what the printer reported.
+- **The Windows spooler path.** The kind decides whether the job is drawn with GDI, converted
+  first, or passed through as `RAW`.
 
 ### Two converters for one format
 
@@ -282,19 +306,23 @@ await manager.PrintAsync(id, payload, new PrintOptions { ConverterName = "PDFium
 ```
 
 `IPrintPayloadConverter.Name` is a default interface member, so a converter that nobody chooses
-between needs to do nothing; the default is the type name. Names are matched
+between needs to do nothing, and one written before the member still compiles; the default is
+the type name. Names are matched
 case-insensitively, because they arrive from a JSON file or a form field as often as from code.
 
 `PrintOptions.ConverterName` is read by this library and never sent to the printer, as
 `PageRanges` is. **A name no registered converter carries fails the job** with
 `NotSupportedException` that lists the names that do exist, rather than quietly rendering with
-another engine.
+another engine: a job that named one asked for that one, and a page rendered by a different
+engine is not the answer to that question. A job that names nothing is unaffected and takes
+the preferred converter.
 
 Naming one also decides **whether** the conversion happens at all. An IPP printer or a CUPS
 queue that reads the payload as it is normally receives it untouched — its own interpreter
 beats a raster of ours and the job is a fraction of the size. But a printer that reads both
 PDF and PWG Raster would otherwise make the named engine unreachable, so a job that names a
-converter is converted even there.
+converter is converted even there. Nobody names an engine as a vague preference; naming one
+is the way of saying the document itself is not what should be sent.
 
 ### One engine for every PDF
 

@@ -19,7 +19,7 @@ public static class IppHttpClientFactory
     [SuppressMessage(
         "Critical Vulnerability",
         "S4830:Server certificates should be verified during SSL/TLS connections",
-        Justification = "Network printers use self-signed certificates in nearly every case, so a validating client reaches almost none of them over IPPS. The accept-all callback is the documented default; a caller that needs trust sets IppTransportOptions.ServerCertificateValidation, and the resolver then refuses the plain IPP fallback. See docs/printers.md.")]
+        Justification = "Network printers use self-signed certificates in nearly every case, so a validating client reaches almost none of them over IPPS. The accept-all callback is the documented default; a caller that needs trust sets IppTransportOptions.ServerCertificateValidation, and the resolver then refuses the plain IPP fallback. See the IPP transport policy in docfx/docs/status-and-monitoring.md.")]
     public static HttpClient Create(IppTransportOptions options) => CreateCore(options, null);
 
     // A non-null socket path sends every connection of the client to that Unix domain

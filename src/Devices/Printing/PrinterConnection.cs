@@ -13,7 +13,7 @@
 /// made or needed there. Read this to find a downgrade on a network printer, not on a local
 /// queue.
 /// </para>
-/// See <see href="https://github.com/adaptive-architecture/dotnet-devices/blob/main/docs/troubleshooting.md">Troubleshooting</see>.
+/// See <see href="https://adaptive-architecture.github.io/dotnet-devices/docs/troubleshooting.html">Troubleshooting</see>.
 /// </remarks>
 /// <param name="Scheme">The transport that answered.</param>
 /// <param name="Endpoint">The endpoint that answered.</param>

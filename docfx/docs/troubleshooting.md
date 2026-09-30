@@ -202,7 +202,7 @@ An event identifier is stable. It is never reused for another meaning and never 
 | 1031 | Warning | The printer listed no format it knows, so the job went as `application/octet-stream`. **This is the cause of a label that prints as a page of source.** |
 | 1032 | Information | A document was converted to a raster, because the printer reads no format of the document itself. **The printer received a raster and not the document you handed in**, so the fonts and the vectors are the converter's rendering of them. |
 | 1033 | Debug | The size of the converted document, with the format it was converted to. |
-| 1034 | Debug | A document was **not** converted, with the reason, so it went unchanged and the printer may refuse it. Event 2041 reports the options it lost. It fires only when a converter is registered, the job named none, and the printer reads no format that converter writes; a job that named or required one fails instead. |
+| 1034 | Debug | A document was **not** converted, with the reason, so it went unchanged and the printer may refuse it. Event 2041 reports the options it lost. It fires only when a converter is registered, the job named none, and the printer reads no format that converter writes; a job that named or required one fails instead. An application that registered no converter never meant to convert, and gets the printer's own rejection. |
 
 ### `AdaptArch.Devices.Printing.Discovery`
 
@@ -270,8 +270,9 @@ Two notes:
 ### No endpoint answered
 
 `PrinterConnectionException` holds the cause of **each** endpoint that was tried, not only the
-last one. This matters: a TLS handshake that failed over IPPS is the cause you need, and the
-"connection refused" of a later plain IPP port would hide it.
+last one. This matters: the probe tries up to six endpoints, and a TLS handshake that failed over
+IPPS is the cause you need, while the "connection refused" of a later plain IPP port would hide
+it.
 
 ```csharp
 catch (PrinterConnectionException exception)
@@ -285,6 +286,16 @@ catch (PrinterConnectionException exception)
 
 `InnerException` is the **first** failure, for the same reason. Read it for that first cause, and
 not the first entry of `Failures`: a dictionary promises no order.
+
+### The local CUPS daemon did not answer
+
+On macOS, `cupsd` starts on demand from its domain socket and exits when idle, so
+`localhost:631` refuses connections until something wakes it. `CupsSpoolerDriver` connects
+through that socket for this reason (see [Spooler and CUPS](spooler-and-cups.md#two-drivers-one-api)).
+If discovery still logs `Discovery source Spooler failed`, the daemon itself is down: check it
+with `lpstat -r`, or with the diagnostic scripts in
+[Diagnosing a local CUPS](https://github.com/adaptive-architecture/dotnet-devices/blob/main/docs/development.md#diagnosing-a-local-cups),
+which also check where a Linux queue places a PDF.
 
 ### The printer reported an error
 
@@ -320,7 +331,8 @@ IppTransportOptions options = new() { CaptureRawResponses = true };
 ```
 
 The attributes then reach `PrinterStatus.RawAttributes`, `PrintJobInfo.RawAttributes` (for a read
-of one job) and `PrinterOperationException.RawAttributes`.
+of one job) and `PrinterOperationException.RawAttributes`, as `IppAttributeSnapshot` records.
+These carry text only: no type of the IPP library underneath is in the public API.
 
 ```csharp
 foreach (IppAttributeSnapshot attribute in status.RawAttributes)
@@ -338,7 +350,8 @@ read one job to see its attributes.
 
 The switch is part of `IppTransportOptions`, so it reaches every IPP path, including a local CUPS
 queue: `AddPrinters(options => options.CaptureRawResponses = true)` covers a `spooler://` printer
-on Linux and macOS as well.
+on Linux and macOS as well. Without dependency injection, set the `IppTransport` property of
+`SpoolerPrinter`, `SpoolerPrinterDiscovery` or `SpoolerPrintJobQueue`.
 
 ## What each channel reports
 

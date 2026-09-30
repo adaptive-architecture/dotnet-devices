@@ -104,7 +104,8 @@ A GDI image job reads `Scaling` as PWG 5100.16 writes it, so the same option giv
 page as an IPP printer gives. `Auto` is the value an unset `Scaling` takes, because that is the
 printer default the IPP side falls back to: a document that already fits the printable area
 keeps its own size and is centered, and a larger one is scaled down to `Fit`, or to `Fill` on a
-borderless medium.
+borderless medium — one where `PHYSICALWIDTH` and `PHYSICALHEIGHT` report no more than the
+printable area.
 
 This matters for a label: a 4 by 6 inch PDF on A4 prints at 4 by 6 inches in the middle of the
 sheet, and not blown up to the whole page.

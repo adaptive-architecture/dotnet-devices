@@ -4,7 +4,19 @@ Cross-platform .NET library for device interaction — printers, scanners, and s
 
 ## Discover the project
 
-Read [docs/](docs/README.md) for progressive discovery of the architecture, packages, and capabilities. It is the source of truth for how this repository is structured and works.
+Documentation lives in two trees, and each fact has exactly one home:
+
+- **[docs/](docs/README.md) is internal and technical**: architecture, packages and dependency
+  reviews, the development and test workflow, test evidence, manual tests and samples. Written
+  for a contributor. Start here for progressive discovery; it is the source of truth for how
+  this repository is structured and works, and its README maps every consumer topic to its
+  docfx page.
+- **[docfx/docs/](docfx/docs/) is public and consumer-facing**: what the library does — formats,
+  channels, options, placement, status and troubleshooting — published as the site at
+  <https://adaptive-architecture.github.io/dotnet-devices/>. Written for a consumer.
+
+Never describe library behaviour in `docs/`; link to the published docfx page instead. When a
+docfx page is added, removed or renamed, update `docfx/llm.txt` and the map in `docs/README.md`.
 
 ## Non-negotiable conventions
 

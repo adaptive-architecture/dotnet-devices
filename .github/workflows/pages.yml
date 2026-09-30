@@ -29,6 +29,16 @@ jobs:
       with:
         global-json-file: global.json
 
+    # The API reference restores the src/ projects. The key is its own, so this smaller
+    # restore never takes the key the test job saves its full cache under.
+    - uses: actions/cache@v6
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-docs-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj', '.config/dotnet-tools.json') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-docs
+          ${{ runner.os }}-nuget
+
     - run: dotnet tool update -g docfx
     - run: docfx ./docfx/docfx.json
 

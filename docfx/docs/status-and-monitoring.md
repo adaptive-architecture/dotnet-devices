@@ -113,7 +113,8 @@ status can be read from.
 commonly advertises a channel it cannot actually serve — an `ipps` port whose certificate no
 longer negotiates is the usual one — and the device is not unreachable while another of its
 channels still answers. Only when none answers is the failure of the first one reported, because
-that is the channel the caller asked for.
+that is the channel the caller asked for. A device that answers on its first channel opens exactly
+one.
 
 ## Job queues
 
@@ -152,7 +153,8 @@ through `IPrinterManager`, because the manager resolves it, and then fails the w
 went to, so it always names a host.
 
 **A device with only a raw channel cannot be watched at all.** `WatchJobAsync` checks for a job
-queue first and throws `NotSupportedException` when there is none. This refusal is correct, not a
+queue first — a device with an `ipp`, `ipps` or `spooler` channel has one — and throws
+`NotSupportedException` when there is none. This refusal is correct, not a
 limitation: a raw channel gives back a generated job identifier and has no queue to read.
 Watching such a job through IPP would ask the wrong protocol about a job it never saw, and a past
 defect showed the cost — the empty answer read as "the job is done", so the caller was told the

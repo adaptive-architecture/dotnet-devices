@@ -30,8 +30,9 @@ manager prefers them, and grouped on `ChannelsByTransport`.
 
 ## Which sources run
 
-`PrinterManagerOptions` controls this. Give it to each `DiscoverAsync` call, because the
-manager does not keep it.
+`PrinterManagerOptions` controls this. The manager keeps the options it was built with and uses
+them for `DiscoverAsync(null, …)`; options given to one `DiscoverAsync` call scope that call
+alone.
 
 | Source | Property | Default |
 | :--- | :--- | :--- |
@@ -58,7 +59,7 @@ request per channel.
 | Property | What it adds |
 | :--- | :--- |
 | `ReadCapabilities` | The document formats, the media, the resolutions and the duplex support of each channel. Fills `DiscoveredPrinter.Configuration`, which stays `null` — meaning "not read" — when it is off. |
-| `ReadIdentity` | The UUID, the serial number and the device URI. This is what merges the channels of one printer when the browse alone reported no identity. |
+| `ReadIdentity` | Which device each channel belongs to: an IPP read for `printer-uuid` and `printer-device-id`, an SNMP read for the serial number, and a spooler read for the device URI of a queue. This is what merges the channels of one printer when the browse alone reported no identity. |
 
 `MaxEnrichmentConcurrency` bounds how many channels are read at once. It defaults to eight,
 because a probe of a whole subnet can return hundreds of channels.
@@ -106,7 +107,8 @@ The rules run in this order:
 3. **Every other format takes a channel with a job queue**, so the job can be watched after it
    is sent.
 4. **The identifier breaks the tie** between the channels that suit the payload. It never
-   overrules the payload.
+   overrules the payload: a device with no reported identity names itself with the identifier
+   of its preferred channel, so the two cannot be told apart.
 5. **The most preferred channel is the fallback** when no channel suits the payload. The order
    is `ipps`, `ipp`, `spooler`, `raw`.
 
@@ -121,10 +123,11 @@ This is a real gain: a printer found through the spooler is printed to over its 
 without the caller having to look for that channel.
 
 **A CUPS-only device still gets the label.** CUPS gives no promise — only a raw queue passes the
-bytes to the backend untouched, and CUPS reports no dependable attribute that tells a raw queue
-from a driver one. Rule 5 therefore sends over the CUPS queue anyway, as
-`application/vnd.cups-raw`, which is the format a raw queue needs and which stops CUPS from
-re-typing the job.
+bytes to the backend untouched, a queue with a driver or a driverless (IPP Everywhere) queue
+converts the job, and CUPS reports no dependable attribute that tells them apart. Rule 5
+therefore sends over the CUPS queue anyway, as `application/vnd.cups-raw`, which is the format a
+raw queue needs and which stops CUPS from re-typing the job. Sending is better than refusing,
+because refusing helps nobody and the format is correct either way.
 
 `GetStatusAsync` and `WatchJobAsync` carry no payload, so they always prefer a channel with a
 job queue.
@@ -222,6 +225,8 @@ changes.
   `unknown`, a bare `SN:`, anything under three characters, or a value made of one repeated
   character. A whole fleet shipped with the same placeholder serial number would otherwise
   collapse into a single device.
+- A queue with no distinctive job is no evidence. Two idle printers that both report job `1`
+  with no name stay two devices, and so do two printers that both hold a job called `Document`.
 - The CUPS `printer-uuid` is **never** used. CUPS mints it itself, as a hash over the server,
   the port and the queue name, so two queues to one printer report two different values. Only
   `device-uri` links a queue to its device.
@@ -257,7 +262,9 @@ same reason `Transports` is: the argument scopes one discovery, and consent to w
 printer is not a scope.
 
 **It proves one queue, not one engine.** A class or a pool spreads one queue over several
-devices, so a match is not a statement about which machine feeds the paper.
+devices, so a match is not a statement about which machine feeds the paper. The library already
+treats a queue as a grouping unit, so this is consistent, but it is not the same claim as "the
+same physical printer".
 
 ### What a queue can and cannot prove
 

@@ -29,7 +29,7 @@ public sealed class PrinterManagerOptions
     /// The IPP wire has its own <see cref="IppTransportOptions.LoggerFactory"/>. An
     /// application that uses <c>AddDevices()</c> or <c>AddPrinters()</c> needs neither: the
     /// registration takes the <see cref="ILoggerFactory"/> of the container for both. Read
-    /// <see href="https://github.com/adaptive-architecture/dotnet-devices/blob/main/docs/troubleshooting.md">Troubleshooting</see>.
+    /// <see href="https://adaptive-architecture.github.io/dotnet-devices/docs/troubleshooting.html">Troubleshooting</see>.
     /// </remarks>
     public ILoggerFactory? LoggerFactory { get; set; }
 
