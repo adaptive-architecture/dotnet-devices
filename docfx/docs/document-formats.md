@@ -129,7 +129,7 @@ that encodes no size, such as `letter`, is never written.
 | :--- | :--- | :--- | :--- | :--- |
 | PDF | Converted to one PNG a page and drawn through GDI on the paper of the queue | Passed through, and CUPS renders it, unless the job names or requires a converter; converted to URF or PWG Raster then | Passed through when the printer lists it and the job names no converter; converted to PWG Raster or URF otherwise; sent unchanged when the printer reads nothing the converter writes | Sent unchanged |
 | PNG and JPEG | Drawn through GDI, which applies the orientation, the scaling, the placement and the smoothing switch | Passed through; CUPS scales it onto the page | Sent as it is: the library converts documents only | Sent unchanged |
-| ZPL, EPL and the other printer languages | Sent with the `RAW` datatype, unchanged | Sent as `application/vnd.cups-raw`; a queue with a driver may still convert it | Sent as the language or as `application/octet-stream`, whichever the printer names | Sent unchanged |
+| ZPL, EPL and the other printer languages | Sent with the `RAW` datatype, unchanged | Sent as `application/vnd.cups-raw`, which CUPS passes to the backend unchanged; a queue that forwards over IPP sends it on as `application/octet-stream` | Sent as the language or as `application/octet-stream`, whichever the printer names | Sent unchanged |
 
 An image that declares no resolution is 96 dpi to GDI+ and 200 dpi to CUPS, so the same bare
 file prints about half as wide on Windows. Declare the resolution in the file to get the same

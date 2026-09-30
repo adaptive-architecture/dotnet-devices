@@ -31,6 +31,7 @@ internal static class IppConfigurationMapper
         "pwg-raster-document-resolution-supported",
         "pwg-raster-document-sheet-back",
         "urf-supported",
+        "device-uri",
     ];
 
     // The four margins of "media-col-default", in the hundredths of a millimetre both IPP and
@@ -95,6 +96,8 @@ internal static class IppConfigurationMapper
             PwgRasterResolutionsDpi = IppRawAttributes.ReadResolutions(raw, 0, "pwg-raster-document-resolution-supported"),
             PwgRasterSheetBack = IppRawAttributes.ReadText(raw, 0, "pwg-raster-document-sheet-back"),
             UrfSupported = IppRawAttributes.ReadKeywords(raw, 0, "urf-supported"),
+            // Only a CUPS queue reports "device-uri"; a printer answers without it.
+            ForwardsOverIpp = DeviceUriParser.ForwardsOverIpp(IppRawAttributes.ReadText(raw, 0, "device-uri")),
         };
     }
 

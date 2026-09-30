@@ -195,4 +195,18 @@ public sealed class PrinterConfiguration
     /// coordinate system an Apple Raster document must be written in.
     /// </remarks>
     public IReadOnlyList<string> UrfSupported { get; init; }
+
+    /// <summary>
+    /// Gets a value indicating whether a CUPS queue passes its jobs on to another IPP
+    /// printer, or <c>null</c> when the channel is not a CUPS queue or CUPS did not say.
+    /// </summary>
+    /// <remarks>
+    /// Read from the queue's <c>device-uri</c>: <c>ipp</c>, <c>ipps</c>, <c>http</c>,
+    /// <c>https</c>, <c>implicitclass</c> and an IPP <c>dnssd</c> service forward. CUPS
+    /// passes a printer-language job through every queue unchanged, but a forwarding queue
+    /// sends it on as <c>application/octet-stream</c>, and the printer at the other end
+    /// decides whether it reads it. See
+    /// <see href="https://adaptive-architecture.github.io/dotnet-devices/docs/troubleshooting.html">Troubleshooting</see>.
+    /// </remarks>
+    public bool? ForwardsOverIpp { get; init; }
 }

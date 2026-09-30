@@ -178,4 +178,17 @@ public class CupsRenderingTests
 
     private CupsPrinter CupsPrinterFor(string queue, HttpClient client, PrintFormatPolicy formats) =>
         new(_cups.EndpointFor(queue), client, new IppTransportOptions(), formats);
+
+    [Theory]
+    [InlineData(CupsFixture.RawQueue)]
+    [InlineData(CupsFixture.PwgQueue)]
+    public async Task GetConfigurationAsync_AQueueThatWritesToAFileDoesNotForwardOverIpp(string queue)
+    {
+        using HttpClient client = new();
+        var printer = CupsPrinterFor(queue, client, Pdfium());
+
+        var configuration = await printer.GetConfigurationAsync(TestContext.Current.CancellationToken);
+
+        Assert.False(configuration.ForwardsOverIpp);
+    }
 }

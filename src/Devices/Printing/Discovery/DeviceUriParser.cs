@@ -22,8 +22,36 @@ internal sealed class DeviceUriParser
     // the name of the queue written differently.
     private static readonly string[] HostSchemes = ["ipp", "ipps", "http", "https", "socket", "lpd"];
 
+    // The backends that pass a job on to another IPP printer, which then decides what the
+    // bytes are. "dnssd" resolves to whichever service its instance names, so only the IPP
+    // services count; cups-browsed's "implicitclass" always forwards over IPP.
+    private static readonly string[] IppForwardingSchemes = ["ipp", "ipps", "http", "https", "implicitclass"];
+
     private DeviceUriParser()
     {
+    }
+
+    /// <summary>
+    /// Tells whether a CUPS queue with this device URI forwards its jobs over IPP.
+    /// </summary>
+    /// <returns><c>null</c> when there is no device URI or it cannot be read.</returns>
+    public static bool? ForwardsOverIpp(string? value)
+    {
+        // System.Uri refuses the underscores of a dnssd instance, so the scheme is read by hand.
+        var colon = value?.IndexOf(':', StringComparison.Ordinal) ?? -1;
+        if (colon <= 0)
+        {
+            return null;
+        }
+
+        var scheme = value![..colon];
+        if (String.Equals(scheme, "dnssd", StringComparison.OrdinalIgnoreCase))
+        {
+            return value.Contains("._ipp._tcp", StringComparison.OrdinalIgnoreCase)
+                || value.Contains("._ipps._tcp", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return Array.Exists(IppForwardingSchemes, known => String.Equals(scheme, known, StringComparison.OrdinalIgnoreCase));
     }
 
     public string? Host { get; private set; }
