@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using AdaptArch.Devices.Printing.Raster;
+using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.Printing.Ipp;
 
@@ -168,14 +169,20 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
     }
 
     // A raster is only readable at a resolution the printer rasters at, so the request is
-    // moved to the nearest one it named rather than sent as asked and refused. A printer
-    // that named none takes what the job asked for.
-    private static int ResolveDpi(int? requested, IReadOnlyList<int> supported)
+    // moved to the nearest one it named rather than sent as asked and refused. One the engine
+    // renders well wins over a nearer one it does not; with none such, the converter renders
+    // at its limit and scales the page up to the printer's. A printer that named none takes
+    // what the job asked for.
+    internal static int ResolveDpi(int? requested, IReadOnlyList<int> supported)
     {
         var dpi = requested ?? PrintConversionContext.DefaultDpi;
-        return supported.Count == 0 || supported.Contains(dpi)
-            ? dpi
-            : supported.MinBy(candidate => Math.Abs(candidate - dpi));
+        if (supported.Count == 0)
+        {
+            return dpi;
+        }
+
+        var renderable = supported.Where(candidate => PdfRenderLimits.ClampDpi(candidate) == candidate).ToList();
+        return (renderable.Count > 0 ? renderable : supported).MinBy(candidate => Math.Abs(candidate - dpi));
     }
 
     // Geometry the printer cannot be asked for, so the page has to be rendered for it.
@@ -290,6 +297,7 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
                 options,
                 PrintOptionStage.Conversion,
                 "the printer reads the document itself, so the library renders nothing",
+                nameof(PrintOptions.FitArea),
                 nameof(PrintOptions.Smoothing)));
         }
 
@@ -353,15 +361,25 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
 
         // The converter selected the pages, so the printer must not select them again -- and
         // where it also placed the page on its media, the printer must not fit it again.
+        // The job then asks for the resolution the raster carries, not the one it named.
         PrintOptions? converted = null;
+        DroppedOption[] moved = [];
         if (options is not null)
         {
             converted = converter.PlacesOnMedia(context)
                 ? PrintOptionValidator.WithoutPlacedGeometry(options)
                 : PrintOptionValidator.WithoutPageRanges(options);
+            if (options.ResolutionDpi is int requested && requested != dpi)
+            {
+                converted.ResolutionDpi = dpi;
+                moved = [new DroppedOption(
+                    nameof(PrintOptions.ResolutionDpi),
+                    PrintOptionStage.Conversion,
+                    $"the page was rasterized at {dpi} dpi, the resolution chosen from those the printer rasters at")];
+            }
         }
 
-        return (PrinterPayload.FromBytes(documents[0], target), target, converted, []);
+        return (PrinterPayload.FromBytes(documents[0], target), target, converted, moved);
     }
 
     // What only a renderer applies, lost on a job that is sent as it is.
@@ -370,7 +388,7 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
             options,
             PrintOptionStage.Conversion,
             reason,
-            [nameof(PrintOptions.Placement), nameof(PrintOptions.Smoothing), nameof(PrintOptions.MediaSizeSource), .. more]);
+            [nameof(PrintOptions.FitArea), nameof(PrintOptions.Placement), nameof(PrintOptions.Smoothing), nameof(PrintOptions.MediaSizeSource), .. more]);
 
     /// <inheritdoc />
     /// <exception cref="InvalidOperationException">Thrown when no IPP endpoint answers, or the printer reports an IPP error.</exception>

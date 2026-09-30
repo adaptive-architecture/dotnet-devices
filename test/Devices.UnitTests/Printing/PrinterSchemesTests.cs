@@ -27,8 +27,11 @@ public class PrinterSchemesTests
     [InlineData(PrinterScheme.Raw, false, PrintOptionSupports.None)]
     [InlineData(PrinterScheme.Ipp, true, PrintOptionSupports.All)]
     [InlineData(PrinterScheme.Ipps, false, PrintOptionSupports.All)]
-    // CUPS carries every option, and a Windows device mode carries what has a field.
-    [InlineData(PrinterScheme.Spooler, false, PrintOptionSupports.All)]
+    // CUPS renders nothing, and a Windows device mode carries what has a field.
+    [InlineData(
+        PrinterScheme.Spooler,
+        false,
+        PrintOptionSupports.All & ~(PrintOptionSupports.Placement | PrintOptionSupports.Smoothing | PrintOptionSupports.MediaGeometry))]
     [InlineData(
         PrinterScheme.Spooler,
         true,
@@ -104,7 +107,7 @@ public class PrinterSchemesTests
         Assert.True(PrinterSchemes.HasJobQueue(PrinterScheme.Cups));
         Assert.True(PrinterSchemes.HasHost(PrinterScheme.Cups));
         Assert.Equal(631, PrinterSchemes.DefaultPort(PrinterScheme.Cups));
-        Assert.Equal(PrintOptionSupports.All, PrinterSchemes.SupportedOptions(PrinterScheme.Cups, false));
+        Assert.Equal(PrinterSchemes.SupportedOptions(PrinterScheme.Spooler, false), PrinterSchemes.SupportedOptions(PrinterScheme.Cups, false));
     }
 
     // It carries a host and a queue, so NetworkPrinterEndpoint does not describe it.

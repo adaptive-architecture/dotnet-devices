@@ -385,16 +385,38 @@ public class WindowsSpoolerDriverSeamTests
                 MediaType = "labels",
                 Placement = new PrintPlacement { Anchor = PrintAnchor.TopLeft },
                 Smoothing = false,
+                FitArea = PrintFitArea.Physical,
             },
             TestContext.Current.CancellationToken);
 
         Assert.Equal(
             [
                 new DroppedOption(nameof(PrintOptions.MediaType), PrintOptionStage.DeviceMode, "a Windows device mode has no field for it, or the driver of the queue does not offer the value"),
+                new DroppedOption(nameof(PrintOptions.FitArea), PrintOptionStage.Channel, "the RAW data type sends the bytes as they are, and nothing renders them"),
                 new DroppedOption(nameof(PrintOptions.Placement), PrintOptionStage.Channel, "the RAW data type sends the bytes as they are, and nothing renders them"),
                 new DroppedOption(nameof(PrintOptions.Smoothing), PrintOptionStage.Channel, "the RAW data type sends the bytes as they are, and nothing renders them"),
             ],
             job.DroppedOptionDetails);
+    }
+
+    [Theory]
+    [InlineData(PrinterContentTypes.Zpl)]
+    [InlineData(PrinterContentTypes.Png)]
+    public async Task SubmitAsync_AJobThatAsksToFailOnAnUnappliedOption_ThrowsBeforeAnythingSpools(string contentType)
+    {
+        FakeWindowsSpoolerInterop interop = new();
+        FakeWindowsGdiImagePrinter images = new();
+
+        var error = await Assert.ThrowsAsync<NotSupportedException>(() => DriverFor(interop, images).SubmitAsync(
+            "lobby",
+            PrinterPayload.FromBytes(new byte[] { 1 }, contentType),
+            new PrintOptions { MediaType = "labels", OnUnsupported = UnsupportedOptionBehavior.Throw },
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains(nameof(PrintOptions.MediaType), error.Message, StringComparison.Ordinal);
+        Assert.Empty(interop.Written);
+        Assert.DoesNotContain(nameof(IWindowsSpoolerInterop.StartDocPrinter), interop.Calls);
+        Assert.Empty(images.Jobs);
     }
 
     // GDI draws the placement and the smoothing, so only what it cannot do is reported.

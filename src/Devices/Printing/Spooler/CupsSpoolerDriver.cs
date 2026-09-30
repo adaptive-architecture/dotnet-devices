@@ -153,16 +153,26 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
         ArgumentNullException.ThrowIfNull(payload);
-        var dropped = PrintOptionValidator.Unapplied(
-            options,
-            PrintOptionStage.Channel,
-            "CUPS receives the document as it is, and no IPP attribute carries it",
-            nameof(PrintOptions.Placement),
-            nameof(PrintOptions.Smoothing),
-            nameof(PrintOptions.MediaSizeSource));
+        DroppedOption[] dropped =
+        [
+            .. PrintOptionValidator.Unapplied(
+                options,
+                PrintOptionStage.Channel,
+                "CUPS receives the document as it is, and no IPP attribute carries it",
+                nameof(PrintOptions.FitArea),
+                nameof(PrintOptions.Placement),
+                nameof(PrintOptions.Smoothing),
+                nameof(PrintOptions.MediaSizeSource)),
+            .. PrintOptionValidator.Unapplied(
+                options,
+                PrintOptionStage.Conversion,
+                "CUPS converts the document with its own filters, and the library converts nothing on this channel",
+                nameof(PrintOptions.ConverterName)),
+        ];
 
         var uri = QueueUri(queueName);
         var id = IdFor(queueName);
+        PrintOptionValidator.ThrowIfRefused(options, id, dropped);
         var effectiveOptions = options;
         IReadOnlyList<IppAttribute> extras = [];
         if (FitsOntoQueueMedia(payload, options))

@@ -237,6 +237,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             queueName,
             WithoutGdiDropped(request.Dropped, true),
             PrintOptionValidator.Unapplied(options, PrintOptionStage.Conversion, OnQueuePaper, nameof(PrintOptions.MediaSizeSource)));
+        PrintOptionValidator.ThrowIfRefused(options, PrinterId.ForSpooler(queueName), dropped);
         var copies = options?.Copies ?? 1;
         var bytes = payload.Data.ToArray();
         var jobName = options?.JobName ?? queueName;
@@ -299,6 +300,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 .. PrintOptionValidator.Unapplied(options, PrintOptionStage.Conversion, "the library does not convert an image", nameof(PrintOptions.ConverterName)),
                 .. PrintOptionValidator.Unapplied(options, PrintOptionStage.Conversion, OnQueuePaper, nameof(PrintOptions.MediaSizeSource)),
             ]);
+        PrintOptionValidator.ThrowIfRefused(options, PrinterId.ForSpooler(queueName), dropped);
         var copies = options?.Copies ?? 1;
         var bytes = payload.Data.ToArray();
         var jobName = options?.JobName ?? queueName;
@@ -461,10 +463,12 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 options,
                 PrintOptionStage.Channel,
                 "the RAW data type sends the bytes as they are, and nothing renders them",
+                nameof(PrintOptions.FitArea),
                 nameof(PrintOptions.Placement),
                 nameof(PrintOptions.Smoothing),
                 nameof(PrintOptions.MediaSizeSource),
                 nameof(PrintOptions.ConverterName)));
+        PrintOptionValidator.ThrowIfRefused(options, PrinterId.ForSpooler(queueName), dropped);
         var copies = options?.Copies ?? 1;
         var bytes = payload.Data.ToArray();
 

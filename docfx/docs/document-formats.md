@@ -49,7 +49,7 @@ neither. There the library converts, and sends the result as the format the prin
 
 | Channel | A PDF job |
 | :--- | :--- |
-| `spooler://` on Linux and macOS, and `cups://` anywhere | Passed through, and never converted. The CUPS filter chain renders it with driver knowledge no converter here has. A placement, the smoothing switch and a document media size are reported in `DroppedOptionDetails`, because no IPP attribute carries them |
+| `spooler://` on Linux and macOS, and `cups://` anywhere | Passed through, and never converted. The CUPS filter chain renders it with driver knowledge no converter here has. A placement, the smoothing switch, a fit area, a document media size and a named converter are reported in `DroppedOptionDetails`, because no IPP attribute carries them |
 | `ipp://` and `ipps://`, printer lists `application/pdf` | Passed through. The document itself is always better than a raster of it, unless the job names a converter |
 | `ipp://` and `ipps://`, printer lists `image/pwg-raster` | Converted, and sent as one job |
 | `ipp://` and `ipps://`, printer lists neither | Sent unchanged, for the printer to refuse. Event 1034 says why, and the options only a renderer applies are reported dropped |
@@ -88,10 +88,15 @@ sees exactly the behaviour it saw before.
 
 The converter is given what the printer asked for in `PrintConversionContext`: the colour
 space from `pwg-raster-document-type-supported` (narrowed by `PrintOptions.ColorMode`), the
-nearest resolution in `pwg-raster-document-resolution-supported`, and the
+resolution in `pwg-raster-document-resolution-supported` nearest to the one asked for,
+preferring one inside `PdfRenderLimits` (150 to 600 dpi) to a nearer one outside it, and the
 `pwg-raster-document-sheet-back` value that says how the back of a duplex sheet is read. Page
 ranges are applied by the converter and then **not** sent to the printer, which would
-otherwise select a subset of the subset.
+otherwise select a subset of the subset. A `ResolutionDpi` the job asked for and did not get
+is reported dropped, and the job asks the printer for the one the raster carries. A printer
+that lists nothing inside the band keeps its own resolution: the PDF engine renders at the
+nearest edge of the band and scales the page up, so the canvas, the offsets and the header
+all describe the same sheet.
 
 `PwgRasterWriter` and `PngWriter` are public, so an application with a rasterizer of its own
 gets a conforming encoder without writing one, and the core package pays no dependency for
@@ -119,7 +124,7 @@ file prints about half as wide on Windows. Declare the resolution in the file to
 page on both.
 
 Wherever a row sends the payload without rendering it, the options only a renderer applies —
-`Placement`, `Smoothing`, `MediaSizeSource.Document` and `ConverterName` — are listed in
+`FitArea`, `Placement`, `Smoothing`, `MediaSizeSource.Document` and `ConverterName` — are listed in
 `PrintJobInfo.DroppedOptionDetails` with the reason, and logged as event 2041. A raw channel
 carries no job template at all, so it reports every option the job set.
 
@@ -218,7 +223,8 @@ public sealed class TiffConverter : IPrintPayloadConverter
 
 The converter runs before the job reaches the spooler, so a file it refuses spools nothing.
 The resolution is passed on as the caller asked for it, because a band that suits one engine
-is not a rule for another.
+is not a rule for another. `PdfPayloadConverter` renders at the clamped value and scales the
+page to `context.Dpi`, so its pixels are always at the resolution it was asked for.
 
 `PrinterManagerOptions.Converters` scopes a converter to one manager.
 `PrintFormatPolicy.AddDefaultConverter` registers one for the whole process, which is what

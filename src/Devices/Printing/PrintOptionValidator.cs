@@ -169,6 +169,17 @@ internal static class PrintOptionValidator
     public static DroppedOption[] Unapplied(PrintOptions? options, PrintOptionStage stage, string reason, params string[] names) =>
         options is null ? [] : Dropped(SetOptions(options).Where(names.Contains), stage, reason);
 
+    // A driver calls this before it submits, so a job that asked to fail on an option the
+    // channel cannot apply leaves nothing behind in the queue.
+    public static void ThrowIfRefused(PrintOptions? options, PrinterId printerId, IReadOnlyList<DroppedOption> dropped)
+    {
+        if (options?.OnUnsupported == UnsupportedOptionBehavior.Throw && dropped.Count > 0)
+        {
+            throw new NotSupportedException(
+                $"Printer '{printerId}' does not apply {String.Join("; ", dropped.Select(drop => $"{drop.Option} ({drop.Reason})"))}. Nothing was sent.");
+        }
+    }
+
     // The drops found above a driver come first, and the driver never repeats one of them.
     // A collection expression over two lists emits a compiler wrapper type that the trimmer
     // cannot keep intact, with no analyzer warning. A plain list is safe.

@@ -69,7 +69,7 @@ the queue — which is what a paper jam also does. **Image jobs are the exceptio
 honours `dmCopies`, so one job prints every copy.
 
 `MediaType`, `OutputBin`, `PageRanges` and `NumberUp` have no `DEVMODE` field, so the driver
-always reports them in `PrintJobInfo.DroppedOptions`, whatever `OnUnsupported` says. Two more are
+reports them in `PrintJobInfo.DroppedOptions`, or refuses the job before it spools when `OnUnsupported` is `Throw`. Two more are
 carried only in part for printer languages: `dmScale` is a percentage and not a fit mode, so
 `Scaling` reaches it as `PrintScaling.None` and the other four values are dropped; and
 `dmOrientation` holds portrait and landscape and nothing else, so `ReverseLandscape` and
