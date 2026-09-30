@@ -158,6 +158,212 @@ public class CupsSpoolerDriverTests
         Assert.DoesNotContain("application/vnd.cups-raw", text, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task SubmitAsync_FitsADocumentOntoTheDefaultMediaOfTheQueue()
+    {
+        var handler = QueueWithDefaultMedia("iso_a4_210x297mm");
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        _ = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            null,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, handler.RequestBodies.Count);
+        Assert.Contains("media-default", Latin1(handler.RequestBodies[0]), StringComparison.Ordinal);
+        var job = handler.RequestBodies[1];
+        Assert.True(HasKeyword(job, "media", "iso_a4_210x297mm"));
+        Assert.True(HasKeyword(job, "print-scaling", "auto"));
+        Assert.True(HasFitToPage(job));
+    }
+
+    [Fact]
+    public async Task SubmitAsync_KeepsTheMediaAndTheFitTheJobNamed()
+    {
+        var handler = QueueWithDefaultMedia("iso_a4_210x297mm");
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        _ = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { MediaSize = "na_letter_8.5x11in", Scaling = PrintScaling.Fit },
+            TestContext.Current.CancellationToken);
+
+        // The job named its media, so the queue is not asked for a default.
+        var job = Assert.Single(handler.RequestBodies);
+        Assert.True(HasKeyword(job, "media", "na_letter_8.5x11in"));
+        Assert.False(HasKeyword(job, "media", "iso_a4_210x297mm"));
+        Assert.True(HasKeyword(job, "print-scaling", "fit"));
+        Assert.True(HasFitToPage(job));
+    }
+
+    [Fact]
+    public async Task SubmitAsync_KeepsTheDimensionsTheJobNamed()
+    {
+        var handler = QueueWithDefaultMedia("iso_a4_210x297mm");
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        _ = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { MediaDimensions = new MediaDimensions(PrintLength.FromMillimeters(100), PrintLength.FromMillimeters(150)) },
+            TestContext.Current.CancellationToken);
+
+        var job = Assert.Single(handler.RequestBodies);
+        Assert.Contains("media-col", Latin1(job), StringComparison.Ordinal);
+        Assert.DoesNotContain("iso_a4_210x297mm", Latin1(job), StringComparison.Ordinal);
+        Assert.True(HasFitToPage(job));
+    }
+
+    [Fact]
+    public async Task SubmitAsync_StillFitsWhenTheQueueNamesNoDefaultMedia()
+    {
+        IppMessages.CapturingHandler handler = new(SubmittedJob());
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        _ = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            null,
+            TestContext.Current.CancellationToken);
+
+        var job = handler.RequestBodies[1];
+        Assert.False(HasKeyword(job, "media", "iso_a4_210x297mm"));
+        Assert.True(HasKeyword(job, "print-scaling", "auto"));
+        Assert.True(HasFitToPage(job));
+    }
+
+    // A page that is its own media keeps today's answer: with no media named, the queue
+    // prints it at its own size.
+    [Fact]
+    public async Task SubmitAsync_LeavesAPageThatIsItsOwnMediaUnfitted()
+    {
+        var handler = QueueWithDefaultMedia("iso_a4_210x297mm");
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        _ = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { MediaSizeSource = MediaSizeSource.Document },
+            TestContext.Current.CancellationToken);
+
+        var job = Assert.Single(handler.RequestBodies);
+        Assert.False(HasFitToPage(job));
+        Assert.DoesNotContain("iso_a4_210x297mm", Latin1(job), StringComparison.Ordinal);
+    }
+
+    // A placement never reaches CUPS, so the job lands where one without it would.
+    [Fact]
+    public async Task SubmitAsync_FitsADocumentWhosePlacementWasDropped()
+    {
+        var handler = QueueWithDefaultMedia("iso_a4_210x297mm");
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        var submitted = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { Placement = new PrintPlacement { Anchor = PrintAnchor.TopLeft } },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal([nameof(PrintOptions.Placement)], submitted.DroppedOptions);
+        Assert.True(HasFitToPage(handler.RequestBodies[1]));
+    }
+
+    [Theory]
+    [InlineData("^XA^XZ", PrinterContentTypes.Zpl)]
+    [InlineData("PNG", PrinterContentTypes.Png)]
+    public async Task SubmitAsync_FitsNothingButADocument(string content, string contentType)
+    {
+        var handler = QueueWithDefaultMedia("iso_a4_210x297mm");
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        _ = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString(content, contentType),
+            null,
+            TestContext.Current.CancellationToken);
+
+        var job = Assert.Single(handler.RequestBodies);
+        Assert.False(HasFitToPage(job));
+        Assert.DoesNotContain("print-scaling", Latin1(job), StringComparison.Ordinal);
+        Assert.DoesNotContain("iso_a4_210x297mm", Latin1(job), StringComparison.Ordinal);
+    }
+
+    // The fitted job goes out as an encoded request, so its failures must still read as the
+    // typed call's do.
+    [Fact]
+    public async Task SubmitAsync_ReportsAnIppErrorOfAFittedJob()
+    {
+        // 0x040A is client-error-document-format-not-supported.
+        var answers = new Queue<byte[]>([DefaultMedia("iso_a4_210x297mm"), IppMessages.Response(0x040A, 0x02)]);
+        CupsSpoolerDriver driver = new(new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(answers.Dequeue()))));
+
+        var failure = await Assert.ThrowsAsync<PrinterOperationException>(() => driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            null,
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal(0x040A, failure.IppStatusCode);
+        Assert.Contains("does not accept the document format", failure.Message, StringComparison.Ordinal);
+    }
+
+    private static byte[] SubmittedJob() =>
+        IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 7), (0x23, "job-state", 3));
+
+    // 0x44 is the keyword tag, which media-default is answered with.
+    private static byte[] DefaultMedia(string media) =>
+        IppMessages.Response(0x0000, (0x44, "media-default", media));
+
+    private static QueueHandler QueueWithDefaultMedia(string media) => new(DefaultMedia(media), SubmittedJob());
+
+    private static string Latin1(byte[] body) => Encoding.Latin1.GetString(body);
+
+    // An attribute as RFC 8010 encodes it: the tag, the name and the value, each length first.
+    private static bool HasKeyword(byte[] body, string name, string value) =>
+        body.AsSpan().IndexOf(Encode(0x44, name, Encoding.ASCII.GetBytes(value))) >= 0;
+
+    private static bool HasFitToPage(byte[] body) =>
+        body.AsSpan().IndexOf(Encode(0x22, "fit-to-page", [1])) >= 0;
+
+    private static byte[] Encode(byte tag, string name, byte[] value)
+    {
+        var nameBytes = Encoding.ASCII.GetBytes(name);
+        List<byte> encoded = [tag, (byte)(nameBytes.Length >> 8), (byte)nameBytes.Length];
+        encoded.AddRange(nameBytes);
+        encoded.Add((byte)(value.Length >> 8));
+        encoded.Add((byte)value.Length);
+        encoded.AddRange(value);
+        return [.. encoded];
+    }
+
+    // Answers Get-Printer-Attributes with the queue's attributes and every other operation
+    // with the job, and keeps what each request sent.
+    private sealed class QueueHandler : HttpMessageHandler
+    {
+        // The operation id is the second pair of octets of an RFC 8010 request.
+        private const int GetPrinterAttributes = 0x000B;
+
+        private readonly byte[] _attributes;
+        private readonly byte[] _job;
+
+        public QueueHandler(byte[] attributes, byte[] job)
+        {
+            _attributes = attributes;
+            _job = job;
+        }
+
+        public List<byte[]> RequestBodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var body = await request.Content!.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+            RequestBodies.Add(body);
+            return IppMessages.Ok(((body[2] << 8) | body[3]) == GetPrinterAttributes ? _attributes : _job);
+        }
+    }
+
     private sealed class BodyCapturingHandler : HttpMessageHandler
     {
         private readonly byte[] _responseBody;

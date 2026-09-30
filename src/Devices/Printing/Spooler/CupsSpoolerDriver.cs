@@ -18,6 +18,9 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     // CUPS_PTYPE_DEFAULT: the server sets it in printer-type on its default queue.
     private const int PrinterTypeDefault = 0x20000;
 
+    // A CUPS job attribute that no IPP specification defines; see FitsOntoQueueMedia.
+    private static readonly IppAttribute FitToPage = new(Tag.Boolean, "fit-to-page", true);
+
     // One client for every driver: the target is fixed, and a client per driver would
     // leak a connection pool each time the factory makes one. It connects through the
     // daemon's domain socket where there is one; see CupsLocalSocket.
@@ -146,7 +149,7 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
 
     // CUPS receives the document as it is, and no IPP attribute carries what only a renderer
     // applies, so those options are reported here; the rest were validated above this driver.
-    public Task<PrintJobInfo> SubmitAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
+    public async Task<PrintJobInfo> SubmitAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
         ArgumentNullException.ThrowIfNull(payload);
@@ -158,14 +161,44 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
             nameof(PrintOptions.Smoothing),
             nameof(PrintOptions.MediaSizeSource));
 
+        var uri = QueueUri(queueName);
+        var id = IdFor(queueName);
+        var effectiveOptions = options;
+        IReadOnlyList<IppAttribute> extras = [];
+        if (FitsOntoQueueMedia(payload, options))
+        {
+            var defaultMedia = options?.MediaSize is null && options?.MediaDimensions is null
+                ? await IppRequests.GetDefaultMediaAsync(_context, uri, id, cancellationToken).ConfigureAwait(false)
+                : null;
+            effectiveOptions = PrintOptionValidator.WithQueueFit(options, defaultMedia);
+            extras = [FitToPage];
+        }
+
         // The daemon is CUPS by construction, so the format needs no negotiation.
-        return IppRequests.SubmitAsync(
+        return await IppRequests.SubmitAsync(
             _context,
-            QueueUri(queueName),
-            IdFor(queueName),
-            new IppSubmission(payload, IppDocumentFormat.ForCups(payload.ContentType, _formats), options, dropped),
-            cancellationToken);
+            uri,
+            id,
+            new IppSubmission(payload, IppDocumentFormat.ForCups(payload.ContentType, _formats), effectiveOptions, dropped)
+            {
+                ExtraJobAttributes = extras,
+            },
+            cancellationToken).ConfigureAwait(false);
     }
+
+    // A document CUPS renders lands where the renderer puts it, and the renderers disagree.
+    // cups-filters on Linux centres the page on the queue's default media and shrinks it only
+    // when it does not fit, which is what the Windows spooler does too. Quartz on macOS makes
+    // the PDF's own page size the media when the job names none, so a label reaches a printer
+    // loaded with A4 as a label-sized page and the printer reports a size mismatch; told the
+    // media, it draws from the corner and ignores print-scaling. Only "fit-to-page" makes it
+    // centre, and it fits exactly as "auto" does. So the job names the media, print-scaling for
+    // cups-filters, which reads it before fit-to-page, and fit-to-page for Quartz.
+    // A page that is its own media is left alone: with no media named, Quartz prints it at its
+    // own size, which is what the job asked for.
+    private bool FitsOntoQueueMedia(PrinterPayload payload, PrintOptions? options) =>
+        _formats.KindOf(payload.ContentType) == PrinterFormatKind.Document
+        && options?.MediaSizeSource != MediaSizeSource.Document;
 
     public Task<PrinterStatus> GetStatusAsync(string queueName, CancellationToken cancellationToken)
     {

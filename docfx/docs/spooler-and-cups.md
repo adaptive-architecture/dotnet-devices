@@ -1,4 +1,4 @@
-# Spooler and CUPS
+﻿# Spooler and CUPS
 
 A print queue of the operating system is a channel like any other, with the `spooler` scheme.
 The same code reaches a CUPS server over the network, with the `cups` scheme.
@@ -101,12 +101,15 @@ shows how far apart they can be:
   through the spooler, and on one side over IPP.
 - **Reverse output order.** `*DefaultOutputOrder: Reverse`, so the first page of a job comes out
   last.
-- **A PDF is not fitted.** macOS CUPS renders a PDF with Quartz and not with cups-filters. With
-  no media in the job it takes the PDF's own page size as the media, so a 4 by 6 inch label sent
-  to a printer loaded with A4 arrives as a 4 by 6 inch page and the printer reports a size
-  mismatch. With `media=A4` it draws the page from the PDF's origin, against the bottom left of
-  the sheet, and ignores `print-scaling`: `none`, `fit` and `auto` gave the same output. Linux
-  centres such a page on the default media, and the Windows spooler places it with GDI.
+- **A PDF is fitted only when the job says so.** macOS CUPS renders a PDF with Quartz and not
+  with cups-filters. With no media in the job it takes the PDF's own page size as the media, so a
+  4 by 6 inch label sent to a printer loaded with A4 arrives as a 4 by 6 inch page and the printer
+  reports a size mismatch. With `media=A4` it draws the page from the PDF's origin, against the
+  bottom left of the sheet, and ignores `print-scaling`. Only the CUPS job attribute
+  `fit-to-page` makes it centre the page, fitting it as `auto` does. The library therefore sends
+  every PDF job with its media (the job's own, or the queue's default), `print-scaling` (the
+  job's, or `auto`) and `fit-to-page`. Linux reads `print-scaling` first and centres the page as
+  it always did, and the Windows spooler places it the same way with GDI.
 
 To see and change them:
 
@@ -115,7 +118,7 @@ To see and change them:
   queue itself with `lpadmin -p <queue> -o Duplex=None`.
 - A job that must land in the same place on every platform asks for a
   [placement](page-placement.md), which the library renders rather than leaving it to the queue.
-  On CUPS that is still open work.
+  On CUPS a placement is still open work.
 
 > [!NOTE]
 > This was measured with `lpoptions`, `ipptool` and `cupsfilter` on macOS 27 against an EPSON

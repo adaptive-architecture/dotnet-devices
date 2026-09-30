@@ -228,6 +228,21 @@ internal static class PrintOptionValidator
         return copy;
     }
 
+    // A queue that renders the document itself fits it only onto media it was told about,
+    // so the job names the media and the fit rather than leaving either to the queue. The
+    // media the job named wins, and so does the fit it asked for.
+    public static PrintOptions WithQueueFit(PrintOptions? options, string? defaultMediaSize)
+    {
+        var copy = options is null ? new PrintOptions() : Copy(options);
+        copy.Scaling ??= PrintScaling.Auto;
+        if (copy.MediaSize is null && copy.MediaDimensions is null)
+        {
+            copy.MediaSize = defaultMediaSize;
+        }
+
+        return copy;
+    }
+
     private static PrintOptions Without(PrintOptions options, List<string> unsupported)
     {
         var copy = Copy(options);
