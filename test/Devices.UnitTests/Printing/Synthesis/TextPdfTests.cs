@@ -38,7 +38,7 @@ public partial class TextPdfTests
     [Fact]
     public void Write_MoreLinesThanAPageHolds_Overflows()
     {
-        var rows = (int)((Height - (2 * TextPdf.Margin)) / TextPdf.LineHeight);
+        const int rows = (int)((Height - (2 * TextPdf.Margin)) / TextPdf.LineHeight);
         var text = String.Join('\n', Enumerable.Range(0, rows + 1).Select(static line => $"line {line}"));
 
         Assert.Equal(2, TextPdf.Write(text, Width, Height, []).PageCount);
@@ -47,7 +47,7 @@ public partial class TextPdfTests
     [Fact]
     public void Write_ALongLine_WrapsAtTheMargin()
     {
-        var columns = (int)((Width - (2 * TextPdf.Margin)) / (TextPdf.FontSize * 0.6));
+        const int columns = (int)((Width - (2 * TextPdf.Margin)) / (TextPdf.FontSize * 0.6));
 
         var contents = Contents(TextPdf.Write(new string('x', columns + 3), Width, Height, []).Pdf);
 

@@ -19,16 +19,24 @@ internal static class PngReader
             throw new InvalidDataException("The image is not a PNG: it lacks the PNG signature.");
         }
 
-        var width = 0;
-        var height = 0;
-        var depth = 0;
-        var colorType = 0;
-        var interlaced = false;
-        byte[] palette = [];
-        byte[] transparency = [];
-        double? dpi = null;
-        using MemoryStream compressed = new();
+        var chunks = ReadChunks(png);
+        if (chunks.Width <= 0 || chunks.Height <= 0 || chunks.Depth is not (1 or 2 or 4 or 8 or 16) || chunks.ColorType is not (0 or 2 or 3 or 4 or 6))
+        {
+            throw new InvalidDataException("The PNG has no valid image header.");
+        }
 
+        chunks.Compressed.Position = 0;
+        using ZLibStream zlib = new(chunks.Compressed, CompressionMode.Decompress);
+        using MemoryStream raw = new();
+        zlib.CopyTo(raw);
+
+        PngFormat format = new(chunks.Width, chunks.Height, chunks.Depth, chunks.ColorType, chunks.Palette, chunks.Transparency);
+        return chunks.Interlaced ? Deinterlace(raw.ToArray(), format, chunks.Dpi) : Progressive(raw.ToArray(), format, chunks.Dpi);
+    }
+
+    private static PngChunks ReadChunks(ReadOnlySpan<byte> png)
+    {
+        PngChunks chunks = new();
         var at = 8;
         while (at + 8 <= png.Length)
         {
@@ -37,49 +45,15 @@ internal static class PngReader
             var data = png.Slice(at + 8, length);
             at += 12 + length;
 
-            if (type.SequenceEqual("IHDR"u8))
-            {
-                width = (int)BinaryPrimitives.ReadUInt32BigEndian(data);
-                height = (int)BinaryPrimitives.ReadUInt32BigEndian(data[4..]);
-                depth = data[8];
-                colorType = data[9];
-                interlaced = data[12] == 1;
-            }
-            else if (type.SequenceEqual("PLTE"u8))
-            {
-                palette = data.ToArray();
-            }
-            else if (type.SequenceEqual("tRNS"u8))
-            {
-                transparency = data.ToArray();
-            }
-            else if (type.SequenceEqual("pHYs"u8) && data[8] == 1)
-            {
-                // Pixels per metre.
-                dpi = BinaryPrimitives.ReadUInt32BigEndian(data) * 0.0254;
-            }
-            else if (type.SequenceEqual("IDAT"u8))
-            {
-                compressed.Write(data);
-            }
-            else if (type.SequenceEqual("IEND"u8))
+            if (type.SequenceEqual("IEND"u8))
             {
                 break;
             }
+
+            chunks.Read(type, data);
         }
 
-        if (width <= 0 || height <= 0 || depth is not (1 or 2 or 4 or 8 or 16) || colorType is not (0 or 2 or 3 or 4 or 6))
-        {
-            throw new InvalidDataException("The PNG has no valid image header.");
-        }
-
-        compressed.Position = 0;
-        using ZLibStream zlib = new(compressed, CompressionMode.Decompress);
-        using MemoryStream raw = new();
-        zlib.CopyTo(raw);
-
-        PngFormat format = new(width, height, depth, colorType, palette, transparency);
-        return interlaced ? Deinterlace(raw.ToArray(), format, dpi) : Progressive(raw.ToArray(), format, dpi);
+        return chunks;
     }
 
     private static DecodedImage Progressive(byte[] raw, PngFormat format, double? dpi)
@@ -179,7 +153,7 @@ internal static class PngReader
 
     private sealed record PngFormat(int Width, int Height, int Depth, int ColorType, byte[] Palette, byte[] Transparency)
     {
-        public int Channels => ColorType == 2 ? 3 : ColorType == 4 ? 2 : ColorType == 6 ? 4 : 1;
+        public int Channels { get; } = ChannelsOf(ColorType);
 
         private bool IsColor => ColorType is 2 or 3 or 6;
 
@@ -212,7 +186,23 @@ internal static class PngReader
                 keyed &= Transparency.Length >= colors * 2 && value == Key(channel);
             }
 
-            SetAlpha(image, pixel, Channels > colors ? Sample(line, first + colors) : keyed ? (byte)0 : (byte)255);
+            var keyAlpha = keyed ? (byte)0 : (byte)255;
+            SetAlpha(image, pixel, Channels > colors ? Sample(line, first + colors) : keyAlpha);
+        }
+
+        private static int ChannelsOf(int colorType)
+        {
+            if (colorType == 2)
+            {
+                return 3;
+            }
+
+            if (colorType == 4)
+            {
+                return 2;
+            }
+
+            return colorType == 6 ? 4 : 1;
         }
 
         private static void SetAlpha(DecodedImage image, int pixel, byte alpha)
@@ -247,6 +237,57 @@ internal static class PngReader
         {
             var value = BinaryPrimitives.ReadUInt16BigEndian(Transparency.AsSpan(channel * 2));
             return Depth == 16 ? value >> 8 : value * 255 / ((1 << Depth) - 1);
+        }
+    }
+
+    // What the chunks before the image data say, and the image data itself.
+    private sealed class PngChunks
+    {
+        public int Width { get; private set; }
+
+        public int Height { get; private set; }
+
+        public int Depth { get; private set; }
+
+        public int ColorType { get; private set; }
+
+        public bool Interlaced { get; private set; }
+
+        public byte[] Palette { get; private set; } = [];
+
+        public byte[] Transparency { get; private set; } = [];
+
+        public double? Dpi { get; private set; }
+
+        public MemoryStream Compressed { get; } = new();
+
+        public void Read(ReadOnlySpan<byte> type, ReadOnlySpan<byte> data)
+        {
+            if (type.SequenceEqual("IHDR"u8))
+            {
+                Width = (int)BinaryPrimitives.ReadUInt32BigEndian(data);
+                Height = (int)BinaryPrimitives.ReadUInt32BigEndian(data[4..]);
+                Depth = data[8];
+                ColorType = data[9];
+                Interlaced = data[12] == 1;
+            }
+            else if (type.SequenceEqual("PLTE"u8))
+            {
+                Palette = data.ToArray();
+            }
+            else if (type.SequenceEqual("tRNS"u8))
+            {
+                Transparency = data.ToArray();
+            }
+            else if (type.SequenceEqual("pHYs"u8) && data[8] == 1)
+            {
+                // Pixels per metre.
+                Dpi = BinaryPrimitives.ReadUInt32BigEndian(data) * 0.0254;
+            }
+            else if (type.SequenceEqual("IDAT"u8))
+            {
+                Compressed.Write(data);
+            }
         }
     }
 }

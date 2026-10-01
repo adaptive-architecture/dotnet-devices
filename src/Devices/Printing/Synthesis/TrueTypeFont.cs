@@ -155,7 +155,7 @@ internal sealed class TrueTypeFont
     private static Dictionary<int, ushort> ReadFormat4(ReadOnlySpan<byte> table)
     {
         var segments = U16(table, 6) / 2;
-        var ends = 14;
+        const int ends = 14;
         var starts = ends + (segments * 2) + 2;
         var deltas = starts + (segments * 2);
         var ranges = deltas + (segments * 2);

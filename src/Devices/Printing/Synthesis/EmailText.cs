@@ -37,23 +37,7 @@ internal static partial class EmailText
     {
         if (entity.MediaType.StartsWith("multipart/", StringComparison.OrdinalIgnoreCase))
         {
-            // The parts of an alternative say the same thing, so the ones not printed lose nothing.
-            var alternative = String.Equals(entity.MediaType, "multipart/alternative", StringComparison.OrdinalIgnoreCase);
-            string? found = null;
-            foreach (var part in entity.Parts())
-            {
-                if (found is not null)
-                {
-                    skipped += alternative ? 0 : 1;
-                    continue;
-                }
-
-                var before = skipped;
-                found = FindText(part, ref skipped);
-                skipped = alternative ? before : skipped;
-            }
-
-            return found;
+            return FindTextInParts(entity, ref skipped);
         }
 
         if (String.Equals(entity.MediaType, "text/plain", StringComparison.OrdinalIgnoreCase) && !entity.IsAttachment)
@@ -63,6 +47,27 @@ internal static partial class EmailText
 
         skipped++;
         return null;
+    }
+
+    // The parts of an alternative say the same thing, so the ones not printed lose nothing.
+    private static string? FindTextInParts(Entity entity, ref int skipped)
+    {
+        var alternative = String.Equals(entity.MediaType, "multipart/alternative", StringComparison.OrdinalIgnoreCase);
+        string? found = null;
+        foreach (var part in entity.Parts())
+        {
+            if (found is not null)
+            {
+                skipped += alternative ? 0 : 1;
+                continue;
+            }
+
+            var before = skipped;
+            found = FindText(part, ref skipped);
+            skipped = alternative ? before : skipped;
+        }
+
+        return found;
     }
 
     // RFC 2047: =?charset?B|Q?text?=, with the space between two adjacent words dropped.
@@ -83,17 +88,18 @@ internal static partial class EmailText
     internal static byte[] QuotedPrintable(string text, bool header = false)
     {
         using MemoryStream bytes = new();
-        for (var index = 0; index < text.Length; index++)
+        var index = 0;
+        while (index < text.Length)
         {
             var character = text[index];
             if (character == '=' && index + 2 < text.Length && Uri.IsHexDigit(text[index + 1]) && Uri.IsHexDigit(text[index + 2]))
             {
                 bytes.WriteByte(Convert.ToByte(text.Substring(index + 1, 2), 16));
-                index += 2;
+                index += 3;
             }
             else if (character == '=' && !header && index + 1 < text.Length && text[index + 1] == '\n')
             {
-                index++;
+                index += 2;
             }
             else if (character == '=' && !header && index == text.Length - 1)
             {
@@ -102,6 +108,7 @@ internal static partial class EmailText
             else
             {
                 bytes.WriteByte((byte)character);
+                index++;
             }
         }
 
@@ -157,9 +164,14 @@ internal static partial class EmailText
         public static Entity Parse(string text)
         {
             var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal);
-            var split = normalized.StartsWith('\n') ? 0 : normalized.IndexOf("\n\n", StringComparison.Ordinal);
-            var head = split < 0 ? normalized : normalized[..split];
-            var body = split < 0 ? String.Empty : normalized[(split + (split == 0 ? 1 : 2))..];
+            var head = String.Empty;
+            var body = normalized.StartsWith('\n') ? normalized[1..] : String.Empty;
+            if (!normalized.StartsWith('\n'))
+            {
+                var split = normalized.IndexOf("\n\n", StringComparison.Ordinal);
+                head = split < 0 ? normalized : normalized[..split];
+                body = split < 0 ? String.Empty : normalized[(split + 2)..];
+            }
 
             List<(string Name, string Value)> headers = [];
             foreach (var line in head.Split('\n'))

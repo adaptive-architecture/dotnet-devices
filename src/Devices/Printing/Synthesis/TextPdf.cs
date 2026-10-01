@@ -53,87 +53,33 @@ internal static class TextPdf
 
     private static TextLayout Layout(string text, int columns, int rows, IReadOnlyList<PrintFont> fonts)
     {
-        TextLayout layout = new();
-        List<TextLine> page = [];
-        TextLine line = new();
-        var column = 0;
-
-        void BreakLine()
-        {
-            page.Add(line);
-            line = new TextLine();
-            column = 0;
-            if (page.Count == rows)
-            {
-                layout.Pages.Add(page);
-                page = [];
-            }
-        }
-
-        void BreakPage()
-        {
-            if (line.Glyphs.Count > 0)
-            {
-                page.Add(line);
-            }
-
-            line = new TextLine();
-            column = 0;
-            layout.Pages.Add(page);
-            page = [];
-        }
-
-        void Place(TextGlyph glyph)
-        {
-            if (column + glyph.Cells > columns && column > 0)
-            {
-                BreakLine();
-            }
-
-            line.Glyphs.Add(glyph with { Column = column });
-            column += glyph.Cells;
-        }
-
+        LayoutWriter writer = new(columns, rows);
         var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
         foreach (var rune in normalized.EnumerateRunes())
         {
             if (rune.Value == '\n')
             {
-                BreakLine();
+                writer.BreakLine();
             }
             else if (rune.Value == '\f')
             {
-                BreakPage();
+                writer.BreakPage();
             }
             else if (rune.Value == '\t')
             {
-                var spaces = TabSize - (column % TabSize);
-                for (var space = 0; space < spaces && column < columns; space++)
-                {
-                    column++;
-                }
+                writer.Tab();
             }
             else if (rune.Value == ' ' || rune.Value == 0xA0)
             {
-                Place(new TextGlyph(-1, 0, 1, 0));
+                writer.Place(new TextGlyph(-1, 0, 1, 0));
             }
             else if (!Rune.IsControl(rune))
             {
-                Place(GlyphFor(rune, fonts, layout));
+                writer.Place(GlyphFor(rune, fonts, writer.Layout));
             }
         }
 
-        if (line.Glyphs.Count > 0)
-        {
-            page.Add(line);
-        }
-
-        if (page.Count > 0 || layout.Pages.Count == 0)
-        {
-            layout.Pages.Add(page);
-        }
-
-        return layout;
+        return writer.Finish();
     }
 
     private static TextGlyph GlyphFor(Rune rune, IReadOnlyList<PrintFont> fonts, TextLayout layout)
@@ -223,9 +169,9 @@ internal static class TextPdf
     private static string Literal(List<TextGlyph> run)
     {
         StringBuilder literal = new("(");
-        foreach (var glyph in run)
+        foreach (var value in run.Select(static glyph => glyph.Code))
         {
-            var code = glyph.Code == 0 ? ' ' : (char)glyph.Code;
+            var code = value == 0 ? ' ' : (char)value;
             if (code is '(' or ')' or '\\')
             {
                 _ = literal.Append('\\').Append(code);
@@ -258,6 +204,77 @@ internal static class TextPdf
         pdf.Object(descendant, $"<</Type/Font/Subtype/CIDFontType2/BaseFont/{font.Name}/CIDSystemInfo<</Registry(Adobe)/Ordering(Identity)/Supplement 0>>/FontDescriptor {descriptor} 0 R/CIDToGIDMap/Identity/W[{widths}]>>");
         pdf.Object(descriptor, $"<</Type/FontDescriptor/FontName/{font.Name}/Flags 4/FontBBox[{box}]/ItalicAngle 0/Ascent {font.Scaled(font.Ascent)}/Descent {font.Scaled(font.Descent)}/CapHeight {font.Scaled(font.Ascent)}/StemV 80/FontFile2 {file} 0 R>>");
         pdf.CompressedStream(file, $"/Length1 {font.Data.Length}", font.Data);
+    }
+
+    // Fills lines and pages cell by cell, wrapping at the right margin and overflowing at the bottom.
+    private sealed class LayoutWriter
+    {
+        private readonly int _columns;
+        private readonly int _rows;
+        private List<TextLine> _page = [];
+        private TextLine _line = new();
+        private int _column;
+
+        public LayoutWriter(int columns, int rows)
+        {
+            _columns = columns;
+            _rows = rows;
+        }
+
+        public TextLayout Layout { get; } = new();
+
+        public void BreakLine()
+        {
+            _page.Add(_line);
+            _line = new TextLine();
+            _column = 0;
+            if (_page.Count == _rows)
+            {
+                Layout.Pages.Add(_page);
+                _page = [];
+            }
+        }
+
+        public void BreakPage()
+        {
+            if (_line.Glyphs.Count > 0)
+            {
+                _page.Add(_line);
+            }
+
+            _line = new TextLine();
+            _column = 0;
+            Layout.Pages.Add(_page);
+            _page = [];
+        }
+
+        public void Tab() => _column = Math.Min(_columns, _column + TabSize - (_column % TabSize));
+
+        public void Place(TextGlyph glyph)
+        {
+            if (_column + glyph.Cells > _columns && _column > 0)
+            {
+                BreakLine();
+            }
+
+            _line.Glyphs.Add(glyph with { Column = _column });
+            _column += glyph.Cells;
+        }
+
+        public TextLayout Finish()
+        {
+            if (_line.Glyphs.Count > 0)
+            {
+                _page.Add(_line);
+            }
+
+            if (_page.Count > 0 || Layout.Pages.Count == 0)
+            {
+                Layout.Pages.Add(_page);
+            }
+
+            return Layout;
+        }
     }
 
     private sealed class TextLayout

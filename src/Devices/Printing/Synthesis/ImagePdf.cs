@@ -26,7 +26,7 @@ internal static class ImagePdf
         {
             var jpeg = JpegInfo.Read(image);
             (width, height, dpi) = (jpeg.Width, jpeg.Height, jpeg.Dpi);
-            var space = jpeg.Components == 1 ? "DeviceGray" : jpeg.Components == 3 ? "DeviceRGB" : "DeviceCMYK";
+            var space = ColorSpaceFor(jpeg.Components);
             var decode = jpeg.AdobeInverted ? "/Decode[1 0 1 0 1 0 1 0]" : String.Empty;
             pdf.Stream(picture, $"/Type/XObject/Subtype/Image/Width {width}/Height {height}/ColorSpace/{space}/BitsPerComponent 8{decode}{interpolate}/Filter/DCTDecode", image);
         }
@@ -93,6 +93,16 @@ internal static class ImagePdf
             SynthesisLayout.Points(media.Width),
             SynthesisLayout.Points(media.Height),
             (Points(placed.X + area.X), Points(placed.Y + area.Y), Points(placed.Width), Points(placed.Height)));
+    }
+
+    private static string ColorSpaceFor(int components)
+    {
+        if (components == 1)
+        {
+            return "DeviceGray";
+        }
+
+        return components == 3 ? "DeviceRGB" : "DeviceCMYK";
     }
 
     private static double Points(int pixels) => pixels * 72.0 / SynthesisLayout.Dpi;
