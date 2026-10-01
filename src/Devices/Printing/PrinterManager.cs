@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using AdaptArch.Devices.Printing.Ipp;
+using AdaptArch.Devices.Printing.Synthesis;
 using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.Printing;
@@ -684,10 +685,10 @@ public sealed class PrinterManager : IPrinterManager
         // A channel that reported it does not read the content type is never chosen. A
         // channel that reported nothing has not refused, so it stays a candidate.
         List<DiscoveredPrinter> usable = [.. allowed.Where(channel => device.Accepts(channel, contentType) != false)];
-        if (usable.Count == 0 && _formats.ConverterFor(contentType, converterName) is not null)
+        if (usable.Count == 0 && (_formats.ConverterFor(contentType, converterName) is not null || DocumentSynthesis.Reads(contentType)))
         {
-            // No channel reads the document, but a converter may render it into a
-            // format one does. The channel negotiates that target itself, from the
+            // No channel reads the document, but a converter, or the PDF the library lays
+            // text and images out as, may render it into a format one does. The channel negotiates that target itself, from the
             // formats the printer reported, so choosing here would second-guess
             // what only that list can settle.
             usable = allowed;

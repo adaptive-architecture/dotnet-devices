@@ -151,12 +151,58 @@ with a size it has: the job's media name when its size is within 1 mm of the pag
 the first of the printer's `media-supported` names that is, otherwise no name at all. A name
 that encodes no size, such as `letter`, is never written.
 
+## Text, email and images
+
+Plain text (`text/plain`), CSV (`text/csv`), email (`message/rfc822`), PNG and JPEG need no
+package of their own. Where a channel cannot take one as it is, the library lays it out as a
+PDF, and from there the job takes the PDF route of the table below: a printer that reads PDF
+gets that PDF, and one that reads only raster gets PWG Raster or URF from a registered PDF
+converter. A printer that reads neither PDF nor a format a registered converter writes is sent
+the file as it is, and what it lost is reported.
+
+**Text and CSV** are printed as they are written, in 10-point Courier on the job's media, or
+on the printer's default media, or on A4 when neither is known. The margins are half an inch,
+tabs stop every eight columns, a long line wraps, and a form feed starts a page. CSV is not
+drawn as a table. Text with a byte-order mark is read in that encoding, other text as UTF-8
+when it is valid UTF-8, and as Windows-1252 otherwise.
+
+**Email** prints the `From`, `To`, `Cc`, `Date` and `Subject` headers, then the first
+plain-text part that is not an attachment, laid out as text is. Attachments and inline images
+are skipped, and event 2044 counts them. The library renders no HTML, so **a message with no
+`text/plain` part fails with `NotSupportedException`** before anything is sent.
+
+**Images** keep their pixels: a JPEG, baseline or progressive, goes into the PDF unchanged,
+and a PNG is decoded, alpha included. The page is the media, with the image fitted, anchored
+and offset on it as [Page placement](page-placement.md) describes. A job that takes its media
+from the document, or a channel that knows no media, gets a page the size of the image instead.
+`Smoothing = false` turns off interpolation in the PDF.
+
+### Characters Courier does not have
+
+Courier covers the Windows-1252 characters: Latin-1, plus `€`, curly quotes, dashes and a few
+more. Any other character is drawn with the first TrueType font that has it, out of the job's
+`PrintOptions.TextFonts` when it sets one, and otherwise out of
+`PrinterManagerOptions.TextFonts` and then the fonts given to
+`PrintFormatPolicy.AddDefaultTextFont`. Such a character is fitted to whole Courier cells, so
+the columns stay aligned. A character no font has prints as `?`, and event 2043 counts it.
+
+```csharp
+var cjk = PrintFont.FromFile("/usr/share/fonts/noto/NotoSansCJK-Regular.ttf");
+services.AddPrinters(options => options.TextFonts.Add(cjk));
+```
+
+The whole font is embedded in each job that uses it, so a large font makes a large job. A
+TrueType collection (`.ttc`), a font with CFF outlines (`.otf`), and a font whose licence
+forbids embedding are refused with `ArgumentException` when the `PrintFont` is made.
+
 ## What each channel does to each format
 
 | Format | `spooler://` on Windows | `spooler://` on Linux and macOS, and `cups://` | `ipp://` and `ipps://` | `raw://` |
 | :--- | :--- | :--- | :--- | :--- |
 | PDF | Converted to one PNG a page and drawn through GDI, or drawn as vectors by PDFium when the job asks, on the paper of the queue | Passed through, and CUPS renders it, unless the job names or requires a converter; converted to URF or PWG Raster then | Passed through when the printer lists it and the job names no converter; converted to PWG Raster or URF otherwise; sent unchanged when the printer reads nothing the converter writes | Sent unchanged |
-| PNG and JPEG | Drawn through GDI, which applies the orientation, the scaling, the placement and the smoothing switch | Passed through; CUPS scales it onto the page | Sent as it is: the library converts documents only | Sent unchanged |
+| PNG and JPEG | Drawn through GDI, which applies the orientation, the scaling, the placement and the smoothing switch | Passed through, and CUPS scales it onto the page, unless the job places it or names a converter; laid out as PDF then | Passed through when the printer lists it and the job neither places it nor names a converter; laid out as PDF otherwise | Sent unchanged |
+| Plain text and CSV | Laid out as PDF, then printed as a PDF is | Plain text is passed through, and CUPS renders it, unless the job places it or names a converter; CSV is always laid out as PDF | Passed through when the printer lists it and the job asks for nothing more; laid out as PDF otherwise | Sent unchanged |
+| Email (`message/rfc822`) | Laid out as PDF, then printed as a PDF is | Laid out as PDF | Laid out as PDF, unless the printer lists `message/rfc822` | Sent unchanged |
 | ZPL, EPL and the other printer languages | Sent with the `RAW` datatype, unchanged | Sent as `application/vnd.cups-raw`, which CUPS passes to the backend unchanged; a queue that forwards over IPP sends it on as `application/octet-stream` | Sent as the language or as `application/octet-stream`, whichever the printer names | Sent unchanged |
 
 An image that declares no resolution is 96 dpi to GDI+ and 200 dpi to CUPS, so the same bare
@@ -384,6 +430,7 @@ anything is sent when:
 
 **`PrintOptions.OnUnsupported` does not cover this.** It decides what happens to an option a
 printer cannot apply; a named converter says which engine renders the job, and no value of
-`OnUnsupported` sends the document some other way. A `ConverterName` on an image is the one
-case that is reported in `DroppedOptionDetails` rather than failed, because the library never
-converts an image.
+`OnUnsupported` sends the document some other way. A `ConverterName` on an image the Windows
+spooler draws through GDI is the one case that is reported in `DroppedOptionDetails` rather
+than failed. On every other channel the name selects the PDF converter that renders the image,
+or the text, once the library has laid it out.

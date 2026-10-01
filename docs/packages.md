@@ -71,6 +71,14 @@ the resolution and capping the pixels, `RasterPlacement` composing the page onto
 and `PwgRasterWriter` or `PngWriter` encoding the answer. A rasterizer package derives from
 it and overrides one method, which is what stops a second engine drifting from the first.
 
+Plain text, CSV, email, PNG and JPEG add no package either. The core lays each out as a PDF by
+hand and hands it to the PDF route: text in Courier, which every PDF reader carries, or in a
+TrueType font the application gives; a JPEG embedded unchanged, so no decoder is needed; a PNG
+decoded with `ZLibStream`; and an email read as MIME with the framework's
+`CodePagesEncodingProvider` for its charsets. MimeKit was considered for the email and
+rejected: it brings BouncyCastle and `System.Security.Cryptography.Pkcs` for a feature that
+prints one plain-text part.
+
 Windows image printing deliberately adds no package: PNG and JPEG jobs are drawn with
 GDI+ through `gdi32.dll` and `gdiplus.dll`, which are system components, so there is
 nothing to review.

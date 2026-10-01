@@ -182,7 +182,7 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
 
         var effectiveOptions = conversion.Options;
         IReadOnlyList<IppAttribute> extras = [];
-        if (!conversion.IsConverted && FitsOntoQueueMedia(payload, options))
+        if (!conversion.IsConverted && !conversion.PlacedOnMedia && FitsOntoQueueMedia(payload, options))
         {
             var defaultMedia = options?.MediaSize is null && options?.MediaDimensions is null
                 ? await IppRequests.GetDefaultMediaAsync(_context, uri, id, cancellationToken).ConfigureAwait(false)

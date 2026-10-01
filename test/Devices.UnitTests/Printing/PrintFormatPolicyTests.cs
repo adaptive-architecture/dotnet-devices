@@ -21,7 +21,9 @@ public class PrintFormatPolicyTests
     [InlineData("APPLICATION/VND.ELTRON-EPL", PrinterFormatKind.RawLanguage)]
     [InlineData("application/pdf", PrinterFormatKind.Document)]
     [InlineData("image/png", PrinterFormatKind.Image)]
-    [InlineData("text/plain", PrinterFormatKind.Opaque)]
+    [InlineData("text/plain", PrinterFormatKind.Document)]
+    [InlineData("text/csv", PrinterFormatKind.Document)]
+    [InlineData("message/rfc822", PrinterFormatKind.Document)]
     [InlineData("application/octet-stream", PrinterFormatKind.Opaque)]
     public void KindOf_ReadsTheBuiltInFormats(string contentType, PrinterFormatKind expected)
     {

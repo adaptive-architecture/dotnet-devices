@@ -15,7 +15,7 @@ public class WindowsSpoolerContentTests
     [InlineData("application/vnd.zebra-zpl", "Raw")]
     [InlineData("application/vnd.datamax-dpl", "Raw")]
     [InlineData("application/octet-stream", "Raw")]
-    [InlineData("text/plain", "Raw")]
+    [InlineData("text/plain", "Document")]
     public void Classify_RoutesByContentType(string contentType, string expected)
     {
         Assert.Equal(expected, WindowsSpoolerContent.Classify(contentType).ToString());

@@ -1,0 +1,7 @@
+Plain text, laid out by the library as a PDF.
+
+Columns:	one	two	three
+Latin-1 and Windows-1252: café, naïve, €, “quotes” — dashes
+
+A line long enough to wrap at the right margin: The quick brown fox jumps over the lazy dog, again and again, until it reaches the edge.
+This is page two, after a form feed.

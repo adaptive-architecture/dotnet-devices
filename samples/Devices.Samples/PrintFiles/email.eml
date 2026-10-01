@@ -1,0 +1,32 @@
+From: =?utf-8?Q?Ren=C3=A9_Sample?= <rene@example.com>
+To: Printing <printing@example.com>
+Date: Thu, 1 Oct 2026 09:00:00 +0000
+Subject: =?utf-8?B?UHJpbnQgdGhpcywgcGxlYXNlIOKAlCB0aGFuayB5b3U=?=
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="outer"
+
+--outer
+Content-Type: multipart/alternative; boundary="inner"
+
+--inner
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+Hello,
+
+This email prints its headers and this plain-text part. The HTML alternat=
+ive and the attachment are not printed.
+
+Ren=C3=A9
+--inner
+Content-Type: text/html; charset=utf-8
+
+<p>Hello,</p><p>This is the HTML alternative.</p>
+--inner--
+--outer
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="document.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQK
+--outer--

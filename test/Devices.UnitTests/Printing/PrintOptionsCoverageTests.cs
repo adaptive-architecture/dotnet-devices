@@ -2,6 +2,7 @@
 using System.Net.Sockets;
 using System.Reflection;
 using AdaptArch.Devices.Printing;
+using AdaptArch.Devices.Rasterization;
 using Microsoft.Extensions.Logging;
 using Xunit;
 
@@ -44,6 +45,7 @@ public class PrintOptionsCoverageTests
             PageRanges = [new PageRange(1, 2)],
             ConverterName = "Any",
             NumberUp = 2,
+            TextFonts = [PrintFont.FromBytes(RasterDocuments.FontProgramme())],
             JobName = "job",
             RequestingUserName = "me",
             OnUnsupported = UnsupportedOptionBehavior.Drop,

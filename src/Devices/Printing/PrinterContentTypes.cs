@@ -36,6 +36,16 @@ public static class PrinterContentTypes
     public const string Text = "text/plain";
 
     /// <summary>
+    /// Comma-separated values, printed as plain text.
+    /// </summary>
+    public const string Csv = "text/csv";
+
+    /// <summary>
+    /// An email message (EML), printed as its headers and its plain-text part.
+    /// </summary>
+    public const string Email = "message/rfc822";
+
+    /// <summary>
     /// PNG image.
     /// </summary>
     public const string Png = "image/png";

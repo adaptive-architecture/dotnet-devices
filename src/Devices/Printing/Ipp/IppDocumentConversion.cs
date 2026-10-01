@@ -1,4 +1,5 @@
 ﻿using AdaptArch.Devices.Printing.Raster;
+using AdaptArch.Devices.Printing.Synthesis;
 using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.Printing.Ipp;
@@ -26,6 +27,9 @@ internal sealed record IppConversion(
     string? ConverterUsed)
 {
     public bool IsConverted => ConverterUsed is not null;
+
+    // The library laid the job out as a PDF whose page is the media, so nothing may fit it again.
+    public bool PlacedOnMedia { get; init; }
 }
 
 // The one conversion step IPP and CUPS share, so the two paths cannot drift.
@@ -42,6 +46,11 @@ internal static class IppDocumentConversion
         PrintOptions? options,
         CancellationToken cancellationToken)
     {
+        if (DocumentSynthesis.Reads(payload.ContentType))
+        {
+            return await SynthesizeIfNeededAsync(channel, payload, format, options, cancellationToken).ConfigureAwait(false);
+        }
+
         var formats = channel.Formats;
         var name = PrintConverters.NameFor(formats, payload.ContentType, options);
         var kind = formats.KindOf(payload.ContentType);
@@ -99,6 +108,99 @@ internal static class IppDocumentConversion
         }
 
         return await ConvertAsync(channel, converter, target, configuration, payload, options, cancellationToken).ConfigureAwait(false);
+    }
+
+    // Text, email and images are laid out as PDF by the library and then take the PDF route,
+    // when the printer does not read the format, when the job names an engine, or when it
+    // places the page. Otherwise a printer that reads the format gets it as it is. The PDF is
+    // made only where it can be delivered, so a printer that reads the format but neither PDF
+    // nor anything a PDF converter writes still gets the format, with what it lost reported.
+    private static async Task<IppConversion> SynthesizeIfNeededAsync(
+        IppConversionChannel channel,
+        PrinterPayload payload,
+        string format,
+        PrintOptions? options,
+        CancellationToken cancellationToken)
+    {
+        var formats = channel.Formats;
+        var name = PrintConverters.NameFor(formats, payload.ContentType, options);
+        // A CUPS queue reads plain text and images through its own filters, so a job that asks
+        // for nothing costs it no request.
+        PrinterConfiguration? configuration = null;
+        bool listed;
+        if (channel.ReadsEveryDocument)
+        {
+            listed = DocumentSynthesis.CupsFiltersRead(payload.ContentType);
+        }
+        else
+        {
+            configuration = await channel.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
+            listed = configuration.SupportedDocumentFormats.Contains(payload.ContentType, StringComparer.OrdinalIgnoreCase);
+        }
+
+        if (name is null && listed && !DocumentSynthesis.WantsPlacement(options))
+        {
+            return Unconverted(payload, format, options, Unrendered(
+                options,
+                $"the printer reads {payload.ContentType} itself and the job asks for nothing only the library does, so the library renders nothing",
+                nameof(PrintOptions.TextFonts)));
+        }
+
+        configuration ??= await channel.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
+        if (!DeliversPdf(channel, configuration, name))
+        {
+            return Unconverted(payload, format, options, Unrendered(
+                options,
+                $"the printer reads neither PDF nor a format a registered PDF converter writes, so {payload.ContentType} goes to it as it is",
+                nameof(PrintOptions.TextFonts)));
+        }
+
+        var mediaName = options?.MediaSize ?? configuration.DefaultMediaSize;
+        var media = ResolveMedia(options, mediaName);
+        var document = DocumentSynthesis.ToPdf(payload, new SynthesisLayout
+        {
+            Media = media,
+            FitArea = ResolveFitArea(options, media, configuration.DefaultMediaMargins, SynthesisLayout.Dpi),
+            Scaling = options?.Scaling,
+            Placement = options?.Placement,
+            Smoothing = options?.Smoothing,
+            MediaSizeSource = options?.MediaSizeSource ?? MediaSizeSource.Printer,
+            Fonts = formats.TextFontsFor(options?.TextFonts),
+        });
+        PrintingLog.DocumentSynthesized(channel.Logger, payload.ContentType, channel.Id, document.MissingCharacters, document.SkippedParts);
+
+        var pdfOptions = PrintOptionValidator.WithSynthesizedGeometry(options, document.PlacedOnMedia);
+        var conversion = await ConvertIfNeededAsync(channel, document.Pdf, PrinterContentTypes.Pdf, pdfOptions, cancellationToken).ConfigureAwait(false);
+
+        // What the PDF itself applied is not lost when the PDF then goes to the printer as it is.
+        var image = DocumentSynthesis.IsImage(payload.ContentType);
+        DroppedOption[] dropped =
+        [
+            .. image ? PrintOptionValidator.Unapplied(options, PrintOptionStage.Conversion, "an image has no text to draw", nameof(PrintOptions.TextFonts)) : [],
+            .. conversion.Dropped.Where(option => !(image && option.Option == nameof(PrintOptions.Smoothing))),
+        ];
+        return conversion with { Dropped = dropped, PlacedOnMedia = document.PlacedOnMedia };
+    }
+
+    // A PDF reaches the printer when it reads PDF and the job named no engine, or when a PDF
+    // converter writes a format it reads. A named engine is always tried, so that a name
+    // nothing carries fails the job as it would on a PDF.
+    private static bool DeliversPdf(IppConversionChannel channel, PrinterConfiguration configuration, string? name)
+    {
+        if (name is not null)
+        {
+            return true;
+        }
+
+        if (channel.ReadsEveryDocument
+            || configuration.SupportedDocumentFormats.Contains(PrinterContentTypes.Pdf, StringComparer.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var converter = channel.Formats.ConverterFor(PrinterContentTypes.Pdf);
+        return converter is not null
+            && IppDocumentFormat.NegotiateConversionTarget(configuration.SupportedDocumentFormats, converter, channel.Targets) is not null;
     }
 
     // An image is never converted, so a name on one is reported rather than failed; a
@@ -268,7 +370,7 @@ internal static class IppDocumentConversion
     // a job carries win over the name, because a name is only as good as the size it encodes;
     // a legacy keyword such as "letter" encodes none, and the converter is then told nothing
     // rather than told a guess.
-    private static MediaDimensions? ResolveMedia(PrintOptions? options, string? mediaName)
+    internal static MediaDimensions? ResolveMedia(PrintOptions? options, string? mediaName)
     {
         if (options?.MediaDimensions is MediaDimensions dimensions)
         {

@@ -2,6 +2,8 @@
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using AdaptArch.Devices.Printing.Ipp;
+using AdaptArch.Devices.Printing.Synthesis;
 using Microsoft.Extensions.Logging;
 
 namespace AdaptArch.Devices.Printing.Spooler;
@@ -29,6 +31,8 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     private const string DeviceModeReason = "a Windows device mode has no field for it, or the driver of the queue does not offer the value";
 
     private const string OnQueuePaper = "GDI draws the page on the paper of the queue";
+
+    private const string NoLibraryText = "only plain text, CSV and email are drawn with the library's fonts";
 
     private readonly PrintFormatPolicy _formats;
     private readonly ILogger _logger;
@@ -210,6 +214,11 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
         ArgumentNullException.ThrowIfNull(payload);
 
+        if (DocumentSynthesis.IsText(payload.ContentType))
+        {
+            return SubmitTextAsync(queueName, payload, options, cancellationToken);
+        }
+
         if (WindowsSpoolerContent.Classify(payload.ContentType, _formats) == SpoolerContentKind.Document)
         {
             return SubmitDocumentAsync(queueName, payload, options, cancellationToken);
@@ -221,6 +230,23 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         }
 
         return SubmitRawAsync(queueName, payload, options, cancellationToken);
+    }
+
+    // Text and email are laid out as PDF on the media the job names, or on A4, and then print
+    // as a PDF does. The page is the sheet, so it is drawn at its own size from the corner of
+    // the paper rather than fitted again into the printable area.
+    private Task<PrintJobInfo> SubmitTextAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
+    {
+        var document = DocumentSynthesis.ToPdf(payload, new SynthesisLayout
+        {
+            Media = IppDocumentConversion.ResolveMedia(options, options?.MediaSize),
+            Fonts = _formats.TextFontsFor(options?.TextFonts),
+        });
+        PrintingLog.DocumentSynthesized(_logger, payload.ContentType, PrinterId.ForSpooler(queueName), document.MissingCharacters, document.SkippedParts);
+
+        var pdfOptions = PrintOptionValidator.WithSynthesizedGeometry(options, true);
+        pdfOptions.FitArea = PrintFitArea.Physical;
+        return SubmitDocumentAsync(queueName, document.Pdf, pdfOptions, cancellationToken);
     }
 
     // One GDI document for the whole file. Each selected page is turned into an image first,
@@ -242,6 +268,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             WithoutGdiDropped(request.Dropped, true),
             [
                 .. PrintOptionValidator.Unapplied(options, PrintOptionStage.Conversion, OnQueuePaper, nameof(PrintOptions.MediaSizeSource)),
+                .. PrintOptionValidator.Unapplied(options, PrintOptionStage.Conversion, NoLibraryText, nameof(PrintOptions.TextFonts)),
                 .. PrintOptionValidator.Unapplied(
                     renderer is null && options?.Rendering == PrintRendering.Vector ? options : null,
                     PrintOptionStage.Conversion,
@@ -323,6 +350,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             WithoutGdiDropped(request.Dropped, false),
             [
                 .. PrintOptionValidator.Unapplied(options, PrintOptionStage.Conversion, "the library does not convert an image", nameof(PrintOptions.ConverterName), nameof(PrintOptions.Rendering)),
+                .. PrintOptionValidator.Unapplied(options, PrintOptionStage.Conversion, "an image has no text to draw", nameof(PrintOptions.TextFonts)),
                 .. PrintOptionValidator.Unapplied(options, PrintOptionStage.Conversion, OnQueuePaper, nameof(PrintOptions.MediaSizeSource)),
             ]);
         PrintOptionValidator.ThrowIfRefused(options, PrinterId.ForSpooler(queueName), dropped);
@@ -506,7 +534,8 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 nameof(PrintOptions.Placement),
                 nameof(PrintOptions.Smoothing),
                 nameof(PrintOptions.Rendering),
-                nameof(PrintOptions.MediaSizeSource)));
+                nameof(PrintOptions.MediaSizeSource),
+                nameof(PrintOptions.TextFonts)));
         PrintOptionValidator.ThrowIfRefused(options, PrinterId.ForSpooler(queueName), dropped);
         var copies = options?.Copies ?? 1;
         var bytes = payload.Data.ToArray();

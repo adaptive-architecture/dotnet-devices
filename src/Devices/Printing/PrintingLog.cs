@@ -99,6 +99,29 @@ internal static partial class PrintingLog
 
     // 2050 block: job milestones. A job name is personal data, so it is at Debug only.
 
+    [LoggerMessage(EventId = 2042, Level = LogLevel.Debug, Message = "The {ContentType} job for printer {PrinterId} was laid out as PDF.")]
+    private static partial void DocumentLaidOut(ILogger logger, string contentType, PrinterId printerId);
+
+    [LoggerMessage(EventId = 2043, Level = LogLevel.Warning, Message = "The {ContentType} job for printer {PrinterId} has {MissingCount} characters no font carries, printed as '?'. Add a font that has them to PrintOptions.TextFonts or PrinterManagerOptions.TextFonts.")]
+    private static partial void CharactersMissing(ILogger logger, string contentType, PrinterId printerId, int missingCount);
+
+    [LoggerMessage(EventId = 2044, Level = LogLevel.Information, Message = "The email job for printer {PrinterId} printed its plain-text part and skipped {SkippedCount} other parts, such as attachments.")]
+    private static partial void EmailPartsSkipped(ILogger logger, PrinterId printerId, int skippedCount);
+
+    public static void DocumentSynthesized(ILogger logger, string contentType, PrinterId printerId, int missingCount, int skippedCount)
+    {
+        DocumentLaidOut(logger, contentType, printerId);
+        if (missingCount > 0)
+        {
+            CharactersMissing(logger, contentType, printerId, missingCount);
+        }
+
+        if (skippedCount > 0)
+        {
+            EmailPartsSkipped(logger, printerId, skippedCount);
+        }
+    }
+
     [LoggerMessage(EventId = 2050, Level = LogLevel.Information, Message = "Job {JobId} for printer {PrinterId} was submitted on {Endpoint} as {ContentType}, {ByteCount} bytes.")]
     public static partial void JobSubmitted(ILogger logger, string jobId, PrinterId printerId, PrinterEndpoint endpoint, string contentType, int byteCount);
 

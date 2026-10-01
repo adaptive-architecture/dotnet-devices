@@ -147,7 +147,9 @@ public static class RasterDocuments
 
     // Read out of the assembly rather than from beside it, so neither test project has to
     // copy a file to its output and no run depends on a working directory.
-    private static byte[] FontProgramme()
+    /// <summary>The bytes of Liberation Sans, the TrueType font every fixture draws with.</summary>
+    /// <returns>The font file.</returns>
+    public static byte[] FontProgramme()
     {
         using var stream = typeof(RasterDocuments).Assembly.GetManifestResourceStream(FontResource)
             ?? throw new InvalidOperationException(

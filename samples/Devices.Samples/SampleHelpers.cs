@@ -51,6 +51,21 @@ internal static class SampleHelpers
             return PrinterContentTypes.Pdf;
         }
 
+        if (extension == ".txt")
+        {
+            return PrinterContentTypes.Text;
+        }
+
+        if (extension == ".csv")
+        {
+            return PrinterContentTypes.Csv;
+        }
+
+        if (extension == ".eml")
+        {
+            return PrinterContentTypes.Email;
+        }
+
         throw new NotSupportedException($"Files with extension '{extension}' are not supported.");
     }
 
