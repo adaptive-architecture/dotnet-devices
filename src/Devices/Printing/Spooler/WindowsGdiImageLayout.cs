@@ -27,6 +27,31 @@ internal static class WindowsGdiImageLayout
         return 0f;
     }
 
+    // The same turns for an engine that takes a quarter-turn count, clockwise as GDI+ is.
+    internal static int QuarterTurns(PrintOrientation? orientation) =>
+        ((int)RotationDegrees(orientation) / 90 + 4) % 4;
+
+    // The rectangle a drawing turned about the centre of its area covers on the device. An
+    // engine that turns the page itself is handed this instead of a world transform.
+    internal static ImageRectangle Footprint(ImageRectangle drawn, ImageRectangle area, PrintOrientation? orientation)
+    {
+        var turns = QuarterTurns(orientation);
+        var dx = drawn.X + (drawn.Width / 2.0) - (area.X + (area.Width / 2.0));
+        var dy = drawn.Y + (drawn.Height / 2.0) - (area.Y + (area.Height / 2.0));
+        (var x, var y) = (dx, dy);
+        for (var turn = 0; turn < turns; turn++)
+        {
+            (x, y) = (-y, x);
+        }
+
+        (var width, var height) = turns % 2 == 1 ? (drawn.Height, drawn.Width) : (drawn.Width, drawn.Height);
+        return new ImageRectangle(
+            (int)Math.Round(area.X + (area.Width / 2.0) + x - (width / 2.0)),
+            (int)Math.Round(area.Y + (area.Height / 2.0) + y - (height / 2.0)),
+            width,
+            height);
+    }
+
     internal static bool IsSideways(PrintOrientation? orientation) => ImagePlacement.IsSideways(orientation);
 
     internal static int NaturalPixels(int imagePixels, double sourceDpi, int deviceDpi) =>

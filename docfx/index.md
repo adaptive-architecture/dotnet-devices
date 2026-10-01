@@ -30,8 +30,9 @@ holds few dependencies. `services.AddPrinters()` registers everything and hands 
 
 ### AdaptArch.Devices.Pdfium
 
-**Cross-platform PDF rasterization**, so a PDF prints on a printer that cannot read one. Windows,
-Linux and macOS, x64 and ARM alike. It carries the native library.
+**Cross-platform PDF rasterization**, so a PDF prints on a printer that cannot read one, and
+optional vector printing on the Windows spooler. Windows, Linux and macOS, x64 and ARM alike. It carries
+the native library.
 
 ### AdaptArch.Devices.Windows
 

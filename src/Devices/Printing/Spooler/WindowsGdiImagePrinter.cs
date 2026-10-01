@@ -53,21 +53,44 @@ internal sealed class WindowsGdiImagePrinter : IWindowsGdiImagePrinter
             throw new ArgumentException("A job prints at least one page.", nameof(pages));
         }
 
-        return PrintFile(job, pages);
-    }
-
-    private int PrintFile(WindowsGdiJob job, IReadOnlyList<byte[]> pages)
-    {
-        var queueName = job.QueueName;
-        ApplyCopies(job.DeviceMode, job.Copies);
-
         var input = WindowsGdiInterop.StartupInput.Version1();
         var startupStatus = _gdi.Startup(out var token, input, out _);
         if (startupStatus != GdiplusOk)
         {
             throw new InvalidOperationException(
-                $"Printing '{queueName}' failed to start GDI+ with status {startupStatus}.");
+                $"Printing '{job.QueueName}' failed to start GDI+ with status {startupStatus}.");
         }
+
+        try
+        {
+            return Spool(job, pages.Count, (deviceContext, page, index) => DrawPage(deviceContext, job, pages[index], page));
+        }
+        finally
+        {
+            _gdi.Shutdown(token);
+        }
+    }
+
+    // The engine draws each page itself, so GDI+ is never started: the driver receives the
+    // engine's own drawing calls instead of one image a page.
+    public int PrintDocument(WindowsGdiJob job, IPrintDeviceDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        ArgumentException.ThrowIfNullOrWhiteSpace(job.QueueName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(job.JobName);
+        ArgumentNullException.ThrowIfNull(document);
+        if (document.PageCount <= 0)
+        {
+            throw new ArgumentException("A job prints at least one page.", nameof(document));
+        }
+
+        return Spool(job, document.PageCount, (deviceContext, page, index) => DrawDocumentPage(deviceContext, job, document, index, page));
+    }
+
+    private int Spool(WindowsGdiJob job, int pageCount, Action<nint, PrinterPage, int> drawPage)
+    {
+        var queueName = job.QueueName;
+        ApplyCopies(job.DeviceMode, job.Copies);
 
         var deviceContext = IntPtr.Zero;
         var documentStarted = false;
@@ -116,9 +139,9 @@ internal sealed class WindowsGdiImagePrinter : IWindowsGdiImagePrinter
                 }
 
                 documentStarted = true;
-                foreach (var pageBytes in pages)
+                for (var index = 0; index < pageCount; index++)
                 {
-                    DrawPage(deviceContext, job, pageBytes, page);
+                    drawPage(deviceContext, page, index);
                 }
 
                 if (_gdi.EndDoc(deviceContext) <= 0)
@@ -145,9 +168,73 @@ internal sealed class WindowsGdiImagePrinter : IWindowsGdiImagePrinter
             {
                 _ = _gdi.DeleteDC(deviceContext);
             }
-
-            _gdi.Shutdown(token);
         }
+    }
+
+    // A page whose engine draws it: laid out from its declared size exactly as an image is
+    // from its pixels, then handed the rectangle it covers once turned.
+    private void DrawDocumentPage(nint deviceContext, WindowsGdiJob job, IPrintDeviceDocument document, int index, PrinterPage page)
+    {
+        var size = document.PageSize(index);
+        var area = page.AreaFor(job.FitArea);
+        var layout = Place(job, page, area, size.Width.ToPixels(page.DpiX), size.Height.ToPixels(page.DpiY));
+        if (layout.IsEmpty)
+        {
+            throw new InvalidOperationException(
+                $"Printing '{job.QueueName}' found an empty page {index + 1} of {size.Width.Millimeters}x{size.Height.Millimeters} mm.");
+        }
+
+        if (_gdi.StartPage(deviceContext) <= 0)
+        {
+            ThrowLastError("StartPage");
+        }
+
+        var pageStarted = true;
+        try
+        {
+            document.Draw(
+                deviceContext,
+                index,
+                WindowsGdiImageLayout.Footprint(layout, area, job.Orientation),
+                WindowsGdiImageLayout.QuarterTurns(job.Orientation),
+                job.Smoothing != false);
+
+            if (_gdi.EndPage(deviceContext) <= 0)
+            {
+                ThrowLastError("EndPage");
+            }
+
+            pageStarted = false;
+        }
+        finally
+        {
+            if (pageStarted)
+            {
+                _ = _gdi.EndPage(deviceContext);
+            }
+        }
+    }
+
+    // The area the page is fitted into and anchored against is in the coordinates the
+    // device context draws in: those start at the printable corner, so the whole sheet
+    // begins at minus the offset of that corner inside it.
+    private static ImageRectangle Place(WindowsGdiJob job, PrinterPage page, ImageRectangle area, int naturalWidth, int naturalHeight)
+    {
+        var placed = WindowsGdiImageLayout.Compute(
+            naturalWidth,
+            naturalHeight,
+            area.Width,
+            area.Height,
+            job.Orientation,
+            job.Scaling,
+            new WindowsGdiImageLayout.DeviceLayout
+            {
+                Borderless = page.Borderless || job.FitArea == PrintFitArea.Physical,
+                Placement = job.Placement,
+                DpiX = page.DpiX,
+                DpiY = page.DpiY,
+            });
+        return new ImageRectangle(placed.X + area.X, placed.Y + area.Y, placed.Width, placed.Height);
     }
 
     // One page of the job: decode, lay out, draw, spool. A failure here leaves the
@@ -184,25 +271,13 @@ internal sealed class WindowsGdiImagePrinter : IWindowsGdiImagePrinter
             var sourceX = job.SourceDpi ?? sourceDpiX;
             var sourceY = job.SourceDpi ?? sourceDpiY;
 
-            // The area the page is fitted into and anchored against, in the coordinates the
-            // device context draws in: those start at the printable corner, so the whole
-            // sheet begins at minus the offset of that corner inside it.
             var area = page.AreaFor(job.FitArea);
-            var placed = WindowsGdiImageLayout.Compute(
+            var layout = Place(
+                job,
+                page,
+                area,
                 WindowsGdiImageLayout.NaturalPixels((int)width, sourceX, page.DpiX),
-                WindowsGdiImageLayout.NaturalPixels((int)height, sourceY, page.DpiY),
-                area.Width,
-                area.Height,
-                job.Orientation,
-                job.Scaling,
-                new WindowsGdiImageLayout.DeviceLayout
-                {
-                    Borderless = page.Borderless || job.FitArea == PrintFitArea.Physical,
-                    Placement = job.Placement,
-                    DpiX = page.DpiX,
-                    DpiY = page.DpiY,
-                });
-            var layout = new ImageRectangle(placed.X + area.X, placed.Y + area.Y, placed.Width, placed.Height);
+                WindowsGdiImageLayout.NaturalPixels((int)height, sourceY, page.DpiY));
             if (layout.IsEmpty)
             {
                 throw new InvalidOperationException(

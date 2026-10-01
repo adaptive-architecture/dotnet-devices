@@ -1,7 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Cross-platform PDF rasterization for AdaptArch.Devices: renders a PDF with PDFium so an IPP printer that reads only PWG Raster, and a Windows spooler without the in-box engine, can print one.</Description>
+    <Description>Cross-platform PDF rendering for AdaptArch.Devices: renders a PDF with PDFium so an IPP printer that reads only PWG Raster can print one, and can draw it as vectors on the Windows spooler.</Description>
+    <!-- LibraryImport's source-generated marshalling stub for FPDF_RenderPage emits unsafe code. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <!-- Reviewed runtime dependency. See docs/packages.md before adding another. -->

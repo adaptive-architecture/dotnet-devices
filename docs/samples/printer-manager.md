@@ -28,7 +28,8 @@ The four tabs are:
   each sheet checked against its own description), `PrintJobs/raw-sweep.json` (a JPEG, a ZPL
   label and an EPL label, unchanged), `PrintJobs/copies.json` (three copies of a ZPL label and
   of a JPEG, each as one job), `PrintJobs/pdf-placement.json` (where a 4 by 6 inch
-  label lands on larger stock, to be measured rather than judged) and `PrintJobs/pdf-urf.json`
+  label lands on larger stock, to be measured rather than judged), `PrintJobs/pdf-vector.json`
+  (the same PDF drawn as vectors and as bitmaps through the Windows spooler) and `PrintJobs/pdf-urf.json`
   (PDFium rendering every PDF for a CUPS queue, which a macOS queue must receive as URF; each
   submission logs the engine that rendered it and the format sent). A set can also be uploaded, so the same test runs on Windows, Linux and
   macOS and the results compare job by job. The run ends with a summary of what became of

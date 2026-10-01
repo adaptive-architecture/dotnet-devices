@@ -118,16 +118,23 @@ Three further things came out of the review and are worth stating:
 - **PDFium is not thread-safe**, and `PrinterManager` may convert two jobs at once.
   `PdfiumRenderer` therefore serializes every call into the library behind one
   `SemaphoreSlim`, including the one-time `FPDF_InitLibrary`. Without that gate the process
-  crashes rather than fails, which is why a test renders eight jobs at once.
+  crashes rather than fails, which is why a test renders eight jobs at once. A document the
+  Windows spooler draws as vectors holds that gate from open to dispose, because its pages are
+  drawn later, inside the print job.
+- **`FPDF_RenderPage` is bound here, not by `PDFiumCore`**, which binds only the bitmap
+  renderer. The native library of every Windows RID exports it, so one `[LibraryImport("pdfium")]`
+  in `PdfiumRenderer` reaches it with no new dependency, and the page handle is
+  `FpdfPageT.__Instance`. It exists on Windows only, which is why the import carries
+  `[SupportedOSPlatform("windows")]`. What it changes for a consumer is in
+  [Vectors or bitmaps on the Windows spooler](https://adaptive-architecture.github.io/dotnet-devices/docs/document-formats.html#vectors-or-bitmaps-on-the-windows-spooler).
 - **A native library is a process-wide crash surface and a CVE feed**, and PDFium parses
   untrusted input by definition. Watch upstream releases; the package tracks them closely.
 - **`libpdfium.dylib` ships unsigned**, which a macOS application bundle must deal with; see
   [Document formats](https://adaptive-architecture.github.io/dotnet-devices/docs/document-formats.html#a-document-the-printer-cannot-read).
 
 Trim and native AOT were measured, not assumed, as the rule requires. `PDFiumCore` binds
-through `dlopen`/`LoadLibrary` and `Marshal.GetDelegateForFunctionPointer` rather than
-`DllImport`, which is the pattern that usually fails native AOT, so the proof was a run and
-not a publish: the trimmed and the native AOT binaries both rendered a PDF to PNG and to PWG
+through generated `[DllImport("pdfium")]` stubs, and a native dependency is where native AOT
+usually fails, so the proof was a run and not a publish: the trimmed and the native AOT binaries both rendered a PDF to PNG and to PWG
 Raster, byte for byte the same as the ordinary build, on `linux-x64`. No `IL2xxx` and no
 `IL3xxx` warning was raised, so `IsAotCompatible` stands for this package as for the others.
 

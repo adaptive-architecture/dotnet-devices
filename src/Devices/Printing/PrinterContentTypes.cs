@@ -63,6 +63,12 @@ public static class PrinterContentTypes
     public const string Urf = "image/urf";
 
     /// <summary>
+    /// Enhanced Metafile, the drawing records GDI spools for a page. It names what the Windows
+    /// spooler receives when a converter draws a document into the printer device context.
+    /// </summary>
+    public const string Emf = "image/emf";
+
+    /// <summary>
     /// Opaque binary data for printers that accept vendor-specific streams.
     /// </summary>
     public const string OctetStream = "application/octet-stream";

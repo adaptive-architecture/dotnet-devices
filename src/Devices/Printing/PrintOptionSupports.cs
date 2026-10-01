@@ -71,7 +71,10 @@ public enum PrintOptionSupports
     /// <summary><see cref="PrintOptions.MediaDimensions"/> and <see cref="PrintOptions.MediaSizeSource"/> are applied.</summary>
     MediaGeometry = 1 << 17,
 
+    /// <summary><see cref="PrintOptions.Rendering"/> is applied.</summary>
+    Rendering = 1 << 18,
+
     /// <summary>Every option this library models is applied.</summary>
     All = Copies | Duplex | ColorMode | Orientation | MediaSource | MediaSize | ResolutionDpi | JobName | RequestingUserName
-        | PageRanges | NumberUp | Quality | MediaType | OutputBin | Scaling | Placement | Smoothing | MediaGeometry,
+        | PageRanges | NumberUp | Quality | MediaType | OutputBin | Scaling | Placement | Smoothing | MediaGeometry | Rendering,
 }

@@ -45,11 +45,14 @@ the job:
 - **PNG and JPEG** are drawn onto a GDI printer device context with GDI+, so the driver
   rasterises the page. This uses only the system `gdi32.dll` and `gdiplus.dll` and no extra
   NuGet package.
-- **PDF pages** render to PNG first, then print as one GDI document through the same path. That
-  renderer lives outside the core package; the application lights one up with
+- **PDF pages** print as one GDI document: each page renders to PNG first and is drawn through
+  the same path as an image. A job that sets `Rendering = PrintRendering.Vector` has
+  `AdaptArch.Devices.Pdfium` draw each page into the printer device context as vectors instead (see
+  [Vectors or bitmaps on the Windows spooler](document-formats.md#vectors-or-bitmaps-on-the-windows-spooler)).
+  The renderer lives outside the core package; the application lights one up with
   `EnablePdfPrinting()`. Without a converter for PDF a job fails with `NotSupportedException`
-  before anything spools, and so does one whose converter writes no PNG: GDI draws that and
-  nothing else.
+  before anything spools, and so does one that must render bitmaps with a converter that writes
+  no PNG: GDI draws that and nothing else.
 
 Any other document format prints the same way once the application
 [registers a converter](document-formats.md#add-a-format-the-library-does-not-know) for it.

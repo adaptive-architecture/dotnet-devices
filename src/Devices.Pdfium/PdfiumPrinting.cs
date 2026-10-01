@@ -11,9 +11,10 @@ public static class PdfiumPrinting
     /// Gets the converter that renders a PDF with PDFium.
     /// </summary>
     /// <remarks>
-    /// It writes whichever format the channel asks for: one PNG a page for the Windows
-    /// spooler, which draws them through GDI, and one PWG Raster stream for an IPP printer,
-    /// which reads that and never PNG.
+    /// On the Windows spooler it writes one PNG a page that GDI draws, or draws each page into
+    /// the printer device context as vectors when the job sets
+    /// <see cref="PrintOptions.Rendering"/> to <see cref="PrintRendering.Vector"/>. For an IPP
+    /// printer it writes one PWG Raster or URF stream, which is what such a printer reads.
     /// <para>
     /// Add it to <see cref="PrinterManagerOptions.Converters"/> to enable PDF printing for
     /// one manager, or call <see cref="EnablePdfPrinting"/> to enable it for the

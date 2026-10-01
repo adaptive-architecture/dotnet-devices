@@ -220,4 +220,45 @@ public class WindowsGdiImageLayoutTests
     {
         Assert.Equal(0f, WindowsGdiImageLayout.RotationDegrees(null));
     }
+
+    [Theory]
+    [InlineData(null, 0)]
+    [InlineData(PrintOrientation.Portrait, 0)]
+    [InlineData(PrintOrientation.Landscape, 3)]
+    [InlineData(PrintOrientation.ReverseLandscape, 1)]
+    [InlineData(PrintOrientation.ReversePortrait, 2)]
+    public void QuarterTurns_CountsClockwiseAsGdiPlusTurns(PrintOrientation? orientation, int expected) =>
+        Assert.Equal(expected, WindowsGdiImageLayout.QuarterTurns(orientation));
+
+    [Fact]
+    public void Footprint_AnUprightPage_IsWhereItIsDrawn()
+    {
+        ImageRectangle drawn = new(10, 20, 80, 40);
+
+        Assert.Equal(drawn, WindowsGdiImageLayout.Footprint(drawn, new ImageRectangle(0, 0, 100, 200), PrintOrientation.Portrait));
+    }
+
+    // Turned a quarter counter-clockwise about the middle of the area, a page drawn above the
+    // middle lands left of it, and its width becomes its height.
+    [Fact]
+    public void Footprint_ALandscapePage_TurnsAboutTheMiddleOfTheArea()
+    {
+        var footprint = WindowsGdiImageLayout.Footprint(
+            new ImageRectangle(10, 60, 80, 40),
+            new ImageRectangle(0, 0, 100, 200),
+            PrintOrientation.Landscape);
+
+        Assert.Equal(new ImageRectangle(10, 60, 40, 80), footprint);
+    }
+
+    [Fact]
+    public void Footprint_AnUpsideDownPage_MirrorsThroughTheMiddleOfTheArea()
+    {
+        var footprint = WindowsGdiImageLayout.Footprint(
+            new ImageRectangle(-50, -50, 100, 100),
+            new ImageRectangle(-50, -50, 400, 400),
+            PrintOrientation.ReversePortrait);
+
+        Assert.Equal(new ImageRectangle(250, 250, 100, 100), footprint);
+    }
 }

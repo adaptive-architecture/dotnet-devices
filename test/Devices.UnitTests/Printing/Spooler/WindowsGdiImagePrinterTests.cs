@@ -414,4 +414,104 @@ public class WindowsGdiImagePrinterTests
         _ = Assert.Throws<ArgumentException>(() => printer.PrintPages(JobFor(), []));
         _ = Assert.Throws<ArgumentNullException>(() => new WindowsGdiImagePrinter(null!));
     }
+
+    [Fact]
+    public void PrintDocument_DrawsEveryPageIntoOneDocumentWithoutGdiPlus()
+    {
+        FakeWindowsGdiInterop gdi = new() { JobId = 91 };
+        WindowsGdiImagePrinter printer = new(gdi);
+        FakeDeviceDocument document = new(3);
+
+        var jobId = printer.PrintDocument(JobFor(), document);
+
+        Assert.Equal(91, jobId);
+        Assert.Equal(1, gdi.Calls.Count(call => call == nameof(IWindowsGdiInterop.StartDoc)));
+        Assert.Equal(3, gdi.Calls.Count(call => call == nameof(IWindowsGdiInterop.StartPage)));
+        Assert.Equal(3, gdi.Calls.Count(call => call == nameof(IWindowsGdiInterop.EndPage)));
+        Assert.Equal(1, gdi.Calls.Count(call => call == nameof(IWindowsGdiInterop.EndDoc)));
+        Assert.Equal(0, gdi.StartupCount);
+        Assert.Equal(0, gdi.OpenDeviceContexts);
+
+        // A4 at the 300 dpi of the device is the whole printable area of the fake.
+        Assert.Equal([0, 1, 2], document.Draws.Select(draw => draw.Index));
+        Assert.All(document.Draws, draw =>
+        {
+            Assert.NotEqual(0, draw.DeviceContext);
+            Assert.Equal(new ImageRectangle(0, 0, 2480, 3508), draw.Target);
+            Assert.Equal(0, draw.QuarterTurns);
+            Assert.True(draw.Smoothing);
+        });
+    }
+
+    [Fact]
+    public void PrintDocument_ALandscapePage_IsTurnedByTheEngineOntoTheSheet()
+    {
+        FakeWindowsGdiInterop gdi = new();
+        WindowsGdiImagePrinter printer = new(gdi);
+        FakeDeviceDocument document = new(1);
+
+        _ = printer.PrintDocument(JobFor(orientation: PrintOrientation.Landscape, scaling: PrintScaling.Fit), document);
+
+        // The engine turns the page itself, so the world transform stays untouched and the
+        // rectangle it is handed is the sideways footprint, centred on the sheet.
+        var draw = Assert.Single(document.Draws);
+        Assert.Equal(3, draw.QuarterTurns);
+        Assert.Empty(gdi.Rotations);
+        Assert.Equal(2480, draw.Target.Width);
+        Assert.True(draw.Target.Height < draw.Target.Width);
+        Assert.InRange((2 * draw.Target.Y) + draw.Target.Height, 3507, 3509);
+    }
+
+    [Fact]
+    public void PrintDocument_FittedToTheSheet_CoversTheMarginTheDriverHolds()
+    {
+        FakeWindowsGdiInterop gdi = new()
+        {
+            PrintableWidth = 2380,
+            PrintableHeight = 3408,
+            SheetWidth = 2480,
+            SheetHeight = 3508,
+            OffsetX = 50,
+            OffsetY = 50,
+        };
+        WindowsGdiImagePrinter printer = new(gdi);
+        FakeDeviceDocument document = new(1);
+
+        _ = printer.PrintDocument(JobFor(scaling: PrintScaling.Fit, fitArea: PrintFitArea.Physical), document);
+
+        Assert.Equal(new ImageRectangle(-50, -50, 2480, 3508), Assert.Single(document.Draws).Target);
+    }
+
+    [Fact]
+    public void PrintDocument_WithoutSmoothing_AsksTheEngineForHardEdges()
+    {
+        FakeDeviceDocument document = new(1);
+
+        _ = new WindowsGdiImagePrinter(new FakeWindowsGdiInterop()).PrintDocument(JobFor(smoothing: false), document);
+
+        Assert.False(Assert.Single(document.Draws).Smoothing);
+    }
+
+    [Fact]
+    public void PrintDocument_APageThatFails_AbortsTheDocumentAndLeavesNothingOpen()
+    {
+        FakeWindowsGdiInterop gdi = new();
+        WindowsGdiImagePrinter printer = new(gdi);
+        FakeDeviceDocument document = new(2) { DrawFailure = new InvalidOperationException("engine") };
+
+        _ = Assert.Throws<InvalidOperationException>(() => printer.PrintDocument(JobFor(), document));
+
+        Assert.Equal(1, gdi.Calls.Count(call => call == nameof(IWindowsGdiInterop.EndPage)));
+        Assert.Contains(nameof(IWindowsGdiInterop.AbortDoc), gdi.Calls);
+        Assert.DoesNotContain(nameof(IWindowsGdiInterop.EndDoc), gdi.Calls);
+        Assert.Equal(0, gdi.OpenDeviceContexts);
+    }
+
+    [Fact]
+    public void PrintDocument_RejectsADocumentWithNoPage()
+    {
+        WindowsGdiImagePrinter printer = new(new FakeWindowsGdiInterop());
+
+        _ = Assert.Throws<ArgumentException>(() => printer.PrintDocument(JobFor(), new FakeDeviceDocument(0)));
+    }
 }
