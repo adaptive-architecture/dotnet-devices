@@ -75,7 +75,7 @@ internal static class TextPdf
             }
             else if (!Rune.IsControl(rune))
             {
-                writer.Place(GlyphFor(rune, fonts, writer.Layout));
+                writer.Place(GlyphFor(rune, fonts, writer.Result));
             }
         }
 
@@ -221,7 +221,7 @@ internal static class TextPdf
             _rows = rows;
         }
 
-        public TextLayout Layout { get; } = new();
+        public TextLayout Result { get; } = new();
 
         public void BreakLine()
         {
@@ -230,7 +230,7 @@ internal static class TextPdf
             _column = 0;
             if (_page.Count == _rows)
             {
-                Layout.Pages.Add(_page);
+                Result.Pages.Add(_page);
                 _page = [];
             }
         }
@@ -244,7 +244,7 @@ internal static class TextPdf
 
             _line = new TextLine();
             _column = 0;
-            Layout.Pages.Add(_page);
+            Result.Pages.Add(_page);
             _page = [];
         }
 
@@ -268,12 +268,12 @@ internal static class TextPdf
                 _page.Add(_line);
             }
 
-            if (_page.Count > 0 || Layout.Pages.Count == 0)
+            if (_page.Count > 0 || Result.Pages.Count == 0)
             {
-                Layout.Pages.Add(_page);
+                Result.Pages.Add(_page);
             }
 
-            return Layout;
+            return Result;
         }
     }
 
