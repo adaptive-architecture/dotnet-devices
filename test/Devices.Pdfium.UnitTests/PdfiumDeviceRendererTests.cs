@@ -81,8 +81,8 @@ public class PdfiumDeviceRendererTests
     }
 
     // The proof that the output is drawing and not one bitmap: a metafile device context
-    // records every GDI call made into it, so the bars of a barcode must arrive as paths or
-    // polygons, and no bitmap record may stand in for them.
+    // records every GDI call made into it, so the bars of a barcode must arrive as paths,
+    // polygons or solid fills, and no record may carry pixels.
     [Fact]
     public async Task Draw_OnWindows_RecordsTheBarsAsDrawingRatherThanABitmap()
     {
@@ -96,8 +96,9 @@ public class PdfiumDeviceRendererTests
         using var document = await Renderer.OpenAsync(TestPdf.Barcode(), Context(null), TestContext.Current.CancellationToken);
         var records = Metafile.Record(deviceContext => document.Draw(deviceContext, 0, new ImageRectangle(0, 0, 1200, 600), 0, false));
 
-        Assert.Contains(records, Metafile.IsDrawing);
-        Assert.DoesNotContain(records, Metafile.IsBitmap);
+        var types = String.Join(", ", records.Select(record => record.Type));
+        Assert.True(records.Any(Metafile.IsDrawing), $"No drawing among the records {types}.");
+        Assert.False(records.Any(record => record.CarriesPixels), $"A bitmap among the records {types}.");
     }
 
     private static PrintConversionContext Context(PrintOptions? options) =>
@@ -107,36 +108,38 @@ public class PdfiumDeviceRendererTests
         };
 }
 
+// One record of an enhanced metafile: its EMR_* type, and whether it carries pixels.
+internal readonly record struct MetafileRecord(uint Type, bool CarriesPixels);
+
 // wingdi.h: an enhanced metafile device context, and the record types that tell a drawing
 // from a bitmap.
 internal static partial class Metafile
 {
+    // Paths, polygons, rectangles, regions and text. A solid fill is a blit with no source,
+    // which is why the blits are judged by what they carry instead of listed here.
     private static readonly uint[] DrawingRecords =
     [
-        59, // EMR_BEGINPATH
-        62, // EMR_FILLPATH
-        64, // EMR_STROKEPATH
-        84, // EMR_EXTTEXTOUTW
-        85, // EMR_POLYBEZIER16
-        86, // EMR_POLYGON16
-        87, // EMR_POLYLINE16
-        91, // EMR_POLYPOLYGON16
+        2, 3, 4, 5, 6, 7, 8, // EMR_POLYBEZIER to EMR_POLYPOLYGON
+        42, 43, 44, // EMR_ELLIPSE, EMR_RECTANGLE, EMR_ROUNDRECT
+        59, 60, 61, 62, 63, 64, // EMR_BEGINPATH to EMR_STROKEPATH
+        71, // EMR_FILLRGN
+        83, 84, // EMR_EXTTEXTOUTA, EMR_EXTTEXTOUTW
+        85, 86, 87, 88, 89, 90, 91, 92, // EMR_POLYBEZIER16 to EMR_POLYDRAW16
     ];
 
-    private static readonly uint[] BitmapRecords =
-    [
-        76, // EMR_BITBLT
-        77, // EMR_STRETCHBLT
-        80, // EMR_SETDIBITSTODEVICE
-        81, // EMR_STRETCHDIBITS
-    ];
+    // EMR_BITBLT, EMR_STRETCHBLT, EMR_ALPHABLEND and EMR_TRANSPARENTBLT share a layout up to
+    // cbBitsSrc, the size of the source pixels, which is zero for a pattern or solid fill.
+    private static readonly uint[] Blits = [76, 77, 114, 116];
+    private const int SourceBitsSizeOffset = 96;
 
-    internal static bool IsDrawing(uint record) => DrawingRecords.Contains(record);
+    // EMR_SETDIBITSTODEVICE and EMR_STRETCHDIBITS exist only to carry pixels.
+    private static readonly uint[] PixelRecords = [80, 81];
 
-    internal static bool IsBitmap(uint record) => BitmapRecords.Contains(record);
+    internal static bool IsDrawing(MetafileRecord record) =>
+        DrawingRecords.Contains(record.Type) || (Blits.Contains(record.Type) && !record.CarriesPixels);
 
     [SupportedOSPlatform("windows")]
-    internal static List<uint> Record(Action<nint> draw)
+    internal static List<MetafileRecord> Record(Action<nint> draw)
     {
         var deviceContext = CreateEnhMetaFile(0, null, 0, null);
         Assert.NotEqual(0, deviceContext);
@@ -147,11 +150,15 @@ internal static partial class Metafile
             var bytes = new byte[GetEnhMetaFileBits(metafile, 0, null)];
             _ = GetEnhMetaFileBits(metafile, (uint)bytes.Length, bytes);
 
-            List<uint> records = [];
+            List<MetafileRecord> records = [];
             for (var offset = 0; offset + 8 <= bytes.Length;)
             {
-                records.Add(BitConverter.ToUInt32(bytes, offset));
-                offset += (int)BitConverter.ToUInt32(bytes, offset + 4);
+                var type = BitConverter.ToUInt32(bytes, offset);
+                var size = (int)BitConverter.ToUInt32(bytes, offset + 4);
+                var pixels = PixelRecords.Contains(type)
+                    || (Blits.Contains(type) && size >= SourceBitsSizeOffset + 4 && BitConverter.ToUInt32(bytes, offset + SourceBitsSizeOffset) > 0);
+                records.Add(new MetafileRecord(type, pixels));
+                offset += size;
             }
 
             return records;
