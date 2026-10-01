@@ -1,0 +1,16 @@
+{
+  "name": "Required converter",
+  "description": "Run with the sample started as --RequiredConverters:application/pdf=PDFium, on the office printer's spooler or CUPS queue and on its IPP channel. The job names no converter, yet the required one renders it on every channel: the log says Rendered by PDFium, and the placement applies instead of being dropped. One one-sided sheet a channel; print it on the back of a spare sheet.",
+  "mode": "queue",
+  "jobs": [
+    {
+      "file": "pages.pdf",
+      "description": "page 1 at its own size, against the top left corner, rendered by the required PDFium on every channel, Placement not dropped",
+      "options": {
+        "pageRanges": "1",
+        "scaling": "None",
+        "anchor": "TopLeft"
+      }
+    }
+  ]
+}

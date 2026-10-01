@@ -1,0 +1,53 @@
+{
+  "name": "Smoke: spooler",
+  "description": "The release check through the operating system queue: the Windows spooler, or a CUPS queue on Linux and macOS. Four sheets of office paper: three one-sided, which smoke-ipp prints on the back of, then one duplex sheet. One job must fail and print nothing. After each submission the log names the engine that rendered the job and the format sent; write both down with every dropped option.",
+  "mode": "queue",
+  "jobs": [
+    {
+      "file": "document.pdf",
+      "description": "sheet 1: the 4 by 6 inch label against the top left corner of the paper, not of the printable area, then 15 mm right and 10 mm down. Measure from the paper edge: the label's left edge at 15 mm and its top edge at 10 mm. Smoothing is off, so the bars are hard; scan the barcode. The log says Rendered by PDFium: on macOS sent as image/urf, on Linux write down whether URF or PWG Raster. On CUPS Rendering is dropped; on Windows nothing is",
+      "options": {
+        "converter": "PDFium",
+        "scaling": "None",
+        "anchor": "TopLeft",
+        "offsetXMillimeters": 15,
+        "offsetYMillimeters": 10,
+        "fitArea": "Physical",
+        "smoothing": false,
+        "rendering": "Vector"
+      }
+    },
+    {
+      "file": "image.png",
+      "description": "sheet 2: the PNG in grey, fitted to the sheet. On Windows GDI draws it; on CUPS the job carries no placement, so CUPS receives the PNG and scales it itself",
+      "options": {
+        "colorMode": "Monochrome",
+        "scaling": "Fit"
+      }
+    },
+    {
+      "file": "text.txt",
+      "description": "sheet 3: page 1 of the text file, laid out in 10-point Courier. Measure the four margins: half an inch each, none wider than another by more than a millimetre. The accented characters, the euro sign and the quotes print as written, and the long line wraps",
+      "options": {
+        "pageRanges": "1"
+      }
+    },
+    {
+      "file": "label.zpl",
+      "description": "no sheet: a named converter on a printer language cannot run, so the job fails before anything is sent and no job appears in the queue",
+      "options": {
+        "converter": "PDFium"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "sheet 4, duplex, on fresh paper: pages 1 and 2 in colour on the long edge. Turn the sheet like a book: page 2 is on the back, the right way up. The control job: it names no converter. On Windows the default engine renders it and applies the anchor; on CUPS the log says the library rendered nothing, and Placement is dropped",
+      "options": {
+        "pageRanges": "1-2",
+        "duplex": "LongEdge",
+        "colorMode": "Color",
+        "anchor": "TopLeft"
+      }
+    }
+  ]
+}

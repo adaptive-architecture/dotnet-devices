@@ -148,6 +148,13 @@ What they settle, which the checklist below used to ask a person for:
 
 None of that needs a person any more. What is left below needs one, and each entry says why.
 
+## The smoke run before a release
+
+The [smoke job sets](samples/printer-manager.md#the-smoke-run) cover the paths no unit test
+can on as little paper as possible, and run the same on Windows, Linux and macOS. Record each
+run in one folder per platform next to [windows-manual-tests-resuls/](windows-manual-tests-resuls/).
+The tests below go deeper, one path at a time.
+
 ## The tests to do on Windows
 
 Do these in order. The first is the one that hides the worst kind of error.
@@ -360,9 +367,16 @@ Run the same `queue-sweep` set against an `ipp://` or `ipps://` printer whose
 `pages.pdf` jobs are the ones that matter, and each page carries the marks that name its own
 fault.
 
-Check the log first. Event 1032 must say the job was converted, and name `image/pwg-raster`.
-If 1034 appears instead nothing was converted and the rest of this section proves nothing;
-the reason it carries says which of the four conditions failed.
+To reach a printer that does read PDF, run `PrintJobs/queue-sweep-pdf.json` instead: every
+job there names PDFium, so it is rendered whatever the printer reads, and its last job carries
+the placement. A job that names no converter on such a printer is passed through untouched.
+
+Check the log first. After each submission the sample logs `Rendered by … and sent as …`:
+it must name the engine (PDFium where the job names it, the default engine otherwise) and
+`image/pwg-raster`. `Sent as application/pdf; the library rendered nothing` means nothing
+was converted and the rest of this section proves nothing. Event 1034 (Debug) then carries
+the reason; it fires only for a job that names no converter, because a named converter that
+cannot run fails the job before anything is sent.
 
 **The row stride.** `GetPixelDataAsync` is trusted to answer with tightly packed rows, which
 a locked buffer does not promise — that is why it is not used. If a row carries padding, the

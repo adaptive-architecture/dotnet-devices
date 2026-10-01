@@ -1,0 +1,30 @@
+{
+  "name": "Smoke: ZPL label printer",
+  "description": "The release check for a ZPL label printer. Run it on every channel the printer offers: its spooler or CUPS queue, IPP, and the raw socket. Three labels a channel at most; one job must fail and print nothing.",
+  "mode": "queue",
+  "jobs": [
+    {
+      "file": "label.zpl",
+      "description": "two labels in one job: the queue window or lpstat -o shows one job, whose id is the returned job id. Over IPP the log names the format negotiated for ZPL",
+      "options": {
+        "copies": 2
+      }
+    },
+    {
+      "file": "label.zpl",
+      "description": "no label: a named converter on a printer language cannot run, so the job fails before anything is sent. On the raw socket this is also a converter named on a channel that renders nothing",
+      "options": {
+        "converter": "PDFium"
+      }
+    },
+    {
+      "file": "document.pdf",
+      "description": "one label: the 4 by 6 inch PDF on media of its own size, with hard bars; scan the barcode. A channel with a driver or a raster format prints it; one that reads neither, usually the raw socket, fails before anything is sent and names what it reads",
+      "options": {
+        "converter": "PDFium",
+        "mediaSizeSource": "Document",
+        "smoothing": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "name": "Smoke: IPP",
+  "description": "The release check over IPP, to the same office printer as smoke-spooler. Five sheets: the first three are one-sided, so load the three one-sided sheets of smoke-spooler on top of the tray, blank side to print, then fresh paper for the two duplex sheets. After each submission the log names the engine that rendered the job and the format sent; write both down with every dropped option.",
+  "mode": "queue",
+  "jobs": [
+    {
+      "file": "document.pdf",
+      "description": "reused sheet: the label placed exactly as on smoke-spooler sheet 1, composed into the raster here. The two must agree to the millimetre: left edge 15 mm and top edge 10 mm from the paper edge; scan the barcode. The log says Rendered by PDFium and sent as image/pwg-raster, or image/urf where that is the only raster the printer lists. Rendering is dropped",
+      "options": {
+        "converter": "PDFium",
+        "scaling": "None",
+        "anchor": "TopLeft",
+        "offsetXMillimeters": 15,
+        "offsetYMillimeters": 10,
+        "fitArea": "Physical",
+        "smoothing": false,
+        "rendering": "Vector"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "reused sheet: page 3 in grey, passed through to a printer that reads PDF. The control job: it names no converter, so the log says the library rendered nothing and Placement is dropped. A printer that does not read PDF gets a raster instead; Placement is still dropped",
+      "options": {
+        "pageRanges": "3",
+        "colorMode": "Monochrome",
+        "anchor": "TopLeft"
+      }
+    },
+    {
+      "file": "photo.jpeg",
+      "description": "reused sheet: the JPEG in colour. A printer that lists image/jpeg receives it as it is; one that does not receives it laid out as a PDF or a raster. Write down the format the log names",
+      "options": {
+        "colorMode": "Color"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "fresh sheet, duplex: pages 1 and 2 on the long edge, the back side transformed by the library for the printer's sheet-back. Turn it like a book: page 2 is on the back, the right way up, its grey corner block top right",
+      "options": {
+        "converter": "PDFium",
+        "pageRanges": "1-2",
+        "duplex": "LongEdge"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "fresh sheet, duplex: pages 3 and 4 in grey on the short edge. Turn it like a flip pad, top to bottom: page 4 is on the back, the right way up, its grey corner block top right",
+      "options": {
+        "converter": "PDFium",
+        "pageRanges": "3-4",
+        "duplex": "ShortEdge",
+        "colorMode": "Monochrome"
+      }
+    }
+  ]
+}
