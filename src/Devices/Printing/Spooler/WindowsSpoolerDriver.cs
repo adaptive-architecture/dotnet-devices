@@ -267,44 +267,46 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         if (renderer is not null)
         {
             using var document = await renderer.OpenAsync(bytes, ContextFor(queueName, payload.ContentType, PrinterContentTypes.Emf, renderDpi, options), cancellationToken).ConfigureAwait(false);
-            return Spool(queueName, imageRequest, job with { SourceDpi = null }, deviceModeJob => _images.PrintDocument(deviceModeJob, document), payload, options, converter.Name, PrinterContentTypes.Emf, dropped);
+            var drawnId = Spool(queueName, imageRequest, job with { SourceDpi = null }, payload, deviceModeJob => _images.PrintDocument(deviceModeJob, document));
+            return Queued(queueName, drawnId, options, converter.Name, PrinterContentTypes.Emf, dropped);
         }
 
         var rendered = await ConvertAsync(queueName, payload.ContentType, converter, bytes, renderDpi, options, cancellationToken).ConfigureAwait(false);
-        return Spool(queueName, imageRequest, job, deviceModeJob => _images.PrintPages(deviceModeJob, rendered), payload, options, converter.Name, PrinterContentTypes.Png, dropped);
+        var jobId = Spool(queueName, imageRequest, job, payload, deviceModeJob => _images.PrintPages(deviceModeJob, rendered));
+        return Queued(queueName, jobId, options, converter.Name, PrinterContentTypes.Png, dropped);
     }
 
-    private PrintJobInfo Spool(
-        string queueName,
-        DeviceModeRequest imageRequest,
-        WindowsGdiJob job,
-        Func<WindowsGdiJob, int> print,
-        PrinterPayload payload,
-        PrintOptions? options,
-        string converterName,
-        string submittedContentType,
-        IReadOnlyList<DroppedOption> dropped)
+    // Builds the device mode, prints the job with it, and frees it whatever happens.
+    private int Spool(string queueName, DeviceModeRequest imageRequest, WindowsGdiJob job, PrinterPayload payload, Func<WindowsGdiJob, int> print)
     {
         var deviceMode = IntPtr.Zero;
         try
         {
             deviceMode = BuildDeviceMode(queueName, imageRequest);
             var jobId = print(job with { DeviceMode = deviceMode });
-
             SpoolerLog.JobSpooled(_logger, queueName, jobId, payload.Data.Length, payload.ContentType);
-            return new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
-            {
-                JobName = options?.JobName,
-                ConverterUsed = converterName,
-                SubmittedContentType = submittedContentType,
-                DroppedOptionDetails = dropped,
-            };
+            return jobId;
         }
         finally
         {
             FreeIfSet(deviceMode);
         }
     }
+
+    private static PrintJobInfo Queued(
+        string queueName,
+        int jobId,
+        PrintOptions? options,
+        string converterName,
+        string submittedContentType,
+        IReadOnlyList<DroppedOption> dropped) =>
+        new(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
+        {
+            JobName = options?.JobName,
+            ConverterUsed = converterName,
+            SubmittedContentType = submittedContentType,
+            DroppedOptionDetails = dropped,
+        };
 
     // One GDI job: the image is drawn onto a printer device context and the driver
     // rasterises it. Orientation and scaling are applied by the layout math, not by

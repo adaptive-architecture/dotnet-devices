@@ -29,7 +29,7 @@ internal static class WindowsGdiImageLayout
 
     // The same turns for an engine that takes a quarter-turn count, clockwise as GDI+ is.
     internal static int QuarterTurns(PrintOrientation? orientation) =>
-        ((int)RotationDegrees(orientation) / 90 + 4) % 4;
+        (((int)RotationDegrees(orientation) / 90) + 4) % 4;
 
     // The rectangle a drawing turned about the centre of its area covers on the device. An
     // engine that turns the page itself is handed this instead of a world transform.
