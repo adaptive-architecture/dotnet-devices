@@ -111,6 +111,32 @@ there is a choice to make. On Linux and macOS that is PDFium alone, and the jobs
 which name `Windows` fail with a message listing what does exist. To see the same pages
 without printing them, run the tests and open `artifacts/rasterization/index.html`.
 
+## The smoke run
+
+Run these before a release, on Windows, Linux and macOS. They cover the paths no unit test
+can, on as little paper as possible; the sweeps above stay for a deeper investigation. Each
+job's description says what to measure or look for, and the log after each submission names
+the engine that rendered it and the format sent.
+
+| Set | Run it on | Paper |
+| --- | --- | --- |
+| `smoke-spooler.json` | the office printer's spooler queue (Windows) or CUPS queue (Linux, macOS) | 3 one-sided sheets, then 1 duplex sheet |
+| `smoke-ipp.json` | the same printer's `ipp://` or `ipps://` channel | 3 sheets reused from `smoke-spooler`, then 2 fresh duplex sheets |
+| `smoke-zpl.json` | every channel of a ZPL label printer: its queue, IPP and the raw socket | 3 labels a channel at most |
+| `required-converter.json` | the office printer's queue and IPP channel, with the sample started as below | 1 one-sided sheet a channel |
+
+Both office sets print their one-sided jobs first. Run `smoke-spooler` first, then load its
+three one-sided sheets on top of the tray, blank side to print, before `smoke-ipp`: their
+three one-sided jobs land on those backs, and the duplex jobs take the fresh paper underneath.
+Each set has a job that must fail and print nothing.
+
+`required-converter.json` checks `PrinterManagerOptions.RequiredConverters`, which the sample
+reads from configuration:
+
+```bash
+dotnetup dotnet run --project samples/Devices.Samples -- --RequiredConverters:application/pdf=PDFium
+```
+
 ## The HTTP interface
 
 | Method and path | What it does |

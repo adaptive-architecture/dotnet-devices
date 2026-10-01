@@ -53,7 +53,15 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonContext.Default);
 });
 
-_ = builder.Services.AddPrinters();
+// --RequiredConverters:application/pdf=PDFium makes one engine render every PDF on every
+// channel. Read without the configuration binder, which the trimmer cannot see through.
+_ = builder.Services.AddPrinters(configureManager: options =>
+{
+    foreach (var required in builder.Configuration.GetSection("RequiredConverters").GetChildren())
+    {
+        options.RequiredConverters[required.Key] = required.Value;
+    }
+});
 builder.Services.AddSingleton<SamplePaths>();
 builder.Services.AddSingleton<PrinterCatalog>();
 builder.Services.AddSingleton<PrintJobRunner>();
