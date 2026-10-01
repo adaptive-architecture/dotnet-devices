@@ -59,7 +59,7 @@ another channel, and does not take over rendering on the caller's behalf.
 | `ipp://` and `ipps://`, printer lists `application/pdf` | Passed through. The document itself is always better than a raster of it, unless the job names or requires a converter |
 | `ipp://` and `ipps://`, printer lists `image/pwg-raster` or `image/urf` | Converted, PWG Raster first, and sent as one job |
 | `ipp://` and `ipps://`, printer lists none of these | Sent unchanged, for the printer to refuse. Event 1034 says why, and the options only a renderer applies are reported dropped. A job that names a converter fails instead |
-| `spooler://` on Windows | Converted to one PNG a page and drawn through GDI |
+| `spooler://` on Windows | Converted to one PNG a page and drawn through GDI. With `Rendering = PrintRendering.Vector`, PDFium draws it into the printer device context as vectors instead (see [Vectors or bitmaps on the Windows spooler](#vectors-or-bitmaps-on-the-windows-spooler)) |
 | `raw://` | Sent unchanged. Port 9100 has no stage that puts a raster on a page |
 
 Every row that says *Converted* needs a rasterizer, and neither of the two is in the core
@@ -92,6 +92,34 @@ Raster of every printer and AirPrint requires URF; both are lossless, and one st
 every page, so a converted document stays one document and needs no multi-document job.
 `image/png` is never offered to a printer: no IPP printer reads it, whatever a converter can
 write. The Windows spooler asks for it by name, which is the only place it is used.
+
+### Vectors or bitmaps on the Windows spooler
+
+By default a PDF reaches a Windows driver as one PNG a page at `ResolutionDpi`, drawn through
+GDI. That is what every other channel receives too: an IPP printer gets PWG Raster or URF, and
+most CUPS queues turn a PDF into a raster before it reaches the device. The edge of a barcode
+is then decided by the library's resampling, not by the halftoning of each driver.
+
+Set `PrintOptions.Rendering` to `PrintRendering.Vector` and `PdfiumPrinting.PdfConverter` draws
+each page straight into the printer device context instead: text, lines and shapes reach the
+driver as GDI drawing, and the driver renders them at its own resolution. Spool jobs are
+smaller and text is as sharp as the printer makes it, which suits an office printer. PDFium
+still turns what GDI cannot draw, such as transparency, into a bitmap, so a page may carry
+some images anyway. `PrintJobInfo.SubmittedContentType` is `image/emf` for such a job.
+
+```csharp
+await printer.PrintAsync(payload, new PrintOptions { Rendering = PrintRendering.Vector });
+```
+
+Placement, scaling, orientation, the fit area and `Smoothing` apply to both paths, and the
+document is opened before any job exists either way, so a corrupt file still spools nothing.
+`ResolutionDpi` sets the device mode, and on the bitmap path also the render resolution.
+PDFium renders one job at a time, and a drawn job holds the engine until it is spooled, so
+another PDF job in the same process waits for it.
+
+`WindowsPrinting.PdfConverter` renders bitmaps only, as does every converter on every other
+channel: `PrintRendering.Vector` there prints bitmaps, and `Rendering` is listed in
+`PrintJobInfo.DroppedOptionDetails` at the `Conversion` stage.
 
 Conversion happens only when all four hold: the payload is a `Document`, the printer does not
 list its content type, a converter is registered for it, and that converter writes a format
@@ -127,7 +155,7 @@ that encodes no size, such as `letter`, is never written.
 
 | Format | `spooler://` on Windows | `spooler://` on Linux and macOS, and `cups://` | `ipp://` and `ipps://` | `raw://` |
 | :--- | :--- | :--- | :--- | :--- |
-| PDF | Converted to one PNG a page and drawn through GDI on the paper of the queue | Passed through, and CUPS renders it, unless the job names or requires a converter; converted to URF or PWG Raster then | Passed through when the printer lists it and the job names no converter; converted to PWG Raster or URF otherwise; sent unchanged when the printer reads nothing the converter writes | Sent unchanged |
+| PDF | Converted to one PNG a page and drawn through GDI, or drawn as vectors by PDFium when the job asks, on the paper of the queue | Passed through, and CUPS renders it, unless the job names or requires a converter; converted to URF or PWG Raster then | Passed through when the printer lists it and the job names no converter; converted to PWG Raster or URF otherwise; sent unchanged when the printer reads nothing the converter writes | Sent unchanged |
 | PNG and JPEG | Drawn through GDI, which applies the orientation, the scaling, the placement and the smoothing switch | Passed through; CUPS scales it onto the page | Sent as it is: the library converts documents only | Sent unchanged |
 | ZPL, EPL and the other printer languages | Sent with the `RAW` datatype, unchanged | Sent as `application/vnd.cups-raw`, which CUPS passes to the backend unchanged; a queue that forwards over IPP sends it on as `application/octet-stream` | Sent as the language or as `application/octet-stream`, whichever the printer names | Sent unchanged |
 
@@ -136,7 +164,7 @@ file prints about half as wide on Windows. Declare the resolution in the file to
 page on both.
 
 Wherever a row sends the payload without rendering it, the options only a renderer applies —
-`FitArea`, `Placement`, `Smoothing` and `MediaSizeSource.Document` — are listed in
+`FitArea`, `Placement`, `Smoothing`, `Rendering` and `MediaSizeSource.Document` — are listed in
 `PrintJobInfo.DroppedOptionDetails` with the reason, and logged as event 2041. A raw channel
 carries no job template at all, so it reports every option the job set. `ConverterName` is
 the exception: a job whose named converter cannot run fails instead (see
@@ -144,7 +172,8 @@ the exception: a job whose named converter cannot run fails instead (see
 
 `PrintJobInfo.ConverterUsed` names the converter that rendered a job, and
 `PrintJobInfo.SubmittedContentType` the format the channel was handed: `image/urf` for a PDF
-rendered for a macOS queue, `image/png` on the Windows spooler, and the payload's own type
+rendered for a macOS queue, `image/emf` for a PDF PDFium drew on the Windows spooler and
+`image/png` for one rendered to bitmaps there, and the payload's own type
 for a job nothing rendered.
 
 ### A macOS CUPS queue and PWG Raster
@@ -348,7 +377,8 @@ anything is sent when:
 
 - no converter by that name is registered, and the message lists the ones that are;
 - the printer or the queue reads none of the formats the converter writes;
-- the Windows spooler needs PNG and the converter writes none;
+- the Windows spooler needs PNG and the converter writes none, and either it does not draw
+  into a device context or the job set `Rendering = PrintRendering.Raster`;
 - the channel renders nothing: a raw socket, the Windows `RAW` path, or a printer language on
   any channel.
 

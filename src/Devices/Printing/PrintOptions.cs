@@ -140,6 +140,19 @@ public sealed class PrintOptions
     public bool? Smoothing { get; set; }
 
     /// <summary>
+    /// Gets or sets whether a document reaches the driver as drawing or as bitmaps. Unset is
+    /// <see cref="PrintRendering.Raster"/>.
+    /// </summary>
+    /// <remarks>
+    /// Library-only. On the Windows spooler <see cref="PrintRendering.Vector"/> makes the PDFium
+    /// converter draw each page into the printer device context. A
+    /// <see cref="PrintRendering.Vector"/> that the engine or channel cannot honour, and any
+    /// value on a job nothing renders, is reported in
+    /// <see cref="PrintJobInfo.DroppedOptionDetails"/>.
+    /// </remarks>
+    public PrintRendering? Rendering { get; set; }
+
+    /// <summary>
     /// Gets or sets the password that opens a protected document, or <c>null</c> for one that
     /// needs none.
     /// </summary>

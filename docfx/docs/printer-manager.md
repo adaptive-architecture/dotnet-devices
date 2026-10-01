@@ -83,7 +83,7 @@ when those were read.
 | Channel | Applies |
 | :--- | :--- |
 | `raw` | Nothing. The payload reaches the device unchanged. |
-| `spooler` on Windows | `JobName`, `Copies`, `Duplex`, `ColorMode`, `Orientation`, `MediaSource`, `MediaSize`, `ResolutionDpi`, `Quality`, `Placement`, `Smoothing` and `MediaDimensions`. Printer languages report the rest in `PrintJobInfo.DroppedOptions`; image jobs apply every `Orientation` and every `Scaling` with GDI instead of the device mode. |
+| `spooler` on Windows | `JobName`, `Copies`, `Duplex`, `ColorMode`, `Orientation`, `MediaSource`, `MediaSize`, `ResolutionDpi`, `Quality`, `Placement`, `Smoothing`, `Rendering` and `MediaDimensions`. Printer languages report the rest in `PrintJobInfo.DroppedOptions`; image jobs apply every `Orientation` and every `Scaling` with GDI instead of the device mode. |
 | `spooler` on CUPS, `cups` | Every job template attribute, narrowed by what the printer reported. CUPS renders the document itself unless the job names or requires a converter; then the library renders it, and applies `Placement`, `Smoothing`, `FitArea` and `MediaSizeSource.Document`, which are reported in `PrintJobInfo.DroppedOptions` otherwise. |
 | `ipp`, `ipps` | Everything the library models, narrowed by what the printer reported. The library renders what no attribute carries. |
 

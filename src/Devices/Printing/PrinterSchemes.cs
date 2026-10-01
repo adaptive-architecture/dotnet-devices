@@ -189,7 +189,7 @@ internal static class PrinterSchemes
         | PrintOptionSupports.ColorMode | PrintOptionSupports.Orientation | PrintOptionSupports.MediaSource
         | PrintOptionSupports.MediaSize | PrintOptionSupports.ResolutionDpi | PrintOptionSupports.Quality
         | PrintOptionSupports.Scaling | PrintOptionSupports.Placement | PrintOptionSupports.Smoothing
-        | PrintOptionSupports.MediaGeometry;
+        | PrintOptionSupports.MediaGeometry | PrintOptionSupports.Rendering;
 
     /// <summary>
     /// The order in which the manager considers the channels of one device. A lower

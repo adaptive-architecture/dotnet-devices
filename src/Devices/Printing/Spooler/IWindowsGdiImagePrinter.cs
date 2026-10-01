@@ -13,4 +13,6 @@ internal interface IWindowsGdiImagePrinter
     int Print(WindowsGdiJob job, byte[] bytes);
 
     int PrintPages(WindowsGdiJob job, IReadOnlyList<byte[]> pages);
+
+    int PrintDocument(WindowsGdiJob job, IPrintDeviceDocument document);
 }

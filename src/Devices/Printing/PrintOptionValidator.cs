@@ -155,6 +155,7 @@ internal static class PrintOptionValidator
         AddIfSet(set, options.MediaSizeSource != MediaSizeSource.Printer, nameof(PrintOptions.MediaSizeSource));
         AddIfSet(set, options.Placement is { IsEmpty: false }, nameof(PrintOptions.Placement));
         AddIfSet(set, options.Smoothing is not null, nameof(PrintOptions.Smoothing));
+        AddIfSet(set, options.Rendering is not null, nameof(PrintOptions.Rendering));
         AddIfSet(set, options.MediaType is not null, nameof(PrintOptions.MediaType));
         AddIfSet(set, options.OutputBin is not null, nameof(PrintOptions.OutputBin));
         AddIfSet(set, options.ResolutionDpi is not null, nameof(PrintOptions.ResolutionDpi));
@@ -295,6 +296,7 @@ internal static class PrintOptionValidator
             DocumentPassword = options.DocumentPassword,
             Placement = options.Placement,
             Smoothing = options.Smoothing,
+            Rendering = options.Rendering,
             MediaType = options.MediaType,
             OutputBin = options.OutputBin,
             ResolutionDpi = options.ResolutionDpi,

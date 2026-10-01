@@ -35,6 +35,7 @@ public class PrintOptionsCoverageTests
             MediaSizeSource = MediaSizeSource.Document,
             Placement = new PrintPlacement { Anchor = PrintAnchor.TopLeft },
             Smoothing = false,
+            Rendering = PrintRendering.Raster,
             DocumentPassword = "secret",
             MediaType = "labels",
             OutputBin = "top",

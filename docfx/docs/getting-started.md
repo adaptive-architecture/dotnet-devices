@@ -43,8 +43,8 @@ dotnet add package AdaptArch.Devices.DependencyInjection
 
 ### `AdaptArch.Devices.Pdfium`
 
-Renders a PDF with PDFium so a printer that cannot read one still prints it. Windows, Linux
-and macOS, x64 and ARM alike. It carries the native library, which costs about 170 MB
+Renders a PDF with PDFium so a printer that cannot read one still prints it, and can draw it
+as vectors on the Windows spooler. Windows, Linux and macOS, x64 and ARM alike. It carries the native library, which costs about 170 MB
 restored and about 7.5 MB deployed for one runtime identifier.
 
 ```bash
@@ -53,8 +53,8 @@ dotnet add package AdaptArch.Devices.Pdfium
 
 ### `AdaptArch.Devices.Windows`
 
-The same job through the in-box Windows engine, which downloads nothing. Windows 10 and
-later, and Windows Server with the Desktop Experience.
+The same job through the in-box Windows engine, which downloads nothing and renders bitmaps
+only. Windows 10 and later, and Windows Server with the Desktop Experience.
 
 ```bash
 dotnet add package AdaptArch.Devices.Windows

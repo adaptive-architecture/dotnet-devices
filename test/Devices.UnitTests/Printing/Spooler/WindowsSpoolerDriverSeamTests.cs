@@ -848,4 +848,115 @@ public class WindowsSpoolerDriverSeamTests
         // The guard comes first: nothing may reach the spooler on a platform without one.
         Assert.Empty(interop.Calls);
     }
+
+    private static WindowsSpoolerDriver DrawingDriver(FakeWindowsGdiImagePrinter images, IPrintPayloadConverter converter) =>
+        new(new FakeWindowsSpoolerInterop(), images, isWindows: true, new PrintFormatPolicy(null, [converter]));
+
+    private static Task<PrintJobInfo> SubmitPdfAsync(WindowsSpoolerDriver driver, PrintOptions? options) =>
+        driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromBytes(new byte[] { 1, 2, 3 }, PrinterContentTypes.Pdf),
+            options,
+            TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task SubmitAsync_ADocumentThatAsksForVectors_IsDrawnByItsConverter()
+    {
+        FakeWindowsGdiImagePrinter images = new() { JobId = 56 };
+        FakeDeviceRenderer converter = new(pages: 2);
+
+        var job = await SubmitPdfAsync(
+            DrawingDriver(images, converter),
+            new PrintOptions { Rendering = PrintRendering.Vector, PageRanges = [new PageRange(2, 3)], DocumentPassword = "secret", ResolutionDpi = 600 });
+
+        Assert.Equal("56", job.JobId);
+        Assert.Equal("Drawing", job.ConverterUsed);
+        Assert.Equal(PrinterContentTypes.Emf, job.SubmittedContentType);
+        Assert.Empty(job.DroppedOptionDetails);
+        Assert.Equal(0, converter.Conversions);
+        Assert.Empty(images.Pages);
+
+        // The pages and the password reach the engine; the resolution is the driver's now.
+        Assert.Equal([new PageRange(2, 3)], converter.LastOpenContext!.PageRanges);
+        Assert.Equal("secret", converter.LastOpenContext.DocumentPassword);
+        var document = Assert.Single(converter.Opened);
+        Assert.Same(document, Assert.Single(images.Documents));
+        Assert.Null(Assert.Single(images.Jobs).SourceDpi);
+
+        // The engine may hold itself while a document is open, so the driver lets go of it.
+        Assert.True(document.Disposed);
+    }
+
+    // Bitmaps unless the job asks otherwise: the driver of a label printer halftones drawing in
+    // its own way, and a bar it softens does not scan.
+    [Theory]
+    [InlineData(null)]
+    [InlineData(PrintRendering.Raster)]
+    public async Task SubmitAsync_ADocumentThatDoesNotAskForVectors_IsRenderedToPages(PrintRendering? rendering)
+    {
+        FakeWindowsGdiImagePrinter images = new();
+        FakeDeviceRenderer converter = new(pages: 2);
+
+        var job = await SubmitPdfAsync(DrawingDriver(images, converter), new PrintOptions { Rendering = rendering });
+
+        Assert.Equal(PrinterContentTypes.Png, job.SubmittedContentType);
+        Assert.Equal(1, converter.Conversions);
+        Assert.Empty(converter.Opened);
+        Assert.Equal(2, Assert.Single(images.Pages).Count);
+        Assert.Empty(job.DroppedOptionDetails);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_DrawingAskedOfAConverterThatOnlyRenders_IsReportedAndPrintsBitmaps()
+    {
+        FakeWindowsGdiImagePrinter images = new();
+
+        var job = await SubmitPdfAsync(
+            DrawingDriver(images, new RecordingPdfConverter(pages: 1)),
+            new PrintOptions { Rendering = PrintRendering.Vector });
+
+        Assert.Equal(PrinterContentTypes.Png, job.SubmittedContentType);
+        _ = Assert.Single(images.Pages);
+        Assert.Equal(
+            [new DroppedOption(nameof(PrintOptions.Rendering), PrintOptionStage.Conversion, "converter 'RecordingPdfConverter' renders bitmaps only")],
+            job.DroppedOptionDetails);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_ADocumentTheEngineCannotOpen_SpoolsNothing()
+    {
+        FakeWindowsGdiImagePrinter images = new();
+        FakeDeviceRenderer converter = new(pages: 1) { OpenFailure = new InvalidOperationException("corrupt") };
+
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => SubmitPdfAsync(DrawingDriver(images, converter), new PrintOptions { Rendering = PrintRendering.Vector }));
+
+        Assert.Empty(images.Jobs);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_ADrawnJobTheDriverRefuses_StillReleasesTheDocument()
+    {
+        FakeWindowsGdiImagePrinter images = new() { Failure = new InvalidOperationException("StartDoc") };
+        FakeDeviceRenderer converter = new(pages: 1);
+
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => SubmitPdfAsync(DrawingDriver(images, converter), new PrintOptions { Rendering = PrintRendering.Vector }));
+
+        Assert.True(Assert.Single(converter.Opened).Disposed);
+    }
+
+    [Theory]
+    [InlineData(PrinterContentTypes.Png, PrintOptionStage.Conversion, "the library does not convert an image")]
+    [InlineData(PrinterContentTypes.Zpl, PrintOptionStage.Channel, "the RAW data type sends the bytes as they are, and nothing renders them")]
+    public async Task SubmitAsync_RenderingOnAJobNothingRenders_IsReported(string contentType, PrintOptionStage stage, string reason)
+    {
+        var job = await DriverFor(new FakeWindowsSpoolerInterop()).SubmitAsync(
+            "lobby",
+            PrinterPayload.FromBytes(new byte[] { 1 }, contentType),
+            new PrintOptions { Rendering = PrintRendering.Vector },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal([new DroppedOption(nameof(PrintOptions.Rendering), stage, reason)], job.DroppedOptionDetails);
+    }
 }

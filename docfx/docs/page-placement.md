@@ -71,7 +71,9 @@ The two paths place a page differently, and that decides where the work happens.
 sheet while it converts: the converter returns pages at their own size, and
 `WindowsGdiImagePrinter` sizes and positions each one against the printable area GDI reports.
 The placement is applied there, at the draw step, and the smoothing switch chooses between a
-nearest-neighbour and a smoothed draw.
+nearest-neighbour and a smoothed draw. A page PDFium draws as vectors is laid out the same way
+from the size its document declares, and PDFium draws it into that rectangle, turned for the
+orientation, with its own smoothing switched to match.
 
 **An IPP printer** applies `print-scaling` itself and has no attribute for the rest — the IPP
 shift attributes are production-printing extensions a label printer does not advertise. So the

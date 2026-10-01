@@ -556,6 +556,34 @@ public class IppPrinterDocumentFormatTests
         Assert.Equal("the printer reads the document itself and the job names no converter, so the library renders nothing", dropped.Reason);
     }
 
+    [Fact]
+    public async Task PrintAsync_DrawingAskedOfAPdfThePrinterReads_IsReportedAsDropped()
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+
+        var job = await PrintPdfJobAsync(converter, new PrintOptions { Rendering = PrintRendering.Vector }, PrinterContentTypes.Pdf);
+
+        var dropped = Assert.Single(job.DroppedOptionDetails);
+        Assert.Equal(nameof(PrintOptions.Rendering), dropped.Option);
+        Assert.Equal(PrintOptionStage.Conversion, dropped.Stage);
+    }
+
+    // PWG Raster carries pixels and nothing else, so only asking for bitmaps is honoured.
+    [Theory]
+    [InlineData(PrintRendering.Vector, true)]
+    [InlineData(PrintRendering.Raster, false)]
+    public async Task PrintAsync_APdfRenderedToPwgRaster_ReportsDrawingAsDropped(PrintRendering rendering, bool dropped)
+    {
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+
+        var job = await PrintPdfJobAsync(converter, new PrintOptions { Rendering = rendering }, PrinterContentTypes.PwgRaster);
+
+        Assert.Equal(1, converter.Calls);
+        Assert.Equal(
+            dropped ? [new DroppedOption(nameof(PrintOptions.Rendering), PrintOptionStage.Conversion, "image/pwg-raster is a raster format")] : [],
+            job.DroppedOptionDetails);
+    }
+
     // A registered converter is not an engine the job chose, so geometry alone renders nothing.
     [Fact]
     public async Task PrintAsync_APlacementWithAConverterNobodyNamed_IsSentUnchangedAndReported()

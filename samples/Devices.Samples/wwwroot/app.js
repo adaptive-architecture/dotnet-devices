@@ -498,6 +498,10 @@ function placement(host, type, values) {
 
   if (type === 'application/pdf') {
     host.appendChild(choice('mediaSizeSource', 'Media size from', ['Printer', 'Document'], values, 'Printer'));
+    host.appendChild(choice('rendering', 'Rendering', [
+      { value: 'Vector', label: 'Drawing, where the engine can' },
+      { value: 'Raster', label: 'One bitmap a page' },
+    ], values, 'One bitmap a page'));
   }
 
   host.appendChild(field('mediaWidthMillimeters', 'Media width (mm)', 'number', values, { step: 'any' }));

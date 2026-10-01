@@ -223,8 +223,10 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         return SubmitRawAsync(queueName, payload, options, cancellationToken);
     }
 
-    // One GDI document for the whole file: every selected page is converted to an image
-    // first, so a corrupt file fails before any job exists. PageRanges is honoured here,
+    // One GDI document for the whole file. Each selected page is turned into an image first,
+    // unless the job asked for vectors and its converter draws onto a device context: then
+    // that converter draws every page straight into it. Either way the file is opened
+    // before any job exists, so a corrupt one spools nothing. PageRanges is honoured here,
     // unlike on every other Windows path, because a page range names converted pages
     // rather than a device mode field.
     private async Task<PrintJobInfo> SubmitDocumentAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
@@ -233,57 +235,78 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
         var request = WindowsSpoolerDeviceModeMapper.Build(options, MediaFor(queueName, options), SourcesFor(queueName, options));
         var imageRequest = WithoutImageLayout(request);
+        var converter = ConverterFor(queueName, payload.ContentType, options);
+        var renderer = options?.Rendering == PrintRendering.Vector ? converter as IPrintDeviceRenderer : null;
         var dropped = Dropped(
             queueName,
             WithoutGdiDropped(request.Dropped, true),
-            PrintOptionValidator.Unapplied(options, PrintOptionStage.Conversion, OnQueuePaper, nameof(PrintOptions.MediaSizeSource)));
+            [
+                .. PrintOptionValidator.Unapplied(options, PrintOptionStage.Conversion, OnQueuePaper, nameof(PrintOptions.MediaSizeSource)),
+                .. PrintOptionValidator.Unapplied(
+                    renderer is null && options?.Rendering == PrintRendering.Vector ? options : null,
+                    PrintOptionStage.Conversion,
+                    $"converter '{converter.Name}' renders bitmaps only",
+                    nameof(PrintOptions.Rendering)),
+            ]);
         PrintOptionValidator.ThrowIfRefused(options, PrinterId.ForSpooler(queueName), dropped);
-        var copies = options?.Copies ?? 1;
         var bytes = payload.Data.ToArray();
-        var jobName = options?.JobName ?? queueName;
-
         var renderDpi = WindowsSpoolerContent.RenderDpi(options?.ResolutionDpi);
-        (var rendered, var converterUsed) = await ConvertAsync(
+        var job = new WindowsGdiJob(
             queueName,
-            payload.ContentType,
-            bytes,
+            WindowsSpoolerContent.FileExtension(PrinterContentTypes.Png),
+            options?.JobName ?? queueName,
+            IntPtr.Zero,
+            options?.Copies ?? 1,
+            options?.Orientation,
+            options?.Scaling,
             renderDpi,
-            options,
-            cancellationToken).ConfigureAwait(false);
+            options?.Placement,
+            options?.Smoothing,
+            options?.FitArea ?? PrintFitArea.Printable);
 
+        if (renderer is not null)
+        {
+            using var document = await renderer.OpenAsync(bytes, ContextFor(queueName, payload.ContentType, PrinterContentTypes.Emf, renderDpi, options), cancellationToken).ConfigureAwait(false);
+            var drawnId = Spool(queueName, imageRequest, job with { SourceDpi = null }, payload, deviceModeJob => _images.PrintDocument(deviceModeJob, document));
+            return Queued(queueName, drawnId, options, converter.Name, PrinterContentTypes.Emf, dropped);
+        }
+
+        var rendered = await ConvertAsync(queueName, payload.ContentType, converter, bytes, renderDpi, options, cancellationToken).ConfigureAwait(false);
+        var jobId = Spool(queueName, imageRequest, job, payload, deviceModeJob => _images.PrintPages(deviceModeJob, rendered));
+        return Queued(queueName, jobId, options, converter.Name, PrinterContentTypes.Png, dropped);
+    }
+
+    // Builds the device mode, prints the job with it, and frees it whatever happens.
+    private int Spool(string queueName, DeviceModeRequest imageRequest, WindowsGdiJob job, PrinterPayload payload, Func<WindowsGdiJob, int> print)
+    {
         var deviceMode = IntPtr.Zero;
         try
         {
             deviceMode = BuildDeviceMode(queueName, imageRequest);
-            var jobId = _images.PrintPages(
-                new WindowsGdiJob(
-                    queueName,
-                    WindowsSpoolerContent.FileExtension(PrinterContentTypes.Png),
-                    jobName,
-                    deviceMode,
-                    copies,
-                    options?.Orientation,
-                    options?.Scaling,
-                    renderDpi,
-                    options?.Placement,
-                    options?.Smoothing,
-                    options?.FitArea ?? PrintFitArea.Printable),
-                rendered);
-
-            SpoolerLog.JobSpooled(_logger, queueName, jobId, bytes.Length, payload.ContentType);
-            return new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
-            {
-                JobName = options?.JobName,
-                ConverterUsed = converterUsed,
-                SubmittedContentType = PrinterContentTypes.Png,
-                DroppedOptionDetails = dropped,
-            };
+            var jobId = print(job with { DeviceMode = deviceMode });
+            SpoolerLog.JobSpooled(_logger, queueName, jobId, payload.Data.Length, payload.ContentType);
+            return jobId;
         }
         finally
         {
             FreeIfSet(deviceMode);
         }
     }
+
+    private static PrintJobInfo Queued(
+        string queueName,
+        int jobId,
+        PrintOptions? options,
+        string converterName,
+        string submittedContentType,
+        IReadOnlyList<DroppedOption> dropped) =>
+        new(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
+        {
+            JobName = options?.JobName,
+            ConverterUsed = converterName,
+            SubmittedContentType = submittedContentType,
+            DroppedOptionDetails = dropped,
+        };
 
     // One GDI job: the image is drawn onto a printer device context and the driver
     // rasterises it. Orientation and scaling are applied by the layout math, not by
@@ -299,7 +322,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             queueName,
             WithoutGdiDropped(request.Dropped, false),
             [
-                .. PrintOptionValidator.Unapplied(options, PrintOptionStage.Conversion, "the library does not convert an image", nameof(PrintOptions.ConverterName)),
+                .. PrintOptionValidator.Unapplied(options, PrintOptionStage.Conversion, "the library does not convert an image", nameof(PrintOptions.ConverterName), nameof(PrintOptions.Rendering)),
                 .. PrintOptionValidator.Unapplied(options, PrintOptionStage.Conversion, OnQueuePaper, nameof(PrintOptions.MediaSizeSource)),
             ]);
         PrintOptionValidator.ThrowIfRefused(options, PrinterId.ForSpooler(queueName), dropped);
@@ -399,16 +422,10 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         return kept;
     }
 
-    // A document format prints as images, so it needs a converter. Without one the job
-    // fails here, before it exists, instead of spooling silence. PDF names the package
-    // that carries the built-in converter, because that is the common case.
-    private async Task<(IReadOnlyList<byte[]> Pages, string ConverterName)> ConvertAsync(
-        string queueName,
-        string contentType,
-        byte[] data,
-        int dpi,
-        PrintOptions? options,
-        CancellationToken cancellationToken)
+    // A document format prints only through a converter. Without one the job fails here,
+    // before it exists, instead of spooling silence. PDF names the package that carries the
+    // built-in converter, because that is the common case.
+    private IPrintPayloadConverter ConverterFor(string queueName, string contentType, PrintOptions? options)
     {
         var converterName = PrintConverters.NameFor(_formats, contentType, options);
         var converter = _formats.ConverterFor(contentType, converterName);
@@ -423,6 +440,31 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 $"For PDF, reference AdaptArch.Devices.Windows or AdaptArch.Devices.Pdfium and call EnablePdfPrinting(). Queue '{queueName}' spooled nothing.");
         }
 
+        return converter;
+    }
+
+    // The media is deliberately absent: this path builds the device mode after it converts,
+    // so it does not yet know the sheet, and it places the page itself at the draw step.
+    // What the converter can still act on is how sharply it renders.
+    private static PrintConversionContext ContextFor(string queueName, string contentType, string targetContentType, int dpi, PrintOptions? options) =>
+        new(contentType, targetContentType, dpi, options?.PageRanges, queueName)
+        {
+            Scaling = options?.Scaling,
+            Orientation = options?.Orientation,
+            Smoothing = options?.Smoothing,
+            MediaSizeSource = options?.MediaSizeSource ?? MediaSizeSource.Printer,
+            DocumentPassword = options?.DocumentPassword,
+        };
+
+    private static async Task<IReadOnlyList<byte[]>> ConvertAsync(
+        string queueName,
+        string contentType,
+        IPrintPayloadConverter converter,
+        byte[] data,
+        int dpi,
+        PrintOptions? options,
+        CancellationToken cancellationToken)
+    {
         // A converter is chosen by what it reads, and GDI draws only PNG. One that reads this
         // format but writes something else -- a PWG Raster stream, say, for an IPP printer --
         // would otherwise be handed to GDI, which reads the first octets and draws nothing.
@@ -433,25 +475,14 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 $"register one that does. Queue '{queueName}' spooled nothing. PrintOptions.OnUnsupported does not apply to a named converter.");
         }
 
-        // The media is deliberately absent: this path builds the device mode after it
-        // converts, so it does not yet know the sheet, and it places the page itself at the
-        // draw step. What the converter can still act on is how sharply it renders.
-        PrintConversionContext context = new(contentType, PrinterContentTypes.Png, dpi, options?.PageRanges, queueName)
-        {
-            Scaling = options?.Scaling,
-            Orientation = options?.Orientation,
-            Smoothing = options?.Smoothing,
-            MediaSizeSource = options?.MediaSizeSource ?? MediaSizeSource.Printer,
-            DocumentPassword = options?.DocumentPassword,
-        };
-        var pages = await converter.ConvertAsync(data, context, cancellationToken).ConfigureAwait(false);
+        var pages = await converter.ConvertAsync(data, ContextFor(queueName, contentType, PrinterContentTypes.Png, dpi, options), cancellationToken).ConfigureAwait(false);
         if (pages.Count == 0)
         {
             throw new InvalidOperationException(
                 $"The converter of '{contentType}' returned no page, so queue '{queueName}' spooled nothing.");
         }
 
-        return (pages, converter.Name);
+        return pages;
     }
 
     private Task<PrintJobInfo> SubmitRawAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
@@ -474,6 +505,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 nameof(PrintOptions.FitArea),
                 nameof(PrintOptions.Placement),
                 nameof(PrintOptions.Smoothing),
+                nameof(PrintOptions.Rendering),
                 nameof(PrintOptions.MediaSizeSource)));
         PrintOptionValidator.ThrowIfRefused(options, PrinterId.ForSpooler(queueName), dropped);
         var copies = options?.Copies ?? 1;

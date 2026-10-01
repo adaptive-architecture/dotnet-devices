@@ -1,4 +1,6 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using AdaptArch.Devices.Printing;
 using AdaptArch.Devices.Printing.Raster;
 using PDFiumCore;
@@ -9,8 +11,11 @@ namespace AdaptArch.Devices.Pdfium;
 // caller encodes them, because the two channels that convert want different formats and
 // PDFium writes neither.
 //
+// It also draws them straight into a Windows printer device context, which PDFiumCore does
+// not bind.
+//
 // This is the only file that calls the engine, and every call in it runs under Gate.
-internal static class PdfiumRenderer
+internal static partial class PdfiumRenderer
 {
     // public/fpdfview.h: the two bitmap formats this renderer asks for. Gray is one octet a
     // pixel, and BGR is three in blue, green, red order, which is the one swap below.
@@ -64,7 +69,44 @@ internal static class PdfiumRenderer
         }
     }
 
+    // Opens the document under the gate and keeps the gate until the document is disposed,
+    // because its pages are drawn later, one at a time, inside the print job.
+    internal static async Task<IPrintDeviceDocument> OpenAsync(
+        byte[] pdf,
+        PdfRenderOptions options,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(pdf);
+        ArgumentNullException.ThrowIfNull(options);
+
+        await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return new DeviceDocument(Open(pdf, options));
+        }
+        catch
+        {
+            _ = Gate.Release();
+            throw;
+        }
+    }
+
     private static List<RenderedPdfPage> Render(byte[] pdf, PdfRenderOptions options, CancellationToken cancellationToken)
+    {
+        using var opened = Open(pdf, options);
+        var dpi = PdfRenderLimits.ClampDpi(options.Dpi);
+        var flags = options.Smoothing ? PrintingFlags : PrintingFlags | NoSmoothingFlags;
+        List<RenderedPdfPage> rendered = new(opened.Selected.Count);
+        foreach (var index in opened.Selected)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            rendered.Add(RenderPage(opened.Document, index, dpi, options.ColorSpace, flags));
+        }
+
+        return rendered;
+    }
+
+    private static OpenedPdf Open(byte[] pdf, PdfRenderOptions options)
     {
         if (!s_initialized)
         {
@@ -74,9 +116,6 @@ internal static class PdfiumRenderer
             fpdfview.FPDF_InitLibrary();
             s_initialized = true;
         }
-
-        var dpi = PdfRenderLimits.ClampDpi(options.Dpi);
-        var flags = options.Smoothing ? PrintingFlags : PrintingFlags | NoSmoothingFlags;
 
         // FPDF_LoadMemDocument64 does not copy, and PDFium reads the buffer for as long as
         // the document is open, so the bytes stay pinned until it is closed.
@@ -112,16 +151,9 @@ internal static class PdfiumRenderer
                 throw new InvalidOperationException("The page ranges select no page of this PDF.");
             }
 
-            List<RenderedPdfPage> rendered = new(selected.Count);
-            foreach (var index in selected)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                rendered.Add(RenderPage(document, index, dpi, options.ColorSpace, flags));
-            }
-
-            return rendered;
+            return new OpenedPdf(pinned, document, selected);
         }
-        finally
+        catch
         {
             if (document is not null)
             {
@@ -129,6 +161,7 @@ internal static class PdfiumRenderer
             }
 
             pinned.Free();
+            throw;
         }
     }
 
@@ -193,6 +226,12 @@ internal static class PdfiumRenderer
         return new RenderedPdfPage(pixels, width, height, colorSpace, size.Width, size.Height);
     }
 
+    // public/fpdfview.h, Windows only. PDFiumCore binds the bitmap renderer and not this one.
+    [LibraryImport("pdfium", EntryPoint = "FPDF_RenderPage")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    [SupportedOSPlatform("windows")]
+    private static partial int RenderPageToDevice(nint deviceContext, nint page, int startX, int startY, int sizeX, int sizeY, int rotate, int flags);
+
     // PDFium writes blue, green, red; both encoders read red, green, blue. The green stays
     // where it is, so only the two outer octets of each pixel move.
     private static void SwapBlueAndRed(byte[] pixels)
@@ -200,6 +239,93 @@ internal static class PdfiumRenderer
         for (var i = 0; i < pixels.Length; i += 3)
         {
             (pixels[i], pixels[i + 2]) = (pixels[i + 2], pixels[i]);
+        }
+    }
+
+    // A loaded document, the pinned bytes it reads and the pages selected from it.
+    private sealed class OpenedPdf : IDisposable
+    {
+        private GCHandle _pinned;
+
+        public OpenedPdf(GCHandle pinned, FpdfDocumentT document, IReadOnlyList<int> selected)
+        {
+            _pinned = pinned;
+            Document = document;
+            Selected = selected;
+        }
+
+        public FpdfDocumentT Document { get; }
+
+        public IReadOnlyList<int> Selected { get; }
+
+        public void Dispose()
+        {
+            fpdfview.FPDF_CloseDocument(Document);
+            _pinned.Free();
+        }
+    }
+
+    // Holds the gate from the moment it is opened to the moment it is disposed, so nothing
+    // else enters the engine while a print job draws its pages.
+    private sealed class DeviceDocument : IPrintDeviceDocument
+    {
+        private readonly OpenedPdf _pdf;
+        private bool _disposed;
+
+        public DeviceDocument(OpenedPdf pdf) => _pdf = pdf;
+
+        public int PageCount => _pdf.Selected.Count;
+
+        public MediaDimensions PageSize(int index)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            using FS_SIZEF_ size = new();
+            if (fpdfview.FPDF_GetPageSizeByIndexF(_pdf.Document, _pdf.Selected[index], size) == 0)
+            {
+                throw new InvalidOperationException($"The PDF page {_pdf.Selected[index] + 1} has no size to render.");
+            }
+
+            return new MediaDimensions(
+                PrintLength.FromInches(size.Width / PdfRenderLimits.PointsPerInch),
+                PrintLength.FromInches(size.Height / PdfRenderLimits.PointsPerInch));
+        }
+
+        public void Draw(nint deviceContext, int index, ImageRectangle target, int quarterTurns, bool smoothing)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!OperatingSystem.IsWindows())
+            {
+                throw new PlatformNotSupportedException("PDFium draws into a device context only on Windows.");
+            }
+
+            var number = _pdf.Selected[index] + 1;
+            var page = fpdfview.FPDF_LoadPage(_pdf.Document, _pdf.Selected[index])
+                ?? throw new InvalidOperationException(
+                    $"The PDF page {number} could not be read. PDFium reported error {fpdfview.FPDF_GetLastError()}.");
+            try
+            {
+                var flags = smoothing ? PrintingFlags : PrintingFlags | NoSmoothingFlags;
+                if (RenderPageToDevice(deviceContext, page.__Instance, target.X, target.Y, target.Width, target.Height, quarterTurns, flags) == 0)
+                {
+                    throw new InvalidOperationException($"PDFium could not draw the PDF page {number} into the printer device context.");
+                }
+            }
+            finally
+            {
+                fpdfview.FPDF_ClosePage(page);
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _pdf.Dispose();
+            _ = Gate.Release();
         }
     }
 }

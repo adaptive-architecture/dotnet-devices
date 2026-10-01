@@ -1,0 +1,49 @@
+{
+  "name": "PDF as vectors",
+  "description": "The same pages through the Windows spooler drawn by PDFium as vectors, which a job asks for with rendering Vector, and then as one bitmap a page, which is the default. Compare the sheets and the spool file sizes: drawn, the text is as sharp as the printer can make it and the job is a fraction of the size. The label pair repeats the comparison on the 4 by 6 inch label with smoothing off, which is where a driver's own halftoning of the bars shows. The Windows in-box engine renders bitmaps only, so its job reports Rendering as dropped.",
+  "mode": "queue",
+  "jobs": [
+    {
+      "file": "pages.pdf",
+      "description": "PDFium, drawn: every page as vectors",
+      "options": {
+        "converter": "PDFium",
+        "rendering": "Vector"
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "PDFium, as bitmaps: every page as one image",
+      "options": {
+        "converter": "PDFium",
+        "rendering": "Raster"
+      }
+    },
+    {
+      "file": "document.pdf",
+      "description": "PDFium, the label drawn with smoothing off",
+      "options": {
+        "converter": "PDFium",
+        "rendering": "Vector",
+        "smoothing": false
+      }
+    },
+    {
+      "file": "document.pdf",
+      "description": "PDFium, the label as bitmaps with smoothing off",
+      "options": {
+        "converter": "PDFium",
+        "rendering": "Raster",
+        "smoothing": false
+      }
+    },
+    {
+      "file": "pages.pdf",
+      "description": "Windows in-box engine asked for vectors: prints bitmaps and reports Rendering as dropped",
+      "options": {
+        "converter": "Windows",
+        "rendering": "Vector"
+      }
+    }
+  ]
+}

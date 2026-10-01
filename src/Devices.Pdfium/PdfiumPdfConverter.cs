@@ -7,8 +7,9 @@ namespace AdaptArch.Devices.Pdfium;
 // every platform this library runs on. Everything but the engine call is the base class.
 //
 // It renders through PdfiumDocument, the package's public entry point, so that the surface
-// an application places a page with is proved by a caller inside the library.
-internal sealed class PdfiumPdfConverter : PdfPayloadConverter
+// an application places a page with is proved by a caller inside the library. On the Windows
+// spooler it draws into the printer device context instead when the job asks for vectors.
+internal sealed class PdfiumPdfConverter : PdfPayloadConverter, IPrintDeviceRenderer
 {
     // The engine, not the package: a job names what renders it, and this reads the same
     // on every platform the package runs on.
@@ -31,4 +32,14 @@ internal sealed class PdfiumPdfConverter : PdfPayloadConverter
                 Password = context.DocumentPassword,
             },
             cancellationToken);
+
+    public Task<IPrintDeviceDocument> OpenAsync(byte[] data, PrintConversionContext context, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        return PdfiumRenderer.OpenAsync(
+            data,
+            new PdfRenderOptions { PageRanges = context.PageRanges, Password = context.DocumentPassword },
+            cancellationToken);
+    }
 }

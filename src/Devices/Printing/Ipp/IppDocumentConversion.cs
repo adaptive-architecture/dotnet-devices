@@ -183,14 +183,19 @@ internal static class IppDocumentConversion
 
         var converted = ConvertedOptions(options, converter.PlacesOnMedia(context));
         // The job then asks for the resolution the raster carries, not the one it named.
-        DroppedOption[] moved = [];
+        List<DroppedOption> moved = [];
         if (options?.ResolutionDpi is int requested && requested != dpi)
         {
             converted.ResolutionDpi = dpi;
-            moved = [new DroppedOption(
+            moved.Add(new DroppedOption(
                 nameof(PrintOptions.ResolutionDpi),
                 PrintOptionStage.Conversion,
-                $"the page was rasterized at {dpi} dpi, the resolution chosen from those the printer rasters at")];
+                $"the page was rasterized at {dpi} dpi, the resolution chosen from those the printer rasters at"));
+        }
+
+        if (options?.Rendering == PrintRendering.Vector)
+        {
+            moved.Add(new DroppedOption(nameof(PrintOptions.Rendering), PrintOptionStage.Conversion, $"{target} is a raster format"));
         }
 
         return new IppConversion(PrinterPayload.FromBytes(documents[0], target), target, converted, moved, converter.Name);
@@ -303,5 +308,5 @@ internal static class IppDocumentConversion
             options,
             PrintOptionStage.Conversion,
             reason,
-            [nameof(PrintOptions.FitArea), nameof(PrintOptions.Placement), nameof(PrintOptions.Smoothing), nameof(PrintOptions.MediaSizeSource), .. more]);
+            [nameof(PrintOptions.FitArea), nameof(PrintOptions.Placement), nameof(PrintOptions.Smoothing), nameof(PrintOptions.Rendering), nameof(PrintOptions.MediaSizeSource), .. more]);
 }

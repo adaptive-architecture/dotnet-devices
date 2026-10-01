@@ -53,6 +53,10 @@ internal sealed class PrintOptionsDto
     // Off keeps the edge of a barcode hard. Null is the engine default, which smooths.
     public bool? Smoothing { get; set; }
 
+    // "Vector" or "Raster": whether a PDF reaches a Windows driver as drawing or as bitmaps.
+    // Null is Raster. Vector takes effect only where PDFium renders on the Windows spooler.
+    public string Rendering { get; set; }
+
     // A media size the printer has no name for, in millimetres. Ignored when MediaSize names
     // one the printer knows.
     public double? MediaWidthMillimeters { get; set; }
@@ -95,6 +99,7 @@ internal sealed class PrintOptionsDto
             ConverterName = Trim(Converter),
             JobName = Trim(JobName) ?? jobName,
             Smoothing = Smoothing,
+            Rendering = ParseEnum<PrintRendering>(Rendering, nameof(Rendering)),
             Placement = ParsePlacement(),
             MediaDimensions = ParseMediaDimensions(),
             MediaSizeSource = ParseEnum<MediaSizeSource>(MediaSizeSource, nameof(MediaSizeSource)) ?? AdaptArch.Devices.Printing.MediaSizeSource.Printer,

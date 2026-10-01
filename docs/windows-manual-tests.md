@@ -38,6 +38,8 @@ Left open by that session: the T3 variants the sample button skips, identity cas
 
 **The placement work of 2026-09-21 postdates that session**, so test 11 below has never run.
 Everything in it is exercised through the seams on Linux, and none of it has met a ruler.
+Nor has test 12: PDFium drawing a PDF as vectors through the spooler is proved on the Windows
+runner against a metafile device context, and has never reached a printer.
 
 ## What the automated tests already prove
 
@@ -415,8 +417,10 @@ Print `PrintJobs/pdf-placement.json` through a spooler queue, and the same set t
 queue if one is reachable. The two paths place a page by different means — GDI draws it on
 Windows, a composed raster carries it over IPP — so agreeing on paper is the thing worth
 proving. Every job names PDFium, because a placement on an IPP queue applies only when the
-job chooses an engine; on Windows it means PDFium renders the pages rather than the in-box
-engine.
+job chooses an engine. The jobs alternate between `rendering: Vector` and `rendering: Raster`,
+starting with vectors, so on Windows the set measures both spooler paths: a vector sheet and a
+bitmap sheet that should land in the same place must agree to the millimetre. Over IPP every
+page is a raster, and the vector jobs report `Rendering` in `DroppedOptions` there.
 
 Every job but the first prints `document.pdf`, a 4 by 6 inch label, at its own size, so it
 has room to move on a larger sheet.
@@ -446,3 +450,30 @@ has room to move on a larger sheet.
 
 Write down the printer, the stock and every measurement. A sheet without its measurements
 proves nothing a photograph would not.
+
+### 12. A PDF as vectors through the spooler
+
+**Why by hand.** A unit test on the Windows runner draws a barcode into a metafile device
+context and finds paths there and no bitmap. What only a printer shows is what its driver makes
+of that drawing: whether the text is sharper, the spool job smaller, and the bars as hard as
+the bitmap path made them.
+
+Print `PrintJobs/pdf-vector.json` through two spooler queues: an office printer on A4, and a
+label printer loaded with 4 by 6 inch stock for the label pair. The sample enables PDFium on
+every platform.
+
+- **The drawn and the bitmap sheet** of `pages.pdf` must carry the same content in the same
+  place. Under a loupe the drawn text must be at least as sharp. Write down the size of each
+  job in the queue window while it is held: the drawn one should be a fraction of the other.
+- **The spool file must hold drawing.** With the queue paused, copy the `.SPL` file from
+  `%SystemRoot%\System32\spool\PRINTERS` and open it with an EMF spool viewer. The drawn job must
+  show path or text records; the bitmap job must show one `STRETCHDIBITS` a page. A queue
+  whose driver renders on the client may keep no EMF at all; write that down rather than
+  calling it a failure.
+- **The label pair** must scan with a real scanner, both of them. Compare the bar edges: where
+  the drawn sheet is softer, the driver's halftoning is to blame, and that printer should stay
+  on the bitmap default.
+- **The in-box engine job** must print bitmaps and report `Rendering` in `DroppedOptions`.
+- **The comparison, optional.** Print `pages.pdf` with WPCubed's `wPDFView04.dll` `pdfPrint`
+  and its default options, and inspect that spool file the same way. Record whether it holds
+  drawing or bitmaps, so a claim of the same output rests on evidence.

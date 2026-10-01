@@ -66,7 +66,7 @@ event 2041 at `Warning`, whether or not the job went through `PrinterManager`.
 | :--- | :--- | :--- |
 | `PrinterCapabilities` | `UnsupportedOptionBehavior.Drop` removed a value the printer does not list. | Pick a value from `PrinterConfiguration`, or use `Throw` to fail the job instead. |
 | `DeviceMode` | The Windows spooler has no device mode field for it, or the driver of the queue does not offer the value. | Set it on the queue itself, or print over IPP. |
-| `Conversion` | Only the library's renderer applies it, and the job was not rendered: the format is not converted on this path, no converter is registered, or the printer reads nothing the converter writes. | Register a converter, or send a format the channel renders. `Smoothing` alone never makes a job render. |
+| `Conversion` | Only the library's renderer applies it, and the job was not rendered: the format is not converted on this path, no converter is registered, or the printer reads nothing the converter writes. | Register a converter, or send a format the channel renders. `Smoothing` alone never makes a job render. `Rendering` is also reported here when it asks for vectors from an engine or a format that is raster only: everywhere but PDFium on the Windows spooler. |
 | `Channel` | The channel has nowhere to carry it: a raw socket sends the bytes with no job template, CUPS receives the document as it is, and a Windows queue takes a printer language as `RAW`. | Choose a channel that applies it, or leave it unset. `OnUnsupported = Throw` fails such a job before it is sent. |
 
 ## Which transport answered?

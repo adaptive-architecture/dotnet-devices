@@ -1,5 +1,6 @@
 ﻿#nullable enable
 using System.Collections.Generic;
+using AdaptArch.Devices.Printing;
 using AdaptArch.Devices.Printing.Spooler;
 
 namespace AdaptArch.Devices.UnitTests.Printing.Spooler;
@@ -14,6 +15,8 @@ internal sealed class FakeWindowsGdiImagePrinter : IWindowsGdiImagePrinter
 
     public List<IReadOnlyList<byte[]>> Pages { get; } = [];
 
+    public List<IPrintDeviceDocument> Documents { get; } = [];
+
     public int JobId { get; set; } = 42;
 
     public Exception? Failure { get; set; }
@@ -24,6 +27,14 @@ internal sealed class FakeWindowsGdiImagePrinter : IWindowsGdiImagePrinter
     {
         Jobs.Add(job);
         Pages.Add(pages);
+
+        return Failure is null ? JobId : throw Failure;
+    }
+
+    public int PrintDocument(WindowsGdiJob job, IPrintDeviceDocument document)
+    {
+        Jobs.Add(job);
+        Documents.Add(document);
 
         return Failure is null ? JobId : throw Failure;
     }
