@@ -169,6 +169,19 @@ public sealed class PrintOptions
     public string? DocumentPassword { get; set; }
 
     /// <summary>
+    /// Gets or sets the TrueType fonts that draw the characters of a plain-text, CSV or email
+    /// job that Courier does not carry, tried in order. Unset uses
+    /// <see cref="PrinterManagerOptions.TextFonts"/> and then
+    /// <see cref="PrintFormatPolicy.AddDefaultTextFont"/>.
+    /// </summary>
+    /// <remarks>
+    /// Library-only: the fonts are embedded in the PDF the library lays the text out as. A job
+    /// the library sends as it is, or that is not text, reports it in
+    /// <see cref="PrintJobInfo.DroppedOptionDetails"/>.
+    /// </remarks>
+    public IReadOnlyList<PrintFont>? TextFonts { get; set; }
+
+    /// <summary>
     /// Gets or sets the media type name, such as <c>stationery</c> or <c>labels</c>.
     /// </summary>
     /// <remarks>
@@ -221,8 +234,10 @@ public sealed class PrintOptions
     /// converter carries the name, when the printer reads nothing the converter writes, and
     /// when the channel renders nothing, as a raw socket or a printer language does.
     /// <see cref="PrintFormatPolicy.ConvertersFor"/> lists what a process can be asked for.
-    /// A name on an image is the one exception: the library never converts an image, so the
-    /// name is reported in <see cref="PrintJobInfo.DroppedOptionDetails"/> instead.
+    /// A name on an image the Windows spooler draws through GDI is the one exception: it is
+    /// reported in <see cref="PrintJobInfo.DroppedOptionDetails"/> instead. Plain text, CSV,
+    /// email and an image elsewhere are laid out as PDF first, and the name picks the PDF
+    /// converter that renders that.
     /// </para>
     /// </remarks>
     public string? ConverterName { get; set; }

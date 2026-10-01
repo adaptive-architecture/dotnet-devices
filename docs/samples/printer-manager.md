@@ -31,7 +31,9 @@ The four tabs are:
   label lands on larger stock, to be measured rather than judged), `PrintJobs/pdf-vector.json`
   (the same PDF drawn as vectors and as bitmaps through the Windows spooler) and `PrintJobs/pdf-urf.json`
   (PDFium rendering every PDF for a CUPS queue, which a macOS queue must receive as URF; each
-  submission logs the engine that rendered it and the format sent). A set can also be uploaded, so the same test runs on Windows, Linux and
+  submission logs the engine that rendered it and the format sent), and `PrintJobs/text-and-images.json`
+  (plain text, CSV, an email, a placed JPEG and a PNG, which the library lays out as PDF where
+  the channel cannot take them, and an HTML-only email that must be refused). A set can also be uploaded, so the same test runs on Windows, Linux and
   macOS and the results compare job by job. The run ends with a summary of what became of
   each job. The set is edited in the browser: one tab per job, named by the file it prints,
   with the same option controls the print tab builds from what the channel reported, and jobs

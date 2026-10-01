@@ -21,11 +21,15 @@ public sealed class PrintFormatPolicy
         new(PrinterContentTypes.EscPos, PrinterFormatKind.RawLanguage),
         new(PrinterContentTypes.Dpl, PrinterFormatKind.RawLanguage),
         new(PrinterContentTypes.Pdf, PrinterFormatKind.Document, "PDF"),
+        new(PrinterContentTypes.Text, PrinterFormatKind.Document),
+        new(PrinterContentTypes.Csv, PrinterFormatKind.Document),
+        new(PrinterContentTypes.Email, PrinterFormatKind.Document),
         new(PrinterContentTypes.Png, PrinterFormatKind.Image, "PNG"),
         new(PrinterContentTypes.Jpeg, PrinterFormatKind.Image, "JPEG"),
     ];
 
     private static readonly List<IPrintPayloadConverter> ProcessConverters = [];
+    private static readonly List<PrintFont> ProcessFonts = [];
     private static readonly Lock ProcessLock = new();
 
     private readonly Dictionary<string, PrinterFormat> _formats;
@@ -123,6 +127,51 @@ public sealed class PrintFormatPolicy
             {
                 ProcessConverters.Add(converter);
             }
+        }
+    }
+
+    /// <summary>
+    /// Gets the TrueType fonts that draw the characters of plain text, CSV and email that
+    /// Courier does not carry, tried in order before the ones given to <see cref="AddDefaultTextFont"/>.
+    /// </summary>
+    public IReadOnlyList<PrintFont> TextFonts { get; init; } = [];
+
+    /// <summary>
+    /// Adds a font every printer of the process may draw text with, for an application that
+    /// builds no <see cref="PrinterManager"/> of its own.
+    /// </summary>
+    /// <param name="font">The font to add. A font that is already registered is not added twice.</param>
+    /// <remarks>
+    /// <see cref="PrinterManagerOptions.TextFonts"/> is the way to register one for a single
+    /// manager, and it is tried first.
+    /// </remarks>
+    public static void AddDefaultTextFont(PrintFont font)
+    {
+        ArgumentNullException.ThrowIfNull(font);
+        lock (ProcessLock)
+        {
+            if (!ProcessFonts.Contains(font))
+            {
+                ProcessFonts.Add(font);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the fonts a job draws its text with, after Courier, in the order they are tried.
+    /// </summary>
+    /// <param name="jobFonts">The fonts the job names in <see cref="PrintOptions.TextFonts"/>, which replace every other list.</param>
+    /// <returns>The fonts, best first.</returns>
+    public IReadOnlyList<PrintFont> TextFontsFor(IReadOnlyList<PrintFont>? jobFonts)
+    {
+        if (jobFonts is not null)
+        {
+            return jobFonts;
+        }
+
+        lock (ProcessLock)
+        {
+            return [.. TextFonts, .. ProcessFonts.Except(TextFonts)];
         }
     }
 

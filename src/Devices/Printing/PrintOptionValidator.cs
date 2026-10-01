@@ -163,6 +163,7 @@ internal static class PrintOptionValidator
         AddIfSet(set, options.PageRanges is not null, nameof(PrintOptions.PageRanges));
         AddIfSet(set, options.ConverterName is not null, nameof(PrintOptions.ConverterName));
         AddIfSet(set, options.NumberUp is not null, nameof(PrintOptions.NumberUp));
+        AddIfSet(set, options.TextFonts is not null, nameof(PrintOptions.TextFonts));
         return set;
     }
 
@@ -240,6 +241,23 @@ internal static class PrintOptionValidator
         return copy;
     }
 
+    // A document the library laid out as PDF carries the fit, the anchor and the offset in its
+    // page, so nothing after it may apply them again; the fonts it embedded are spent too.
+    // The page ranges stay, because they select pages of that PDF.
+    public static PrintOptions WithSynthesizedGeometry(PrintOptions? options, bool placedOnMedia)
+    {
+        var copy = options is null ? new PrintOptions() : Copy(options);
+        copy.TextFonts = null;
+        if (placedOnMedia)
+        {
+            copy.Scaling = PrintScaling.None;
+            copy.Placement = null;
+            copy.FitArea = PrintFitArea.Printable;
+        }
+
+        return copy;
+    }
+
     // A queue that renders the document itself fits it only onto media it was told about,
     // so the job names the media and the fit rather than leaving either to the queue. The
     // media the job named wins, and so does the fit it asked for.
@@ -294,6 +312,7 @@ internal static class PrintOptionValidator
             MediaSizeSource = options.MediaSizeSource,
             FitArea = options.FitArea,
             DocumentPassword = options.DocumentPassword,
+            TextFonts = options.TextFonts,
             Placement = options.Placement,
             Smoothing = options.Smoothing,
             Rendering = options.Rendering,

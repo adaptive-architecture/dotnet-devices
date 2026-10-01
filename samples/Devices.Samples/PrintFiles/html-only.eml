@@ -1,0 +1,5 @@
+From: html-only@example.com
+Subject: HTML only
+Content-Type: text/html
+
+<p>This message has no plain-text part, so the library refuses it.</p>

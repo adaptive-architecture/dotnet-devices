@@ -1,0 +1,37 @@
+{
+  "name": "Text, email and images",
+  "description": "Plain text, CSV, an email and the two images, which the library lays out as a PDF wherever the channel cannot take them as they are. Text prints in 10-point Courier with half-inch margins, and the text file has a second page after a form feed. The email prints its headers and its plain-text part, and skips the HTML alternative and the attachment. The placed photo goes against the top left corner of the sheet, 15 mm right and 10 mm down, on every channel: over IPP or CUPS a placement is what makes the library lay an image out, and on the Windows spooler GDI places it. The HTML-only email must fail before anything is sent.",
+  "mode": "queue",
+  "jobs": [
+    {
+      "file": "text.txt",
+      "description": "plain text: two pages, tab stops, Windows-1252 characters and a wrapped line"
+    },
+    {
+      "file": "table.csv",
+      "description": "CSV printed as plain text, not as a table"
+    },
+    {
+      "file": "email.eml",
+      "description": "the headers and the plain-text part; the HTML alternative and the PDF attachment are not printed"
+    },
+    {
+      "file": "photo.jpeg",
+      "description": "the photo against the top left corner, 15 mm right and 10 mm down, at its own size",
+      "options": {
+        "scaling": "None",
+        "anchor": "TopLeft",
+        "offsetXMillimeters": 15,
+        "offsetYMillimeters": 10
+      }
+    },
+    {
+      "file": "image.png",
+      "description": "the PNG fitted to the sheet"
+    },
+    {
+      "file": "html-only.eml",
+      "description": "refused: the message has no plain-text part, so nothing is sent"
+    }
+  ]
+}

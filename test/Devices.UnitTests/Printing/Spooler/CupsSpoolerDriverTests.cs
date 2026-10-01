@@ -418,6 +418,36 @@ public class CupsSpoolerDriverTests
         Assert.True(HasFitToPage(handler.RequestBodies[1]));
     }
 
+    // CUPS prints plain text through its own filters, so a job that asks for nothing more costs
+    // no format read and reaches the queue as it was given.
+    [Fact]
+    public async Task SubmitAsync_PlainTextAskingForNothing_GoesAsItIs()
+    {
+        var handler = QueueWithDefaultMedia("iso_a4_210x297mm");
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        var job = await driver.SubmitAsync("lobby", PrinterPayload.FromString("hello", PrinterContentTypes.Text), null, TestContext.Current.CancellationToken);
+
+        Assert.Equal(PrinterContentTypes.Text, job.SubmittedContentType);
+        Assert.DoesNotContain("%PDF", Latin1(handler.RequestBodies[^1]), StringComparison.Ordinal);
+    }
+
+    // No stock filter reads CSV, so the library lays it out on the queue's media, and the page
+    // that is the media is not fitted to it a second time.
+    [Fact]
+    public async Task SubmitAsync_Csv_IsLaidOutAsPdfOnTheQueueMedia()
+    {
+        var handler = QueueWithDefaultMedia("iso_a4_210x297mm");
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        var job = await driver.SubmitAsync("lobby", PrinterPayload.FromString("a,b", PrinterContentTypes.Csv), null, TestContext.Current.CancellationToken);
+
+        var sent = Latin1(handler.RequestBodies[^1]);
+        Assert.Equal(PrinterContentTypes.Pdf, job.SubmittedContentType);
+        Assert.Contains("/MediaBox[0 0 595.276 841.89]", sent, StringComparison.Ordinal);
+        Assert.False(HasFitToPage(handler.RequestBodies[^1]));
+    }
+
     [Theory]
     [InlineData("^XA^XZ", PrinterContentTypes.Zpl)]
     [InlineData("PNG", PrinterContentTypes.Png)]

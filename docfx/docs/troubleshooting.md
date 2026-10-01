@@ -176,6 +176,9 @@ An event identifier is stable. It is never reused for another meaning and never 
 | 2036 | Information | A discovery ran because an identifier could not be resolved. |
 | 2040 | Debug | The options a job lost, in one line. Event 2041 reports each of them. |
 | 2041 | Warning | One option a job lost, with the stage that dropped it and the reason. Each printer type raises it, with or without `PrinterManager`. |
+| 2042 | Debug | A plain-text, CSV, email or image job was laid out as PDF. |
+| 2043 | Warning | Characters of a text job that no font carries, printed as `?`. Add a font that has them to `PrintOptions.TextFonts` or `PrinterManagerOptions.TextFonts`. |
+| 2044 | Information | The parts of an email that were not printed, such as attachments. |
 | 2050 | Information | A job was submitted: the job, the printer, the endpoint, the format and the size. |
 | 2051 | Debug | The name of a job and the user who sent it. **Personal data.** |
 | 2060 | Information | A job reached a terminal state. |

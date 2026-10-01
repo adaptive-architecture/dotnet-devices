@@ -477,3 +477,22 @@ every platform.
 - **The comparison, optional.** Print `pages.pdf` with WPCubed's `wPDFView04.dll` `pdfPrint`
   and its default options, and inspect that spool file the same way. Record whether it holds
   drawing or bitmaps, so a claim of the same output rests on evidence.
+
+### 13. Text, email and images, laid out as PDF
+
+**Why by hand.** Unit tests check the PDF the library writes, and PDFium, poppler and
+Ghostscript all render it, but only a driver shows whether the page lands where it is drawn:
+text pages are the media, drawn from the corner of the paper rather than fitted again.
+
+Print `PrintJobs/text-and-images.json` through a spooler queue on A4, with PDFium enabled, and
+again over `ipp://` to a printer that lists `image/jpeg` but not `text/plain`.
+
+- **The text sheets** must show half-inch margins, measured with a ruler, and the second page
+  must start with the line after the form feed. Neither the left nor the top margin may be
+  wider than the right or the bottom by more than a millimetre.
+- **The email** must print its headers and the plain-text body, and nothing of the HTML or the
+  attachment. Event 2044 must report the attachment as skipped.
+- **The placed photo** must sit 15 mm from the left and 10 mm from the top edge on both
+  channels. Over IPP, `SubmittedContentType` must be `application/pdf` or a raster, never
+  `image/jpeg`.
+- **The HTML-only email** must fail with `NotSupportedException`, and the queue must show no job.

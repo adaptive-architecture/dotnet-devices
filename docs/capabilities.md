@@ -24,3 +24,8 @@ write, so the buffer protocol, the page loop and the error paths run in the ordi
 **What has not met hardware is the placement work**, which postdates that session: it is
 arithmetic with unit tests, and where a page actually lands is a question only a ruler
 answers. [Windows manual tests](windows-manual-tests.md) lists each run and what is left.
+
+**Text, email and images laid out as PDF have met no printer yet.** Unit tests check the PDF
+the library writes for each format and what each channel sends, and the files were rendered
+by PDFium, poppler and Ghostscript, which agreed. Where a driver puts a text page is
+[manual test 13](windows-manual-tests.md#13-text-email-and-images-laid-out-as-pdf).

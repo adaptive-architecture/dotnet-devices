@@ -209,8 +209,18 @@ public sealed class PrinterManagerOptions
     public IDictionary<string, string> RequiredConverters { get; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Builds the snapshot of <see cref="Formats"/>, <see cref="Converters"/> and
-    /// <see cref="RequiredConverters"/> that a printer reads.
+    /// Gets the TrueType fonts that draw the characters of plain text, CSV and email that
+    /// Courier does not carry, tried in order after Courier.
+    /// </summary>
+    /// <remarks>
+    /// A job that sets <see cref="PrintOptions.TextFonts"/> uses its own list instead. Fonts
+    /// given to <see cref="PrintFormatPolicy.AddDefaultTextFont"/> are tried after these.
+    /// </remarks>
+    public IList<PrintFont> TextFonts { get; } = [];
+
+    /// <summary>
+    /// Builds the snapshot of <see cref="Formats"/>, <see cref="Converters"/>,
+    /// <see cref="RequiredConverters"/> and <see cref="TextFonts"/> that a printer reads.
     /// </summary>
     /// <returns>The policy to give to <see cref="PrinterFactory.Formats"/>, or to a printer opened directly.</returns>
     /// <remarks>
@@ -218,5 +228,5 @@ public sealed class PrinterManagerOptions
     /// job that is already on its way. Call it again to pick up later edits.
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when <see cref="RequiredConverters"/> lists a format that is not a document, or a blank name.</exception>
-    public PrintFormatPolicy BuildFormatPolicy() => new(Formats, Converters, RequiredConverters);
+    public PrintFormatPolicy BuildFormatPolicy() => new(Formats, Converters, RequiredConverters) { TextFonts = [.. TextFonts] };
 }
