@@ -18,14 +18,16 @@ internal static class WindowsPdfRenderer
 {
     // Renders the selected pages in document order, one at a time as the caller takes them.
     // Ranges is the 1-based option the caller set; null renders the whole document.
-    internal static async IAsyncEnumerable<RenderedPdfPage> RenderAsync(
+    internal static IAsyncEnumerable<RenderedPdfPage> RenderAsync(
         byte[] pdf,
         int dpi,
         IReadOnlyList<PageRange>? ranges,
         RasterColorSpace colorSpace,
         string? password,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        CancellationToken cancellationToken)
     {
+        // Checked here and not in the iterator, which runs only when the first page is asked
+        // for: a machine with no engine fails at the call.
         ArgumentNullException.ThrowIfNull(pdf);
 
         // The version is checked, and not only the platform: .NET 10 still supports Windows
@@ -39,8 +41,18 @@ internal static class WindowsPdfRenderer
                 "and on Windows Server with the Desktop Experience. This machine has none.");
         }
 
+        return RenderPagesAsync(pdf, PdfRenderLimits.ClampDpi(dpi), ranges, colorSpace, password, cancellationToken);
+    }
+
+    private static async IAsyncEnumerable<RenderedPdfPage> RenderPagesAsync(
+        byte[] pdf,
+        int dpi,
+        IReadOnlyList<PageRange>? ranges,
+        RasterColorSpace colorSpace,
+        string? password,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
-        dpi = PdfRenderLimits.ClampDpi(dpi);
 
         // The stream outlives the load: the engine reads pages from it lazily.
         using var source = new InMemoryRandomAccessStream();

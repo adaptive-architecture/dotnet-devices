@@ -53,14 +53,19 @@ internal static partial class PdfiumRenderer
     // so a long document costs one page of memory. PageRanges is the 1-based option the
     // caller set; null renders the whole document. The gate is taken for the open, for each
     // page and for the close, and the document stays open in between.
-    internal static async IAsyncEnumerable<RenderedPdfPage> RenderAsync(
+    internal static IAsyncEnumerable<RenderedPdfPage> RenderAsync(byte[] pdf, PdfRenderOptions options, CancellationToken cancellationToken)
+    {
+        // Checked here and not in the iterator, which runs only when the first page is asked for.
+        ArgumentNullException.ThrowIfNull(pdf);
+        ArgumentNullException.ThrowIfNull(options);
+        return RenderPagesAsync(pdf, options, cancellationToken);
+    }
+
+    private static async IAsyncEnumerable<RenderedPdfPage> RenderPagesAsync(
         byte[] pdf,
         PdfRenderOptions options,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(pdf);
-        ArgumentNullException.ThrowIfNull(options);
-
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         OpenedPdf opened;
         try

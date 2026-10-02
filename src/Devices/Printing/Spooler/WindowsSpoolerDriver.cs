@@ -588,12 +588,12 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             var jobId = SubmitDocument(queueName, printerHandle, documentInfo, bytes, copies);
 
             SpoolerLog.JobSpooled(_logger, queueName, jobId, bytes.Length * copies, payload.ContentType);
-            return (new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
+            return new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
             {
                 JobName = options?.JobName,
                 SubmittedContentType = payload.ContentType,
                 DroppedOptionDetails = dropped,
-            });
+            };
         }
         finally
         {
