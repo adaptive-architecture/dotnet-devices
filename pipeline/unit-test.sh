@@ -21,12 +21,10 @@ else
   dotnet_cmd build --nologo
 fi
 
-# test/Devices.InteropTests is the only set that calls winspool.drv, and it runs nowhere
-# but a Windows machine a person is sitting at. Naming a queue is what turns it on; without
-# DEVICES_TEST_QUEUE every test in it skips, which is what keeps Linux and CI unaffected.
-#
-# CI does not run it on purpose. It needs a paused print queue, and a job that provisioned
-# one would be testing the runner image as much as this library.
+# test/Devices.InteropTests is the only set that calls winspool.drv, so it runs on Windows
+# only. Naming a queue is what turns it on; without DEVICES_TEST_QUEUE every test in it
+# skips, which is what keeps Linux unaffected. This script never sets it; the windows job in
+# .github/workflows/test.yml creates and pauses a queue of its own and runs the set there.
 #
 # The queue must be paused. A live one prints paper, and Microsoft Print to PDF stops on a
 # Save As dialog that no test can answer. Each test checks first and refuses otherwise, so

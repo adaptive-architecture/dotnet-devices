@@ -101,7 +101,12 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
         while (!deadline.IsCancellationRequested)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var reading = await _queue.GetJobAsync(printerId, jobId, cancellationToken).ConfigureAwait(false);
+            var (read, reading) = await TryReadAsync(printerId, jobId, cancellationToken, delayToken.Token).ConfigureAwait(false);
+            if (!read)
+            {
+                break;
+            }
+
             if (reading is null)
             {
                 yield return CompleteAfterTheQueueDroppedIt(printerId, jobId, printedAs, readings);
@@ -136,17 +141,37 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
                 yield break;
             }
 
-            try
-            {
-                await Task.Delay(options.PollInterval, _timeProvider, delayToken.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                // The deadline fired, not the caller: the loop condition ends the watch.
-            }
+            await PauseAsync(options.PollInterval, cancellationToken, delayToken.Token).ConfigureAwait(false);
         }
 
         PrintingLog.WatchEnded(Logger, jobId, printerId, "the whole timeout passed", readings);
+    }
+
+    // The deadline ends the pause quietly and the loop condition ends the watch; only the
+    // caller's own cancellation throws.
+    private async Task PauseAsync(TimeSpan interval, CancellationToken caller, CancellationToken deadline)
+    {
+        try
+        {
+            await Task.Delay(interval, _timeProvider, deadline).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!caller.IsCancellationRequested)
+        {
+            // The deadline fired, not the caller: the loop condition ends the watch.
+        }
+    }
+
+    // Read is false when the deadline ended the read; the caller's own cancellation throws.
+    private async Task<(bool Read, PrintJobInfo? Job)> TryReadAsync(PrinterId printerId, string jobId, CancellationToken caller, CancellationToken deadline)
+    {
+        try
+        {
+            return (true, await _queue.GetJobAsync(printerId, jobId, deadline).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException) when (!caller.IsCancellationRequested)
+        {
+            return (false, null);
+        }
     }
 
     // The state of the newest reading, kept from the first reading that showed the job

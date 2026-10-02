@@ -108,7 +108,8 @@ still turns what GDI cannot draw, such as transparency, into a bitmap, so a page
 some images anyway. `PrintJobInfo.SubmittedContentType` is `image/emf` for such a job.
 
 ```csharp
-await printer.PrintAsync(payload, new PrintOptions { Rendering = PrintRendering.Vector });
+await printer.PrintAsync(payload, new PrintOptions { Rendering = PrintRendering.Vector }, cancellationToken)
+    .ConfigureAwait(false);
 ```
 
 Placement, scaling, orientation, the fit area and `Smoothing` apply to both paths, and the
@@ -200,8 +201,8 @@ forbids embedding are refused with `ArgumentException` when the `PrintFont` is m
 | Format | `spooler://` on Windows | `spooler://` on Linux and macOS, and `cups://` | `ipp://` and `ipps://` | `raw://` |
 | :--- | :--- | :--- | :--- | :--- |
 | PDF | Converted to one PNG a page and drawn through GDI, or drawn as vectors by PDFium when the job asks, on the paper of the queue | Passed through, and CUPS renders it, unless the job names or requires a converter; converted to URF or PWG Raster then | Passed through when the printer lists it and the job names no converter; converted to PWG Raster or URF otherwise; sent unchanged when the printer reads nothing the converter writes | Sent unchanged |
-| PNG and JPEG | Drawn through GDI, which applies the orientation, the scaling, the placement and the smoothing switch | Passed through, and CUPS scales it onto the page, unless the job places it or names a converter; laid out as PDF then | Passed through when the printer lists it and the job neither places it nor names a converter; laid out as PDF otherwise | Sent unchanged |
-| Plain text and CSV | Laid out as PDF, then printed as a PDF is | Plain text is passed through, and CUPS renders it, unless the job places it or names a converter; CSV is always laid out as PDF | Passed through when the printer lists it and the job asks for nothing more; laid out as PDF otherwise | Sent unchanged |
+| PNG and JPEG | Drawn through GDI, which applies the orientation, the scaling, the placement and the smoothing switch | Passed through, and CUPS scales it onto the page, unless the job places it, sets a fit area or names a converter; laid out as PDF then | Passed through when the printer lists it and the job neither places it, sets a fit area nor names a converter; laid out as PDF otherwise | Sent unchanged |
+| Plain text and CSV | Laid out as PDF, then printed as a PDF is | Plain text is passed through, and CUPS renders it, unless the job places it, sets a fit area or names a converter; CSV is always laid out as PDF | Passed through when the printer lists it and the job asks for nothing more; laid out as PDF otherwise | Sent unchanged |
 | Email (`message/rfc822`) | Laid out as PDF, then printed as a PDF is | Laid out as PDF | Laid out as PDF, unless the printer lists `message/rfc822` | Sent unchanged |
 | ZPL, EPL and the other printer languages | Sent with the `RAW` datatype, unchanged | Sent as `application/vnd.cups-raw`, which CUPS passes to the backend unchanged; a queue that forwards over IPP sends it on as `application/octet-stream` | Sent as the language or as `application/octet-stream`, whichever the printer names | Sent unchanged |
 

@@ -102,15 +102,6 @@ public class WindowsSpoolerDeviceModeMapperTests
     }
 
     [Fact]
-    public void Build_DropsAResolutionNoFieldCanHold()
-    {
-        var request = WindowsSpoolerDeviceModeMapper.Build(new PrintOptions { ResolutionDpi = 40000 }, [], []);
-
-        Assert.True(request.IsEmpty);
-        Assert.Equal([nameof(PrintOptions.ResolutionDpi)], request.Dropped);
-    }
-
-    [Fact]
     public void Build_DropsAMediaNameTheQueueDidNotReport()
     {
         PrintOptions options = new() { MediaSize = "Letter", MediaSource = "Roll" };

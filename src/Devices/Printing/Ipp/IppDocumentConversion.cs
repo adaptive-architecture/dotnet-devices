@@ -1,4 +1,5 @@
-﻿using AdaptArch.Devices.Printing.Raster;
+﻿using System.Runtime.InteropServices;
+using AdaptArch.Devices.Printing.Raster;
 using AdaptArch.Devices.Printing.Synthesis;
 using Microsoft.Extensions.Logging;
 
@@ -268,7 +269,11 @@ internal static class IppDocumentConversion
             DocumentPassword = options?.DocumentPassword,
         };
 
-        var documents = await converter.ConvertAsync(payload.Data.ToArray(), context, cancellationToken).ConfigureAwait(false);
+        // A payload made from a whole array hands that array over; any other copies once.
+        var data = MemoryMarshal.TryGetArray(payload.Data, out var segment) && segment.Offset == 0 && segment.Count == segment.Array!.Length
+            ? segment.Array
+            : payload.Data.ToArray();
+        var documents = await converter.ConvertAsync(data, context, cancellationToken).ConfigureAwait(false);
 
         // Every target this negotiates carries each page in one stream, so one document is
         // the only valid answer. A converter that returned one page each would otherwise

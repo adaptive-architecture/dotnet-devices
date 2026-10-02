@@ -99,7 +99,7 @@ rejected), so the renderer lives in `AdaptArch.Devices.Windows`
 (`net10.0-windows10.0.19041.0`) instead. That package brings no runtime NuGet
 dependency of its own: the `-windows` TFM resolves the SDK projection implicitly,
 and the calls only run on Windows 10 and later, where the engine ships in-box. The
-core package keeps no Windows SDK reference and stays dependency-free; the Windows
+core package keeps no Windows SDK reference and takes no Windows dependency; the Windows
 package supplies one public `IPrintPayloadConverter` (`WindowsPrinting.PdfConverter`). The
 seam is an interface the application implements, so both sides stay trim- and AOT-safe with
 no reflection, and the same seam carries any other format (see
@@ -114,8 +114,9 @@ folder of its own any more, and `bblanchon.PDFium.Linux`, `.macOS` and `.Win32` 
 managed assembly, and there is no version of this feature without them: the alternative is
 not a shorter chain but no rasterizer.
 
-What the chain costs is disk. A restore of the three is about 170 MB, most of it the Linux
-package, which carries seven identifiers including three musl builds. **That cost is the
+What the chain costs is disk. [Document formats](https://adaptive-architecture.github.io/dotnet-devices/docs/document-formats.html) states the restore and deploy
+sizes; most of the restore is the Linux package, which carries seven identifiers including
+three musl builds. **That cost is the
 reason this is a separate package** rather than part of the core: an application printing
 ZPL to a label printer should not download PDFium to do it. A RID-specific publish deploys
 one `libpdfium` of about 7.5 MB; a framework-dependent publish with no RID copies every

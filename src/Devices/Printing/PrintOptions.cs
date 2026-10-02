@@ -1,4 +1,6 @@
-﻿namespace AdaptArch.Devices.Printing;
+﻿using AdaptArch.Devices.Printing.Raster;
+
+namespace AdaptArch.Devices.Printing;
 
 /// <summary>
 /// Per-job printing options. Every property is optional; unset properties
@@ -33,6 +35,7 @@ public sealed class PrintOptions
     private static readonly string ProcessUserName = ReadProcessUserName();
 
     private int? _copies;
+    private int? _resolutionDpi;
     private int? _numberUp;
 
     /// <summary>
@@ -197,9 +200,30 @@ public sealed class PrintOptions
     public string? OutputBin { get; set; }
 
     /// <summary>
-    /// Gets or sets the print resolution in dots per inch.
+    /// The highest <see cref="ResolutionDpi"/> a job may ask for. Above it a rendered page
+    /// needs more memory than any printer the library converts for can use.
     /// </summary>
-    public int? ResolutionDpi { get; set; }
+    public const int MaxResolutionDpi = PdfRenderLimits.MaxDpi * 4;
+
+    /// <summary>
+    /// Gets or sets the print resolution in dots per inch. Must be between 1 and
+    /// <see cref="MaxResolutionDpi"/> when set.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is zero, negative or above <see cref="MaxResolutionDpi"/>.</exception>
+    public int? ResolutionDpi
+    {
+        get => _resolutionDpi;
+        set
+        {
+            if (value is int dpi)
+            {
+                ArgumentOutOfRangeException.ThrowIfLessThan(dpi, 1);
+                ArgumentOutOfRangeException.ThrowIfGreaterThan(dpi, MaxResolutionDpi);
+            }
+
+            _resolutionDpi = value;
+        }
+    }
 
     /// <summary>
     /// Gets or sets the print quality.

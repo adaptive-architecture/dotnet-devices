@@ -11,6 +11,8 @@ public class DeviceUriParserTests
     [InlineData("socket://192.168.1.5:9100", "192.168.1.5")]
     [InlineData("http://192.168.1.5:631/printers/x", "192.168.1.5")]
     [InlineData("lpd://printer.local/queue", "printer.local")]
+    [InlineData("ipp://[fe80::1]:631/ipp/print", "fe80::1")]
+    [InlineData("socket://[2001:db8::7]:9100", "2001:db8::7")]
     public void TryParse_ReadsTheHostOfANetworkQueue(string uri, string expected)
     {
         Assert.True(DeviceUriParser.TryParse(uri, out var parsed));

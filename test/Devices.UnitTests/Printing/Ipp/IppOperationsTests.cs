@@ -23,11 +23,28 @@ public class IppOperationsTests
             TestContext.Current.CancellationToken));
 
         Assert.Contains("printer.local", error.Message, StringComparison.Ordinal);
+        Assert.Contains("0x0400", error.Message, StringComparison.Ordinal);
 
         // The status code, the endpoint and the operation reach the caller as data.
         Assert.Equal(0x0400, error.IppStatusCode);
         Assert.Equal(Printer, error.Endpoint);
         Assert.Equal(Operation, error.Operation);
+    }
+
+    [Fact]
+    public async Task SendAsync_PutsThePrintersStatusMessageIntoTheError()
+    {
+        // 0x01 is the operation-attributes-tag; CUPS answers a refused format this way.
+        var body = IppMessages.Response(0x0400, 0x01, (0x41, "status-message", "Bad document-format"));
+        IppOperations operations = new(new IppContext(new HttpClient(new IppMessages.StubHandler(_ => IppMessages.Ok(body)))), Printer, Operation);
+
+        var error = await Assert.ThrowsAsync<PrinterOperationException>(() => operations.SendAsync(
+            (client, request, token) => client.GetPrinterAttributesAsync(request, token),
+            NewRequest(),
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("Bad document-format", error.Message, StringComparison.Ordinal);
+        Assert.Equal(0x0400, error.IppStatusCode);
     }
 
     [Fact]

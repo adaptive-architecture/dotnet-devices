@@ -5,10 +5,10 @@ using Microsoft.Extensions.Logging;
 namespace AdaptArch.Devices.Printing;
 
 /// <summary>
-/// Default <see cref="IPrinterFactory"/>. Picks <see cref="IppPrinter"/> for network
-/// printers that answer on the IPP port, <see cref="RawPrinter"/> for every other
-/// network port, <see cref="SpoolerPrinter"/> for printers installed in the operating
-/// system print spooler, and <see cref="CupsPrinter"/> for a queue of a CUPS server.
+/// Default <see cref="IPrinterFactory"/>. Picks the printer by the scheme of the endpoint:
+/// <see cref="IppPrinter"/> for <c>ipp</c> and <c>ipps</c>, <see cref="RawPrinter"/> for
+/// <c>raw</c>, <see cref="SpoolerPrinter"/> for printers installed in the operating system
+/// print spooler, and <see cref="CupsPrinter"/> for a queue of a CUPS server.
 /// </summary>
 /// <remarks>
 /// Every <see cref="IppPrinter"/> and every <see cref="RawPrinter"/> this factory creates

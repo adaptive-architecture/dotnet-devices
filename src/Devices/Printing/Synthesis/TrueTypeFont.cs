@@ -152,8 +152,22 @@ internal sealed class TrueTypeFont
         return best >= 0 ? ReadFormat4(cmap[best..]) : throw new KeyNotFoundException("it has no Unicode character map");
     }
 
+    // Unicode ends at U+10FFFF, so a table mapping more codes than that is malformed;
+    // without the cap a crafted font loops for billions of codes or exhausts memory.
+    private const int MaxMappedCodes = 0x110000;
+
+    private static void CountMapped(ref int mapped, int count)
+    {
+        mapped += count;
+        if (mapped > MaxMappedCodes)
+        {
+            throw new ArgumentOutOfRangeException(nameof(count), "the character map names more codes than Unicode has");
+        }
+    }
+
     private static Dictionary<int, ushort> ReadFormat4(ReadOnlySpan<byte> table)
     {
+        var mapped = 0;
         var segments = U16(table, 6) / 2;
         const int ends = 14;
         var starts = ends + (segments * 2) + 2;
@@ -166,6 +180,12 @@ internal sealed class TrueTypeFont
             var start = U16(table, starts + (segment * 2));
             var delta = S16(table, deltas + (segment * 2));
             var rangeOffset = U16(table, ranges + (segment * 2));
+            if (start > end)
+            {
+                throw new ArgumentOutOfRangeException(nameof(table), "a character map segment ends before it starts");
+            }
+
+            CountMapped(ref mapped, end - start + 1);
             for (var code = start; code <= end && code != 0xFFFF; code++)
             {
                 int glyph;
@@ -191,13 +211,21 @@ internal sealed class TrueTypeFont
     {
         var groups = (int)BinaryPrimitives.ReadUInt32BigEndian(table[12..]);
         Dictionary<int, ushort> glyphs = [];
+        var mapped = 0;
         for (var group = 0; group < groups; group++)
         {
             var record = table[(16 + (group * 12))..];
-            var start = (int)BinaryPrimitives.ReadUInt32BigEndian(record);
-            var end = (int)BinaryPrimitives.ReadUInt32BigEndian(record[4..]);
+            var start = BinaryPrimitives.ReadUInt32BigEndian(record);
+            var end = BinaryPrimitives.ReadUInt32BigEndian(record[4..]);
             var glyph = (int)BinaryPrimitives.ReadUInt32BigEndian(record[8..]);
-            for (var code = start; code <= end; code++)
+            if (start > end || start > MaxMappedCodes - 1)
+            {
+                throw new ArgumentOutOfRangeException(nameof(table), "a character map group is outside Unicode or ends before it starts");
+            }
+
+            end = Math.Min(end, MaxMappedCodes - 1);
+            CountMapped(ref mapped, (int)(end - start + 1));
+            for (var code = (int)start; code <= (int)end; code++)
             {
                 glyphs[code] = (ushort)(glyph + code - start);
             }

@@ -1,6 +1,8 @@
 ﻿using System.Net;
 using System.Net.Sockets;
 using AdaptArch.Devices.Printing;
+using AdaptArch.Devices.UnitTests.Printing.Discovery;
+using AdaptArch.Devices.UnitTests.Printing.Ipp;
 using Xunit;
 
 namespace AdaptArch.Devices.UnitTests.Printing;
@@ -44,10 +46,12 @@ public class RawPrinterTests
     [Fact]
     public async Task GetStatusAsync_ReportsUnknownWhenNeitherSnmpNorIppAnswer()
     {
-        // Nothing binds 127.0.0.4, so both probes fail fast. The short SNMP timeout and
-        // single attempt save the six seconds the default options would take.
-        SnmpPrinterStatusOptions snmpOptions = new() { RequestTimeout = TimeSpan.FromMilliseconds(200), Retries = 0 };
-        RawPrinter printer = new(NetworkPrinterEndpoint.Raw("127.0.0.4"), snmpOptions);
+        // An SNMP channel that never answers and an IPP endpoint that refuses, so nothing
+        // leaves the process and the single attempt ends at its short timeout.
+        SnmpPrinterStatusOptions snmpOptions = new() { RequestTimeout = TimeSpan.FromMilliseconds(50), Retries = 0 };
+        SnmpPrinterStatusClient snmp = new(snmpOptions, new FakeSnmpChannelFactory().Create);
+        IppPrinterStatusClient ipp = new(new HttpClient(new IppMessages.StubHandler(_ => throw new HttpRequestException("refused"))));
+        RawPrinter printer = new(NetworkPrinterEndpoint.Raw("192.0.2.1"), snmp, ipp);
 
         var status = await printer.GetStatusAsync(TestContext.Current.CancellationToken);
 

@@ -20,7 +20,7 @@ engine:
   printers installed in the operating system
 - **Status**: over IPP, and over SNMP version 2c, which adds the serial number and the page count
 - **Jobs**: job queues, job progress, and a monitor that works with every printer
-- **Raster**: `PwgRasterWriter`, `PngWriter` and `RasterCanvas`, all public
+- **Raster**: `PwgRasterWriter`, `UrfWriter`, `PngWriter` and `RasterCanvas`, all public
 
 ### AdaptArch.Devices.DependencyInjection
 

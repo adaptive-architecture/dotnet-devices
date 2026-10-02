@@ -217,10 +217,9 @@ internal static class WindowsSpoolerDeviceModeMapper
         return null;
     }
 
-    // dmPrintQuality and dmYResolution are signed 16-bit fields, so a resolution that does
-    // not fit them cannot be carried at all.
-    private static short? MapResolution(int? resolutionDpi) =>
-        resolutionDpi is int dpi && dpi is > 0 and <= Int16.MaxValue ? (short)dpi : null;
+    // dmPrintQuality and dmYResolution are signed 16-bit fields; PrintOptions bounds the
+    // value well inside them.
+    private static short? MapResolution(int? resolutionDpi) => (short?)resolutionDpi;
 
     // A name the queue did not report has no number, and a number is the only thing a
     // device mode field can hold, so such a name cannot be applied.

@@ -73,7 +73,9 @@ internal sealed class IppEndpointResolver
         throw new PrinterConnectionException(_host, _port, over, failures, firstFailure!);
     }
 
-    // A transport failure clears the URI, so a printer that moved is found again.
+    // A transport failure clears the URI, so a printer that moved is found again. An
+    // answer with an IPP status is not one: the printer is there and refused the request,
+    // and a re-probe would cost up to four round trips for nothing.
     public async Task<T> RunAsync<T>(Func<Uri, CancellationToken, Task<T>> operation, CancellationToken cancellationToken)
     {
         var uri = await ResolveAsync(cancellationToken).ConfigureAwait(false);
@@ -81,7 +83,7 @@ internal sealed class IppEndpointResolver
         {
             return await operation(uri, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is InvalidOperationException or InvalidDataException or TimeoutException)
+        catch (Exception exception) when (exception is PrinterOperationException { IppStatusCode: null } or InvalidDataException or TimeoutException)
         {
             _ = Interlocked.CompareExchange(ref _resolved, null, uri);
             throw;

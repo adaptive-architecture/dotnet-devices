@@ -397,6 +397,27 @@ public class WindowsSpoolerDriverSeamTests
     }
 
     [Fact]
+    public async Task SubmitAsync_AnImageWithCopiesAlone_StillBuildsADeviceModeToCarryThem()
+    {
+        FakeWindowsSpoolerInterop interop = new();
+        FakeWindowsGdiImagePrinter images = new();
+        var png = new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A };
+
+        var job = await DriverFor(interop, images).SubmitAsync(
+            "lobby",
+            PrinterPayload.FromBytes(png, PrinterContentTypes.Png),
+            new PrintOptions { Copies = 3 },
+            TestContext.Current.CancellationToken);
+
+        // Copies set no field of its own, so without this the mode was skipped as empty,
+        // the image printer had nowhere to write dmCopies, and one copy printed silently.
+        Assert.NotNull(interop.AcceptedDeviceMode);
+        Assert.NotEqual(IntPtr.Zero, Assert.Single(images.Jobs).DeviceMode);
+        Assert.Equal(3, Assert.Single(images.Jobs).Copies);
+        Assert.Empty(job.DroppedOptionDetails);
+    }
+
+    [Fact]
     public async Task SubmitAsync_APrinterLanguage_ReportsWhatNothingRenders()
     {
         FakeWindowsSpoolerInterop interop = new();

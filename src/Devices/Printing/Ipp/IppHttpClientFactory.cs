@@ -28,6 +28,10 @@ public static class IppHttpClientFactory
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.ConnectTimeout, TimeSpan.Zero);
+        if (options.RequestTimeout != Timeout.InfiniteTimeSpan)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.RequestTimeout, TimeSpan.Zero);
+        }
 
         SocketsHttpHandler handler = new()
         {
@@ -36,8 +40,9 @@ public static class IppHttpClientFactory
             AllowAutoRedirect = false,
             Credentials = options.Credentials,
 
-            // A document is sent in one request, so waiting for a challenge would mean
-            // sending the whole job twice.
+            // Sends the credentials on every request to a URI prefix once a 401 was seen
+            // there. The anonymous probe is not one, so the first Print-Job is still
+            // re-sent in full after its challenge; every later one is sent once.
             PreAuthenticate = options.Credentials is not null,
         };
         if (unixSocketPath is not null)
@@ -47,6 +52,6 @@ public static class IppHttpClientFactory
 
         handler.SslOptions.RemoteCertificateValidationCallback =
             options.ServerCertificateValidation ?? (static (_, _, _, _) => true);
-        return new HttpClient(handler, true);
+        return new HttpClient(handler, true) { Timeout = options.RequestTimeout };
     }
 }

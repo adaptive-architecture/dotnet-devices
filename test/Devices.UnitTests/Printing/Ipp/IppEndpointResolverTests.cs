@@ -219,11 +219,30 @@ public class IppEndpointResolverTests
         _ = await resolver.ResolveAsync(TestContext.Current.CancellationToken);
         var probes = handler.Requests.Count;
 
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.RunAsync<int>(
-            (_, _) => throw new InvalidOperationException("printer went away"),
+        // What the operations layer throws when no HTTP answer came back at all.
+        _ = await Assert.ThrowsAsync<PrinterOperationException>(() => resolver.RunAsync<int>(
+            (_, _) => throw new PrinterOperationException("printer went away"),
             TestContext.Current.CancellationToken));
         _ = await resolver.ResolveAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(probes * 2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task RunAsync_AnIppErrorKeepsTheUriBecauseThePrinterAnswered()
+    {
+        var body = IppMessages.Response(0x0000, (0x23, "printer-state", 3));
+        IppMessages.StubHandler handler = new(_ => IppMessages.Ok(body));
+        IppEndpointResolver resolver = new(new IppContext(new HttpClient(handler)), "printer.local", 631, null);
+        _ = await resolver.ResolveAsync(TestContext.Current.CancellationToken);
+        var probes = handler.Requests.Count;
+
+        // 0x040A is client-error-document-format-not-supported: a refusal, not an absence.
+        _ = await Assert.ThrowsAsync<PrinterOperationException>(() => resolver.RunAsync<int>(
+            (_, _) => throw new PrinterOperationException("refused") { IppStatusCode = 0x040A },
+            TestContext.Current.CancellationToken));
+        _ = await resolver.ResolveAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(probes, handler.Requests.Count);
     }
 }
