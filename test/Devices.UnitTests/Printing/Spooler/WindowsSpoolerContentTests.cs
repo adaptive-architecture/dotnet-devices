@@ -32,18 +32,6 @@ public class WindowsSpoolerContentTests
 
     // GDI+ decodes by header, so the suffix only names the temporary file. It must never
     // claim a format the bytes are not.
-    [Theory]
-    [InlineData("image/png", ".png")]
-    [InlineData("IMAGE/JPEG", ".jpeg")]
-    [InlineData("image/tiff", ".tiff")]
-    [InlineData("image/svg+xml", "")]
-    [InlineData("image/vnd.adobe.photoshop", "")]
-    [InlineData("image/png; charset=binary", "")]
-    public void FileExtension_FollowsTheMediaSubtypeOrNamesNothing(string contentType, string expected)
-    {
-        Assert.Equal(expected, WindowsSpoolerContent.FileExtension(contentType));
-    }
-
     // The request passes through: what an engine can render is the business of the
     // converter, so a limit of one engine must not reduce the request given to another.
     [Theory]

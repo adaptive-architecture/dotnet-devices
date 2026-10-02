@@ -170,10 +170,14 @@ when it is valid UTF-8, and as Windows-1252 otherwise.
 **Email** prints the `From`, `To`, `Cc`, `Date` and `Subject` headers, then the first
 plain-text part that is not an attachment, laid out as text is. Attachments and inline images
 are skipped, and event 2044 counts them. The library renders no HTML, so **a message with no
-`text/plain` part fails with `NotSupportedException`** before anything is sent.
+`text/plain` part fails with `NotSupportedException`** before anything is sent. A message that
+is not well formed, such as one with base64 that does not decode or parts nested more than 16
+deep, fails with `InvalidDataException`. A part that names no charset is read as UTF-8 when
+its bytes are valid UTF-8 and as Windows-1252 otherwise, as a plain text file is.
 
 **Images** keep their pixels: a JPEG, baseline or progressive, goes into the PDF unchanged,
-and a PNG is decoded, alpha included. The page is the media, with the image fitted, anchored
+and a PNG is decoded, alpha included. A lossless, arithmetic-coded or 12-bit JPEG fails with
+`NotSupportedException` naming its frame marker, because no printer decodes one. The page is the media, with the image fitted, anchored
 and offset on it as [Page placement](page-placement.md) describes. A job that takes its media
 from the document, or a channel that knows no media, gets a page the size of the image instead.
 `Smoothing = false` turns off interpolation in the PDF.

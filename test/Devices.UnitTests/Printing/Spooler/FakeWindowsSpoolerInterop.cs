@@ -95,6 +95,9 @@ internal sealed class FakeWindowsSpoolerInterop : IWindowsSpoolerInterop
     /// <summary>A device mode shorter than DEVMODEW, which the driver must refuse.</summary>
     public ushort? ShortDeviceModeSize { get; set; }
 
+    /// <summary>A positive size probe answer shorter than DEVMODEW: a refusal with no error code.</summary>
+    public int? ShortProbeSize { get; set; }
+
     public int GetLastError() => LastError;
 
     public bool OpenPrinter(string printerName, out nint printerHandle, WindowsSpoolerInterop.PrinterDefaults defaults)
@@ -341,7 +344,7 @@ internal sealed class FakeWindowsSpoolerInterop : IWindowsSpoolerInterop
 
         if (mode == 0)
         {
-            return size;
+            return ShortProbeSize ?? size;
         }
 
         // DM_IN_BUFFER: the driver gave a filled device mode to reconcile. Reading it back

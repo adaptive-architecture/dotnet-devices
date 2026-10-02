@@ -23,8 +23,8 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
     private readonly HttpClient _httpClient;
     private readonly IppTransportOptions _options;
     private readonly IppPrinterStatusClient _ippStatusClient;
-    private readonly SnmpPrinterStatusClient _snmpStatusClient = new();
     private readonly bool _ownsClient;
+    private SnmpPrinterStatusClient? _snmpStatusClient;
     private bool _disposed;
 
     /// <summary>
@@ -91,7 +91,33 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
     /// </summary>
     public PrintFormatPolicy Formats { get; init; } = PrintFormatPolicy.Default;
 
+    /// <summary>
+    /// Gets the transport every <see cref="RawPrinter"/> this factory opens writes through.
+    /// Defaults to <c>null</c>, which gives each raw printer a <see cref="TcpPrinterTransport"/>
+    /// of its own with the default connect timeout and the log of this factory.
+    /// </summary>
+    public IPrinterTransport? Transport { get; init; }
+
+    /// <summary>
+    /// Gets the SNMP client every <see cref="RawPrinter"/> this factory opens reads its
+    /// status and identity with. Defaults to <c>null</c>, which builds one with the default
+    /// <see cref="SnmpPrinterStatusOptions"/> and the log of this factory.
+    /// </summary>
+    public SnmpPrinterStatusClient? SnmpStatusClient { get; init; }
+
+    /// <summary>
+    /// Gets the IPP client every <see cref="RawPrinter"/> this factory opens falls back to
+    /// for its status. Defaults to <c>null</c>, which builds one on the <see cref="HttpClient"/>
+    /// of this factory.
+    /// </summary>
+    public IppPrinterStatusClient? IppStatusClient { get; init; }
+
     private ILoggerFactory? EffectiveLoggerFactory => LoggerFactory ?? _options.LoggerFactory;
+
+    // Built on first use: an init property is set after the constructor runs, so a client
+    // built in the constructor would carry no log.
+    private SnmpPrinterStatusClient EffectiveSnmpStatusClient =>
+        SnmpStatusClient ?? LazyInitializer.EnsureInitialized(ref _snmpStatusClient, () => new SnmpPrinterStatusClient { LoggerFactory = EffectiveLoggerFactory });
 
     private PrinterFactory(HttpClient httpClient, IppTransportOptions options, bool ownsClient)
     {
@@ -153,7 +179,7 @@ public sealed class PrinterFactory : IPrinterFactory, IDisposable
     }
 
     private RawPrinter OpenRaw(NetworkPrinterEndpoint endpoint) =>
-        new(endpoint, _snmpStatusClient, _ippStatusClient) { LoggerFactory = EffectiveLoggerFactory };
+        new(endpoint, EffectiveSnmpStatusClient, IppStatusClient ?? _ippStatusClient) { Formats = Formats, Transport = Transport, LoggerFactory = EffectiveLoggerFactory };
 
     /// <summary>
     /// Disposes the internally managed <see cref="HttpClient"/>, if this instance owns one.

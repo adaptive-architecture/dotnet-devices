@@ -105,6 +105,12 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<IppHttpClientHolder>().Client,
             provider.GetRequiredService<IppTransportOptions>())
         {
+            // The raw printers the factory opens write and read through the container's
+            // singletons, so a transport or a client the application registered is the
+            // one that is used.
+            Transport = provider.GetRequiredService<IPrinterTransport>(),
+            SnmpStatusClient = provider.GetRequiredService<SnmpPrinterStatusClient>(),
+            IppStatusClient = provider.GetRequiredService<IppPrinterStatusClient>(),
             // The manager options carry the formats and the converters, so a printer the
             // factory opens reads the same policy as the manager that asked for it.
             Formats = provider.GetRequiredService<PrinterManagerOptions>().BuildFormatPolicy(),

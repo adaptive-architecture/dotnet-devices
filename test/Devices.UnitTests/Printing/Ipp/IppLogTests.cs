@@ -165,6 +165,46 @@ public class IppLogTests
     }
 
     [Fact]
+    public async Task PrintAsync_EveryWireEventRunsInAScopeThatNamesThePrinterAndTheOperation()
+    {
+        // Two concurrent jobs to one printer write the same endpoint on every wire line;
+        // the scope is what tells their lines apart.
+        var attributes = IppMessages.Response(0x0000, (0x23, "printer-state", 3));
+        var job = IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 1), (0x23, "job-state", 3));
+        var requestCount = 0;
+        IppMessages.StubHandler handler = new(_ => ++requestCount <= 2 ? IppMessages.Ok(attributes) : IppMessages.Ok(job));
+        FakeLoggerFactory factory = new();
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler), null, new IppTransportOptions { LoggerFactory = factory });
+
+        _ = await printer.PrintAsync(PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl), null, TestContext.Current.CancellationToken);
+
+        var wire = factory.Of(IppLog.Category);
+        Assert.NotEmpty(wire);
+        var scopes = wire.Select(entry => Assert.IsType<IReadOnlyList<KeyValuePair<string, object>>>(Assert.Single(entry.Scopes), exactMatch: false)).ToList();
+        Assert.All(scopes, scope => Assert.Equal(printer.Id, Assert.Single(scope, pair => pair.Key == "PrinterId").Value));
+        Assert.All(scopes, scope => Assert.Equal("Print", Assert.Single(scope, pair => pair.Key == "IppOperation").Value));
+        Assert.Single(scopes.Select(scope => Assert.Single(scope, pair => pair.Key == "IppCorrelationId").Value).Distinct());
+    }
+
+    [Fact]
+    public async Task GetJobAsync_RunsInAScopeThatNamesTheJob()
+    {
+        var attributes = IppMessages.Response(0x0000, (0x23, "printer-state", 3));
+        var job = IppMessages.Response(0x0000, 0x02, (0x21, "job-id", 7), (0x23, "job-state", 9));
+        var requestCount = 0;
+        IppMessages.StubHandler handler = new(_ => ++requestCount == 1 ? IppMessages.Ok(attributes) : IppMessages.Ok(job));
+        FakeLoggerFactory factory = new();
+        IppPrintJobQueue queue = new(Endpoint, new HttpClient(handler), new IppTransportOptions { LoggerFactory = factory });
+
+        _ = await queue.GetJobAsync(PrinterId.ForIpp("printer.local"), "7", TestContext.Current.CancellationToken);
+
+        var read = Assert.Single(factory.WithId(1021));
+        var scope = Assert.IsType<IReadOnlyList<KeyValuePair<string, object>>>(Assert.Single(read.Scopes), exactMatch: false);
+        Assert.Equal("7", Assert.Single(scope, pair => pair.Key == "JobId").Value);
+        Assert.Equal("GetJob", Assert.Single(scope, pair => pair.Key == "IppOperation").Value);
+    }
+
+    [Fact]
     public async Task PrintAsync_APrinterThatListsNoFormatIsAWarning()
     {
         // The cause of "my label printed as a page of source": the printer named no format

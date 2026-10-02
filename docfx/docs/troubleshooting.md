@@ -130,6 +130,19 @@ A type you build yourself takes the factory through its own `LoggerFactory` prop
 - **The CUPS spooler driver takes the factory of `SpoolerPrinter`**, so a `spooler://` printer
   on Linux and macOS writes its IPP events to the same log.
 
+**Every IPP operation runs inside a logger scope.** The wire events of the
+`AdaptArch.Devices.Printing.Ipp` category name the endpoint and not the job, so two jobs sent to
+one printer at the same time write the same lines. The scope tells them apart: it carries
+`PrinterId`, `IppOperation` (`Print`, `GetStatus`, `GetJob` and so on), `JobId` where the
+operation has one, and an `IppCorrelationId` that is the same on every line of one operation. A
+structured provider reads them as properties; the console provider prints them with
+`IncludeScopes = true`:
+
+```csharp
+services.AddLogging(builder => builder.AddSimpleConsole(console => console.IncludeScopes = true)
+    .AddFilter("AdaptArch.Devices", LogLevel.Debug));
+```
+
 ### What each level means
 
 The level says what the library did about the failure, so a reader knows what to look for.
@@ -317,6 +330,9 @@ catch (PrinterOperationException exception)
     Console.WriteLine(exception.IppStatusCode);  // 1034
 }
 ```
+
+On the Windows spooler the same type carries the queue as `PrinterId` and the Win32 call as
+`Operation`, and `IppStatusCode` is `null`; on IPP and CUPS the fields read as above.
 
 `IppStatusCode` is the status code of RFC 8011 section 13.1. Two values the library itself acts
 on:

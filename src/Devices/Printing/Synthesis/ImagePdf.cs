@@ -22,10 +22,11 @@ internal static class ImagePdf
         int width;
         int height;
         double? dpi;
+        var orientation = 1;
         if (String.Equals(contentType, PrinterContentTypes.Jpeg, StringComparison.OrdinalIgnoreCase))
         {
             var jpeg = JpegInfo.Read(image);
-            (width, height, dpi) = (jpeg.Width, jpeg.Height, jpeg.Dpi);
+            (width, height, dpi, orientation) = (jpeg.Width, jpeg.Height, jpeg.Dpi, jpeg.Orientation);
             var space = ColorSpaceFor(jpeg.Components);
             var decode = jpeg.AdobeInverted ? "/Decode[1 0 1 0 1 0 1 0]" : String.Empty;
             pdf.Stream(picture, $"/Type/XObject/Subtype/Image/Width {width}/Height {height}/ColorSpace/{space}/BitsPerComponent 8{decode}{interpolate}/Filter/DCTDecode", image);
@@ -46,8 +47,11 @@ internal static class ImagePdf
             pdf.CompressedStream(picture, $"/Type/XObject/Subtype/Image/Width {width}/Height {height}/ColorSpace/{space}/BitsPerComponent 8{interpolate}{mask}", png.Color);
         }
 
-        (var pageWidth, var pageHeight, var drawn) = Geometry(width, height, dpi ?? DefaultImageDpi, layout);
-        var matrix = $"{PdfWriter.Number(drawn.Width)} 0 0 {PdfWriter.Number(drawn.Height)} {PdfWriter.Number(drawn.X)} {PdfWriter.Number(pageHeight - drawn.Y - drawn.Height)}";
+        // An EXIF orientation of 5 to 8 shows the image turned a quarter, so it takes the
+        // room of its transposed size on the page.
+        var turned = orientation >= 5;
+        (var pageWidth, var pageHeight, var drawn) = Geometry(turned ? height : width, turned ? width : height, dpi ?? DefaultImageDpi, layout);
+        var matrix = Matrix(orientation, drawn.X, pageHeight - drawn.Y - drawn.Height, drawn.Width, drawn.Height);
         pdf.Stream(content, String.Empty, System.Text.Encoding.Latin1.GetBytes($"q {matrix} cm /Im0 Do Q\n"));
         pdf.Object(page, $"<</Type/Page/Parent {pages} 0 R/MediaBox[0 0 {PdfWriter.Number(pageWidth)} {PdfWriter.Number(pageHeight)}]/Resources<</XObject<</Im0 {picture} 0 R>>>>/Contents {content} 0 R>>");
         pdf.Object(pages, $"<</Type/Pages/Kids[{page} 0 R]/Count 1>>");
@@ -93,6 +97,26 @@ internal static class ImagePdf
             SynthesisLayout.Points(media.Width),
             SynthesisLayout.Points(media.Height),
             (Points(placed.X + area.X), Points(placed.Y + area.Y), Points(placed.Width), Points(placed.Height)));
+    }
+
+    // The matrix that maps the stored image onto the rectangle at (x, y) of w by h points,
+    // shown as the EXIF orientation says: 2 mirrored, 3 turned about, 4 flipped, 5 to 8 the
+    // same four after a quarter turn. The unit square of an image has its first row at the
+    // top, so a turn is a swap of the two axes with one of them reversed.
+    private static string Matrix(int orientation, double x, double y, double w, double h)
+    {
+        (var a, var b, var c, var d, var e, var f) = orientation switch
+        {
+            2 => (-w, 0.0, 0.0, h, x + w, y),
+            3 => (-w, 0.0, 0.0, -h, x + w, y + h),
+            4 => (w, 0.0, 0.0, -h, x, y + h),
+            5 => (0.0, -h, -w, 0.0, x + w, y + h),
+            6 => (0.0, -h, w, 0.0, x, y + h),
+            7 => (0.0, h, w, 0.0, x, y),
+            8 => (0.0, h, -w, 0.0, x + w, y),
+            _ => (w, 0.0, 0.0, h, x, y),
+        };
+        return String.Join(' ', new[] { a, b, c, d, e, f }.Select(PdfWriter.Number));
     }
 
     private static string ColorSpaceFor(int components)

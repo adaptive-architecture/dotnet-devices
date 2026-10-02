@@ -10,6 +10,10 @@ internal static partial class EmailText
 {
     private static readonly string[] PrintedHeaders = ["From", "To", "Cc", "Date", "Subject"];
 
+    // How deep multipart parts may nest. Real messages stop at three or four; a message
+    // nesting thousands of parts is built to blow the stack, which .NET cannot catch.
+    private const int MaxDepth = 16;
+
     static EmailText() => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
     public static EmailRendering Render(ReadOnlySpan<byte> message)
@@ -33,11 +37,16 @@ internal static partial class EmailText
         return new EmailRendering(text.ToString(), skipped);
     }
 
-    private static string? FindText(Entity entity, ref int skipped)
+    private static string? FindText(Entity entity, ref int skipped, int depth = 0)
     {
         if (entity.MediaType.StartsWith("multipart/", StringComparison.OrdinalIgnoreCase))
         {
-            return FindTextInParts(entity, ref skipped);
+            if (depth >= MaxDepth)
+            {
+                throw new InvalidDataException($"The email nests multipart parts more than {MaxDepth} deep, which no mail client writes.");
+            }
+
+            return FindTextInParts(entity, ref skipped, depth + 1);
         }
 
         if (String.Equals(entity.MediaType, "text/plain", StringComparison.OrdinalIgnoreCase) && !entity.IsAttachment)
@@ -50,7 +59,7 @@ internal static partial class EmailText
     }
 
     // The parts of an alternative say the same thing, so the ones not printed lose nothing.
-    private static string? FindTextInParts(Entity entity, ref int skipped)
+    private static string? FindTextInParts(Entity entity, ref int skipped, int depth)
     {
         var alternative = String.Equals(entity.MediaType, "multipart/alternative", StringComparison.OrdinalIgnoreCase);
         string? found = null;
@@ -63,7 +72,7 @@ internal static partial class EmailText
             }
 
             var before = skipped;
-            found = FindText(part, ref skipped);
+            found = FindText(part, ref skipped, depth);
             skipped = alternative ? before : skipped;
         }
 
@@ -79,10 +88,23 @@ internal static partial class EmailText
             var encoding = EncodingFor(match.Groups["charset"].Value);
             var data = match.Groups["data"].Value;
             var bytes = match.Groups["mode"].Value is "B" or "b"
-                ? Convert.FromBase64String(data)
+                ? Base64(data, $"the encoded word '{match.Value}'")
                 : QuotedPrintable(data.Replace('_', ' '), header: true);
             return encoding.GetString(bytes);
         });
+    }
+
+    // Base64 that names what was malformed: a raw FormatException says neither.
+    private static byte[] Base64(string data, string what)
+    {
+        try
+        {
+            return Convert.FromBase64String(data);
+        }
+        catch (FormatException exception)
+        {
+            throw new InvalidDataException($"The email carries base64 that does not decode in {what}.", exception);
+        }
     }
 
     internal static byte[] QuotedPrintable(string text, bool header = false)
@@ -236,7 +258,7 @@ internal static partial class EmailText
             byte[] bytes;
             if (transfer == "base64")
             {
-                bytes = Convert.FromBase64String(new string([.. _body.Where(static character => !Char.IsWhiteSpace(character))]));
+                bytes = Base64(new string([.. _body.Where(static character => !Char.IsWhiteSpace(character))]), $"the body of the {MediaType} part");
             }
             else if (transfer == "quoted-printable")
             {
@@ -247,23 +269,27 @@ internal static partial class EmailText
                 bytes = Encoding.Latin1.GetBytes(_body);
             }
 
+            // No charset: valid UTF-8 is UTF-8, and anything else is the Windows-1252 most
+            // legacy text was written in, the same rule DocumentSynthesis.Decode applies to a
+            // plain text file. us-ascii would print every accented letter as '?'.
             var charset = ContentParameters.GetValueOrDefault("charset");
-            var text = (charset is null && IsUtf8(bytes) ? Encoding.UTF8 : EncodingFor(charset ?? "us-ascii")).GetString(bytes);
+            var encoding = charset is null ? GuessEncoding(bytes) : EncodingFor(charset);
+            var text = encoding.GetString(bytes);
             return String.Equals(ContentParameters.GetValueOrDefault("format"), "flowed", StringComparison.OrdinalIgnoreCase)
                 ? Unflow(text, String.Equals(ContentParameters.GetValueOrDefault("delsp"), "yes", StringComparison.OrdinalIgnoreCase))
                 : text;
         }
 
-        private static bool IsUtf8(byte[] bytes)
+        private static Encoding GuessEncoding(byte[] bytes)
         {
             try
             {
                 _ = new UTF8Encoding(false, true).GetString(bytes);
-                return true;
+                return Encoding.UTF8;
             }
             catch (DecoderFallbackException)
             {
-                return false;
+                return Encoding.GetEncoding(1252);
             }
         }
 
@@ -291,8 +317,8 @@ internal static partial class EmailText
         private static (string Value, Dictionary<string, string> Parameters) Parameters(string header)
         {
             Dictionary<string, string> parameters = new(StringComparer.OrdinalIgnoreCase);
-            var parts = ParameterSplit().Split(header);
-            for (var index = 1; index < parts.Length; index++)
+            var parts = SplitOutsideQuotes(header);
+            for (var index = 1; index < parts.Count; index++)
             {
                 var equals = parts[index].IndexOf('=', StringComparison.Ordinal);
                 if (equals > 0)
@@ -303,11 +329,31 @@ internal static partial class EmailText
 
             return (parts[0].Trim(), parameters);
         }
-    }
 
-    // Semicolons outside quotes.
-    [GeneratedRegex(";(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)")]
-    private static partial Regex ParameterSplit();
+        // Semicolons outside quotes, in one pass: the lookahead regex this replaces was
+        // quadratic in the header length, and a header is unfolded into one string.
+        private static List<string> SplitOutsideQuotes(string header)
+        {
+            List<string> parts = [];
+            var start = 0;
+            var quoted = false;
+            for (var index = 0; index < header.Length; index++)
+            {
+                if (header[index] == '"')
+                {
+                    quoted = !quoted;
+                }
+                else if (header[index] == ';' && !quoted)
+                {
+                    parts.Add(header[start..index]);
+                    start = index + 1;
+                }
+            }
+
+            parts.Add(header[start..]);
+            return parts;
+        }
+    }
 }
 
 // The text to print, and how many parts of the message were not printed.

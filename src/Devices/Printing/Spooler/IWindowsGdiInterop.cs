@@ -33,7 +33,11 @@ internal interface IWindowsGdiInterop
 
     void Shutdown(nint token);
 
-    int LoadImageFromFile(string filename, out nint image);
+    // Loads the image from memory. The stream must stay alive until the image is disposed,
+    // because GDI+ decodes some formats lazily from it, and is released afterwards.
+    int LoadImage(byte[] bytes, out nint image, out nint stream);
+
+    void ReleaseStream(nint stream);
 
     int DisposeImage(nint image);
 

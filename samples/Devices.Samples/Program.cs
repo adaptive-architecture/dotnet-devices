@@ -32,7 +32,9 @@ AdaptArch.Devices.Pdfium.PdfiumPrinting.EnablePdfPrinting();
 var contentRoot = File.Exists(Path.Combine(AppContext.BaseDirectory, "wwwroot", "index.html"))
     ? AppContext.BaseDirectory
     : Directory.GetCurrentDirectory();
-var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = args, ContentRootPath = contentRoot });
+// A headless run takes its arguments itself; the host would read them as configuration.
+var headless = JobSetCommand.IsRequested(args);
+var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = headless ? [] : args, ContentRootPath = contentRoot });
 
 // This application prints to real hardware on the local network, so it listens on the
 // loopback address only. Set ASPNETCORE_URLS to move it, and know what that means.
@@ -68,6 +70,12 @@ builder.Services.AddSingleton<PrintJobRunner>();
 
 var app = builder.Build();
 
+// "job-set <set> <printer-id>" runs one set and exits; nothing listens.
+if (headless)
+{
+    return await JobSetCommand.RunAsync(args, app.Services).ConfigureAwait(false);
+}
+
 app.UseDefaultFiles();
 
 // The page is edited while the sample runs, and a browser that keeps a heuristic copy of
@@ -88,3 +96,4 @@ Console.WriteLine($"Current OS: {System.Runtime.InteropServices.RuntimeInformati
 Console.WriteLine($"Open the printer manager at {urls}. Press Ctrl+C to stop it.");
 
 app.Run();
+return 0;

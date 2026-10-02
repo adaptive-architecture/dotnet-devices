@@ -32,18 +32,6 @@ internal static class WindowsSpoolerContent
     // The job resolution wins when set; a document carries no resolution of its own.
     internal static int RenderDpi(int? resolutionDpi) => resolutionDpi ?? DefaultRenderDpi;
 
-    // GDI+ reads the file header to pick its decoder, so this only names the temporary
-    // file. A plain media subtype becomes the suffix, which keeps ".png" and ".jpeg" as
-    // they were and gives a format an application registered its own name. Anything else
-    // — a vendor tree, a "+xml" form, a parameter — leaves the name bare instead of
-    // claiming a format the bytes are not.
-    internal static string FileExtension(string contentType)
-    {
-        var subtype = contentType[(contentType.IndexOf('/', StringComparison.Ordinal) + 1)..];
-        return subtype.Length > 0 && subtype.All(Char.IsAsciiLetterOrDigit)
-            ? $".{subtype.ToLowerInvariant()}"
-            : String.Empty;
-    }
 
     // Zero-based page indexes in ascending order with no duplicates. An unset list
     // prints the whole document; a range past the end contributes nothing.

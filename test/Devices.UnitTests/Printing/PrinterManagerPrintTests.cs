@@ -574,6 +574,33 @@ public class PrinterManagerPrintTests
     }
 
     [Fact]
+    public void Constructor_RefusesATransportListedTwice()
+    {
+        var error = Assert.Throws<ArgumentException>(() => new PrinterManager(
+            new FakeMdnsDiscovery([]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), new FakePrinterFactory(), NoMonitor(),
+            new PrinterManagerOptions { Transports = [PrinterScheme.Raw, PrinterScheme.Raw] }));
+
+        Assert.Equal("options", error.ParamName);
+    }
+
+    [Fact]
+    public async Task PrintAsync_AnAddressFormIsNotKeptInTheDeviceCache()
+    {
+        // A service printing to many ad-hoc addresses must not grow the cache without bound,
+        // and an address names everything needed to open the printer again.
+        FakePrinterFactory factory = new();
+        PrinterManager manager = new(new FakeMdnsDiscovery([]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor());
+
+        for (var host = 1; host <= 50; host++)
+        {
+            _ = await manager.PrintAsync(PrinterId.ForRaw($"10.0.0.{host}"), Zpl(), null, TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(0, manager.CachedKeyCount);
+        Assert.Equal(50, factory.Opened.Count);
+    }
+
+    [Fact]
     public async Task PrintAsync_ReDiscoversWithTheOptionsTheManagerWasBuiltWith()
     {
         // A cache miss on an identity form runs a fresh discovery. It must use the policy

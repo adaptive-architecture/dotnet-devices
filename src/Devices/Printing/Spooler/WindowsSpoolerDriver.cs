@@ -152,7 +152,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             buffer = Marshal.AllocHGlobal(needed);
             if (!_interop.GetPrinter(printerHandle, 2, buffer, needed, out _))
             {
-                ThrowLastError(nameof(WindowsSpoolerInterop.GetPrinter));
+                ThrowLastError(nameof(WindowsSpoolerInterop.GetPrinter), queueName);
             }
 
             var info = Marshal.PtrToStructure<WindowsSpoolerInterop.PrinterInfo2>(buffer);
@@ -280,7 +280,6 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         var renderDpi = WindowsSpoolerContent.RenderDpi(options?.ResolutionDpi);
         var job = new WindowsGdiJob(
             queueName,
-            WindowsSpoolerContent.FileExtension(PrinterContentTypes.Png),
             options?.JobName ?? queueName,
             IntPtr.Zero,
             options?.Copies ?? 1,
@@ -293,7 +292,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
         if (renderer is not null)
         {
-            using var document = await renderer.OpenAsync(bytes, ContextFor(queueName, payload.ContentType, PrinterContentTypes.Emf, renderDpi, options), cancellationToken).ConfigureAwait(false);
+            using var document = await Rendering(queueName, converter.Name, () => renderer.OpenAsync(bytes, ContextFor(queueName, payload.ContentType, PrinterContentTypes.Emf, renderDpi, options), cancellationToken)).ConfigureAwait(false);
             var drawnId = Spool(queueName, imageRequest, job with { SourceDpi = null }, payload, deviceModeJob => _images.PrintDocument(deviceModeJob, document));
             return Queued(queueName, drawnId, options, converter.Name, PrinterContentTypes.Emf, dropped);
         }
@@ -313,6 +312,11 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             var jobId = print(job with { DeviceMode = deviceMode });
             SpoolerLog.JobSpooled(_logger, queueName, jobId, payload.Data.Length, payload.ContentType);
             return jobId;
+        }
+        catch (InvalidOperationException exception) when (exception is not PrinterOperationException)
+        {
+            // GDI names the call that failed and nothing else; the queue is known here.
+            throw Failure(queueName, "Draw", $"Queue '{queueName}' did not take the drawn job: {exception.Message}", exception);
         }
         finally
         {
@@ -365,7 +369,6 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             var jobId = _images.Print(
                 new WindowsGdiJob(
                     queueName,
-                    WindowsSpoolerContent.FileExtension(payload.ContentType),
                     jobName,
                     deviceMode,
                     copies,
@@ -503,11 +506,10 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 $"register one that does. Queue '{queueName}' spooled nothing. PrintOptions.OnUnsupported does not apply to a named converter.");
         }
 
-        var pages = await converter.ConvertAsync(data, ContextFor(queueName, contentType, PrinterContentTypes.Png, dpi, options), cancellationToken).ConfigureAwait(false);
+        var pages = await Rendering(queueName, converter.Name, () => converter.ConvertAsync(data, ContextFor(queueName, contentType, PrinterContentTypes.Png, dpi, options), cancellationToken)).ConfigureAwait(false);
         if (pages.Count == 0)
         {
-            throw new InvalidOperationException(
-                $"The converter of '{contentType}' returned no page, so queue '{queueName}' spooled nothing.");
+            throw Failure(queueName, "Convert", $"The converter of '{contentType}' returned no page, so queue '{queueName}' spooled nothing.");
         }
 
         return pages;
@@ -563,7 +565,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             {
                 // OpenPrinter leaves the out handle undefined on failure.
                 printerHandle = IntPtr.Zero;
-                ThrowLastError(nameof(WindowsSpoolerInterop.OpenPrinter));
+                ThrowLastError(nameof(WindowsSpoolerInterop.OpenPrinter), queueName);
             }
 
             var documentInfo = new WindowsSpoolerInterop.DocInfo1
@@ -573,7 +575,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 DataType = dataTypePtr,
             };
 
-            var jobId = SubmitDocument(printerHandle, documentInfo, bytes, copies);
+            var jobId = SubmitDocument(queueName, printerHandle, documentInfo, bytes, copies);
 
             SpoolerLog.JobSpooled(_logger, queueName, jobId, bytes.Length * copies, payload.ContentType);
             return Task.FromResult(new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
@@ -598,7 +600,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
     // One document with one page per copy. A failure after StartDocPrinter deletes the
     // job, so neither a truncated document nor some of the copies commit.
-    private int SubmitDocument(nint printerHandle, WindowsSpoolerInterop.DocInfo1 documentInfo, byte[] bytes, int copies)
+    private int SubmitDocument(string queueName, nint printerHandle, WindowsSpoolerInterop.DocInfo1 documentInfo, byte[] bytes, int copies)
     {
         var jobId = 0;
         var written = false;
@@ -607,12 +609,12 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             jobId = _interop.StartDocPrinter(printerHandle, 1, documentInfo);
             if (jobId <= 0)
             {
-                ThrowLastError(nameof(WindowsSpoolerInterop.StartDocPrinter));
+                ThrowLastError(nameof(WindowsSpoolerInterop.StartDocPrinter), queueName);
             }
 
             for (var copy = 0; copy < copies; copy++)
             {
-                WritePage(printerHandle, bytes);
+                WritePage(queueName, printerHandle, bytes);
             }
 
             written = true;
@@ -632,16 +634,16 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         }
     }
 
-    private void WritePage(nint printerHandle, byte[] bytes)
+    private void WritePage(string queueName, nint printerHandle, byte[] bytes)
     {
         if (!_interop.StartPagePrinter(printerHandle))
         {
-            ThrowLastError(nameof(WindowsSpoolerInterop.StartPagePrinter));
+            ThrowLastError(nameof(WindowsSpoolerInterop.StartPagePrinter), queueName);
         }
 
         try
         {
-            WriteAll(printerHandle, bytes);
+            WriteAll(queueName, printerHandle, bytes);
         }
         finally
         {
@@ -681,15 +683,22 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             // smaller than DEVMODEW is a refusal, not a short buffer.
             var wholeSize = Marshal.SizeOf<WindowsSpoolerInterop.DevMode>();
             var size = _interop.DocumentProperties(0, printerHandle, queueName, 0, 0, 0);
+            if (size < 0)
+            {
+                ThrowLastError(nameof(WindowsSpoolerInterop.DocumentProperties), queueName);
+            }
+
+            // A short answer is the driver's refusal, not a failure, so the last error code is
+            // stale and would read "The operation completed successfully".
             if (size < wholeSize)
             {
-                ThrowLastError(nameof(WindowsSpoolerInterop.DocumentProperties));
+                throw Failure(queueName, nameof(WindowsSpoolerInterop.DocumentProperties), $"The driver of '{queueName}' answered the device mode size probe with {size} bytes, and {wholeSize} bytes are needed.");
             }
 
             draft = Marshal.AllocHGlobal(size);
             if (_interop.DocumentProperties(0, printerHandle, queueName, draft, 0, WindowsSpoolerInterop.DmOutBuffer) < 0)
             {
-                ThrowLastError(nameof(WindowsSpoolerInterop.DocumentProperties));
+                ThrowLastError(nameof(WindowsSpoolerInterop.DocumentProperties), queueName);
             }
 
             var deviceMode = Marshal.PtrToStructure<WindowsSpoolerInterop.DevMode>(draft);
@@ -697,8 +706,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             {
                 // Writing the fields back would overwrite the tail that sits behind a
                 // device mode this short. No driver in use reports one.
-                throw new InvalidOperationException(
-                    $"The driver of '{queueName}' reported a {deviceMode.Size} byte device mode, and {wholeSize} bytes are needed.");
+                throw Failure(queueName, nameof(WindowsSpoolerInterop.DocumentProperties), $"The driver of '{queueName}' reported a {deviceMode.Size} byte device mode, and {wholeSize} bytes are needed.");
             }
 
             WriteRequest(ref deviceMode, request);
@@ -710,7 +718,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             if (_interop.DocumentProperties(
                     0, printerHandle, queueName, accepted, draft, WindowsSpoolerInterop.DmInBuffer | WindowsSpoolerInterop.DmOutBuffer) < 0)
             {
-                ThrowLastError(nameof(WindowsSpoolerInterop.DocumentProperties));
+                ThrowLastError(nameof(WindowsSpoolerInterop.DocumentProperties), queueName);
             }
 
             var result = accepted;
@@ -746,7 +754,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     }
 
     // WritePrinter can write fewer bytes than asked. The pin needs no unsafe code.
-    private void WriteAll(nint printerHandle, byte[] bytes)
+    private void WriteAll(string queueName, nint printerHandle, byte[] bytes)
     {
         var handle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
         try
@@ -757,13 +765,12 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             {
                 if (!_interop.WritePrinter(printerHandle, pointer, remaining, out var written))
                 {
-                    ThrowLastError(nameof(WindowsSpoolerInterop.WritePrinter));
+                    ThrowLastError(nameof(WindowsSpoolerInterop.WritePrinter), queueName);
                 }
 
                 if (written <= 0)
                 {
-                    throw new InvalidOperationException(
-                        $"{nameof(WindowsSpoolerInterop.WritePrinter)} wrote 0 of {remaining} remaining bytes.");
+                    throw Failure(queueName, nameof(WindowsSpoolerInterop.WritePrinter), $"{nameof(WindowsSpoolerInterop.WritePrinter)} on queue '{queueName}' wrote 0 of {remaining} remaining bytes.");
                 }
 
                 pointer += written;
@@ -797,7 +804,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             buffer = Marshal.AllocHGlobal(needed);
             if (!_interop.GetPrinter(printerHandle, 2, buffer, needed, out _))
             {
-                ThrowLastError(nameof(WindowsSpoolerInterop.GetPrinter));
+                ThrowLastError(nameof(WindowsSpoolerInterop.GetPrinter), queueName);
             }
 
             var info = Marshal.PtrToStructure<WindowsSpoolerInterop.PrinterInfo2>(buffer);
@@ -863,7 +870,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         var result = _interop.DeviceCapabilities(queueName, null, capability, output, 0);
         if (result < 0)
         {
-            ThrowLastError(nameof(WindowsSpoolerInterop.DeviceCapabilities));
+            ThrowLastError(nameof(WindowsSpoolerInterop.DeviceCapabilities), queueName);
         }
 
         return result;
@@ -985,7 +992,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             buffer = Marshal.AllocHGlobal(needed);
             if (!_interop.GetPrinter(printerHandle, 2, buffer, needed, out _))
             {
-                ThrowLastError(nameof(WindowsSpoolerInterop.GetPrinter));
+                ThrowLastError(nameof(WindowsSpoolerInterop.GetPrinter), queueName);
             }
 
             var info = Marshal.PtrToStructure<WindowsSpoolerInterop.PrinterInfo2>(buffer);
@@ -1037,7 +1044,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             if (!_interop.EnumJobs(printerHandle, 0, JobEnumerationLimit, 2, 0, 0, out var needed, out _)
                 && _interop.GetLastError() != ErrorInsufficientBuffer)
             {
-                ThrowLastError(nameof(WindowsSpoolerInterop.EnumJobs));
+                ThrowLastError(nameof(WindowsSpoolerInterop.EnumJobs), queueName);
             }
 
             if (needed == 0)
@@ -1048,7 +1055,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             buffer = Marshal.AllocHGlobal(needed);
             if (!_interop.EnumJobs(printerHandle, 0, JobEnumerationLimit, 2, buffer, needed, out _, out var returned))
             {
-                ThrowLastError(nameof(WindowsSpoolerInterop.EnumJobs));
+                ThrowLastError(nameof(WindowsSpoolerInterop.EnumJobs), queueName);
             }
 
             var itemSize = Marshal.SizeOf<WindowsSpoolerInterop.JobInfo2>();
@@ -1130,7 +1137,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                     return Task.FromResult(false);
                 }
 
-                throw new InvalidOperationException(Describe(nameof(WindowsSpoolerInterop.SetJob), error));
+                throw Failure(queueName, nameof(WindowsSpoolerInterop.SetJob), Describe(nameof(WindowsSpoolerInterop.SetJob), queueName, error));
             }
 
             return Task.FromResult(true);
@@ -1157,7 +1164,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         {
             // OpenPrinter leaves the out handle undefined on failure.
             printerHandle = IntPtr.Zero;
-            ThrowLastError(nameof(WindowsSpoolerInterop.OpenPrinter));
+            ThrowLastError(nameof(WindowsSpoolerInterop.OpenPrinter), queueName);
         }
     }
 
@@ -1173,10 +1180,34 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // the operating system, and it reaches the caller unchanged, so a second report of the
     // same failure adds nothing. Reaching a logger from here would mean an instance method,
     // and about twenty helpers above it would have to stop being static for one entry.
-    private void ThrowLastError(string operation) =>
-        throw new InvalidOperationException(Describe(operation, _interop.GetLastError()));
+    private void ThrowLastError(string operation, string? queueName = null) =>
+        throw Failure(queueName, operation, Describe(operation, queueName, _interop.GetLastError()));
+
+    // The typed failure a caller can catch and read: the queue as the printer, and the Win32
+    // call as the operation. EnumPrinters names no queue, so that one carries no printer.
+    private static PrinterOperationException Failure(string? queueName, string operation, string message, Exception? inner = null)
+    {
+        var printerId = queueName is null ? null : (PrinterId?)PrinterId.ForSpooler(queueName);
+        return inner is null
+            ? new PrinterOperationException(message) { PrinterId = printerId, Operation = operation }
+            : new PrinterOperationException(message, inner) { PrinterId = printerId, Operation = operation };
+    }
+
+    // An engine names the page that failed and nothing else; the queue and the engine are
+    // known here, and the engine's own exception stays as the cause.
+    private static async Task<T> Rendering<T>(string queueName, string converterName, Func<Task<T>> render)
+    {
+        try
+        {
+            return await render().ConfigureAwait(false);
+        }
+        catch (InvalidOperationException exception) when (exception is not PrinterOperationException)
+        {
+            throw Failure(queueName, "Convert", $"Converter '{converterName}' could not render the document for queue '{queueName}': {exception.Message}", exception);
+        }
+    }
 
     // GetPInvokeErrorMessage needs no reflection, so it is safe under native AOT.
-    private static string Describe(string operation, int error) =>
-        $"{operation} failed with Win32 error {error}: {Marshal.GetPInvokeErrorMessage(error)}";
+    private static string Describe(string operation, string? queueName, int error) =>
+        $"{operation}{(queueName is null ? String.Empty : $" on queue '{queueName}'")} failed with Win32 error {error}: {Marshal.GetPInvokeErrorMessage(error)}";
 }

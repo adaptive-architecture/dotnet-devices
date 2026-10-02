@@ -30,7 +30,7 @@ public class WindowsGdiImagePrinterTests
         PrintPlacement? placement = null,
         bool? smoothing = null,
         PrintFitArea fitArea = PrintFitArea.Printable) =>
-        new("lobby", ".png", "photo", deviceMode, copies, orientation, scaling, sourceDpi, placement, smoothing, fitArea);
+        new("lobby", "photo", deviceMode, copies, orientation, scaling, sourceDpi, placement, smoothing, fitArea);
 
     [Fact]
     public void Print_DrawsOnePageAndReportsTheJobIdOfTheDocument()
@@ -67,21 +67,19 @@ public class WindowsGdiImagePrinterTests
     }
 
     [Fact]
-    public void PrintPages_WritesEachPageToATemporaryFileAndDeletesIt()
+    public void PrintPages_LoadsEachPageFromMemoryAndReleasesItsStream()
     {
         FakeWindowsGdiInterop gdi = new();
         WindowsGdiImagePrinter printer = new(gdi);
 
         _ = printer.PrintPages(JobFor(), [Png, Png]);
 
-        // GDI+ decodes from a file, so the bytes have to reach the disk intact.
+        // GDI+ decodes from a memory stream, so no page touches the disk, and the stream
+        // outlives the image because GDI+ may read from it until the image is disposed.
         Assert.Equal(2, gdi.LoadedBytes.Count);
-        Assert.All(gdi.LoadedBytes, bytes => Assert.Equal(Png, bytes));
-        Assert.All(gdi.LoadedPaths, path => Assert.EndsWith(".png", path, StringComparison.Ordinal));
-        Assert.Equal(2, gdi.LoadedPaths.Distinct(StringComparer.Ordinal).Count());
-
-        // And leave nothing behind.
-        Assert.All(gdi.LoadedPaths, path => Assert.False(File.Exists(path)));
+        Assert.All(gdi.LoadedBytes, bytes => Assert.Same(Png, bytes));
+        Assert.Equal(0, gdi.OpenStreams);
+        Assert.Equal(0, gdi.OpenImages);
     }
 
     [Fact]
@@ -114,14 +112,14 @@ public class WindowsGdiImagePrinterTests
         Assert.Equal(0, gdi.OpenDeviceContexts);
         Assert.Equal(0, gdi.OpenGraphics);
         Assert.Equal(0, gdi.OpenImages);
+        Assert.Equal(0, gdi.OpenStreams);
         Assert.Equal(gdi.StartupCount, gdi.ShutdownCount);
-        Assert.All(gdi.LoadedPaths, path => Assert.False(File.Exists(path)));
     }
 
     [Fact]
     public void PrintPages_AFileGdiPlusCannotDecode_SaysSoAndCleansUp()
     {
-        FakeWindowsGdiInterop gdi = new() { FailingCall = nameof(IWindowsGdiInterop.LoadImageFromFile), GdiplusFailure = 3 };
+        FakeWindowsGdiInterop gdi = new() { FailingCall = nameof(IWindowsGdiInterop.LoadImage), GdiplusFailure = 3 };
         WindowsGdiImagePrinter printer = new(gdi);
 
         var failure = Assert.Throws<InvalidOperationException>(() => printer.PrintPages(JobFor(), [Png]));
@@ -129,9 +127,9 @@ public class WindowsGdiImagePrinterTests
         Assert.Contains("could not decode", failure.Message, StringComparison.Ordinal);
         Assert.Contains(nameof(IWindowsGdiInterop.AbortDoc), gdi.Calls);
 
-        // The page was never started, so nothing may end it.
+        // The page was never started, so nothing may end it; the stream is released even so.
         Assert.DoesNotContain(nameof(IWindowsGdiInterop.StartPage), gdi.Calls);
-        Assert.All(gdi.LoadedPaths, path => Assert.False(File.Exists(path)));
+        Assert.Equal(0, gdi.OpenStreams);
     }
 
     [Fact]

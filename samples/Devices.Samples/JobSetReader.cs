@@ -21,24 +21,35 @@ internal static class JobSetReader
         Array.Sort(files, StringComparer.Ordinal);
         foreach (var file in files)
         {
-            try
+            if (await ReadAsync(file, cancellationToken).ConfigureAwait(false) is JobSetDto set)
             {
-                await using var stream = File.OpenRead(file);
-                var set = await JsonSerializer.DeserializeAsync(
-                    stream, AppJsonContext.Default.JobSetDto, cancellationToken).ConfigureAwait(false);
-                if (set is not null)
-                {
-                    set.Name ??= Path.GetFileNameWithoutExtension(file);
-                    sets.Add(set);
-                }
-            }
-            catch (Exception exception) when (exception is JsonException or IOException)
-            {
-                // The file is not a job set. The list is still useful without it.
+                sets.Add(set);
             }
         }
 
         return sets;
+    }
+
+    // The set in the file, named after the file when it names itself nothing, or null when
+    // the file is missing or is not a job set.
+    public static async Task<JobSetDto> ReadAsync(string file, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var stream = File.OpenRead(file);
+            var set = await JsonSerializer.DeserializeAsync(
+                stream, AppJsonContext.Default.JobSetDto, cancellationToken).ConfigureAwait(false);
+            if (set is not null)
+            {
+                set.Name ??= Path.GetFileNameWithoutExtension(file);
+            }
+
+            return set;
+        }
+        catch (Exception exception) when (exception is JsonException or IOException)
+        {
+            return null;
+        }
     }
 
     // Returns the reason the set cannot run, or null when it can. The caller answers 400

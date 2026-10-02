@@ -64,6 +64,17 @@ public class PrinterFactoryTests
     }
 
     [Fact]
+    public void Open_HandsItsFormatsToARawPrinter()
+    {
+        PrintFormatPolicy formats = new([new PrinterFormat("image/x-label", PrinterFormatKind.Image)], []);
+        using PrinterFactory factory = new() { Formats = formats };
+
+        var raw = Assert.IsType<RawPrinter>(factory.Open(Found(NetworkPrinterEndpoint.Raw("printer.local"))));
+
+        Assert.Same(formats, raw.Formats);
+    }
+
+    [Fact]
     public void Open_FallsBackToTheLoggerFactoryOfTheTransport()
     {
         FakeLoggerFactory log = new();
@@ -136,5 +147,34 @@ public class PrinterFactoryTests
 
         Assert.Same(first.IppStatusClient, second.IppStatusClient);
         Assert.Same(first.SnmpStatusClient, second.SnmpStatusClient);
+    }
+
+    [Fact]
+    public async Task Open_RawPrintersUseTheTransportAndTheClientsOfTheFactory()
+    {
+        RecordingTransport transport = new();
+        SnmpPrinterStatusClient snmp = new();
+        using IppPrinterStatusClient ipp = new();
+        PrinterFactory factory = new() { Transport = transport, SnmpStatusClient = snmp, IppStatusClient = ipp };
+
+        var printer = Assert.IsType<RawPrinter>(factory.Open(Found(NetworkPrinterEndpoint.Raw("printer.local"))));
+        _ = await printer.PrintAsync(PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl), null, TestContext.Current.CancellationToken);
+
+        Assert.Same(snmp, printer.SnmpStatusClient);
+        Assert.Same(ipp, printer.IppStatusClient);
+        Assert.Equal(PrinterContentTypes.Zpl, Assert.Single(transport.Written).ContentType);
+    }
+
+    private sealed class RecordingTransport : IPrinterTransport
+    {
+        public List<PrinterPayload> Written { get; } = [];
+
+        public bool CanHandle(PrinterEndpoint endpoint) => true;
+
+        public Task WriteAsync(PrinterEndpoint endpoint, PrinterPayload payload, CancellationToken cancellationToken)
+        {
+            Written.Add(payload);
+            return Task.CompletedTask;
+        }
     }
 }

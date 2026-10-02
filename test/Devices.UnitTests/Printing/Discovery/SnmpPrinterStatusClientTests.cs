@@ -467,8 +467,10 @@ public class SnmpPrinterStatusClientTests
         FakeSnmpChannelFactory factory = new(
             [Reply(requestId => SnmpResponses.Response(requestId, 5, 1, SnmpResponses.Null(PrinterMibOids.SystemName)))]);
 
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
             () => NewClient(factory).GetDetailsAsync(Host, TestContext.Current.CancellationToken));
+
+        Assert.Contains(Host, error.Message, StringComparison.Ordinal);
     }
 
     // A malformed datagram is not an answer.

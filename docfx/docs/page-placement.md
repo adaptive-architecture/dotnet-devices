@@ -116,8 +116,9 @@ sheet, and not blown up to the whole page.
 file declares — the PNG `pHYs` chunk, the JPEG JFIF density, or an EXIF tag — and writes it at
 the resolution of the device, so `PrintScaling.None` covers the same paper on a 300 and on a
 600 dot printer. An image the library lays out as PDF for an IPP printer or a CUPS queue reads
-the `pHYs` chunk and the JFIF density only, not EXIF, and takes a file that declares neither
-as 96 dots an inch. A converted page is sized from the resolution the converter was asked for
+the same three, prefers JFIF over EXIF when a JPEG carries both, takes a file that declares none
+as 96 dots an inch, and shows a JPEG the way its EXIF orientation says, so a phone photo prints
+upright. A converted page is sized from the resolution the converter was asked for
 instead, because the encoder writes none of its own. CUPS does the same on the Linux side with
 one difference worth knowing: a file that declares no resolution is 200 dots an inch to CUPS,
 while GDI+ answers 96 for such a file and cannot tell it from one that really declares 96. The

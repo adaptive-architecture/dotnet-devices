@@ -129,12 +129,13 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
     {
         ArgumentNullException.ThrowIfNull(payload);
         ObjectDisposedException.ThrowIf(_disposed, this);
+        using var scope = IppLogScope.Begin(_context.Logger, Id, "Print");
 
         var effectiveOptions = options;
         IReadOnlyList<DroppedOption> dropped = [];
         if (options is not null && options.OnUnsupported != UnsupportedOptionBehavior.Send)
         {
-            var configuration = await GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
+            var configuration = await ReadConfigurationAsync(cancellationToken).ConfigureAwait(false);
             effectiveOptions = PrintOptionValidator.Apply(options, configuration, out dropped);
         }
 
@@ -143,7 +144,7 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
         var format = payload.ContentType;
         if (IppDocumentFormat.IsRawLanguage(format, Formats))
         {
-            var configuration = await GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
+            var configuration = await ReadConfigurationAsync(cancellationToken).ConfigureAwait(false);
             format = IppDocumentFormat.Negotiate(format, configuration.SupportedDocumentFormats, Formats);
 
             var endpoint = _resolver.Resolved ?? await _resolver.ResolveAsync(cancellationToken).ConfigureAwait(false);
@@ -176,17 +177,18 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
         Formats,
         Id,
         _context.Logger,
-        GetConfigurationAsync,
+        ReadConfigurationAsync,
         async token => _resolver.Resolved ?? await _resolver.ResolveAsync(token).ConfigureAwait(false),
         IppDocumentFormat.IppTargets);
 
     /// <inheritdoc />
     /// <exception cref="InvalidOperationException">Thrown when no IPP endpoint answers, or the printer reports an IPP error.</exception>
     /// <exception cref="InvalidDataException">Thrown when the printer returns a malformed IPP response.</exception>
-    public Task<PrinterStatus> GetStatusAsync(CancellationToken cancellationToken)
+    public async Task<PrinterStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return _resolver.RunAsync((uri, token) => IppRequests.GetStatusAsync(_context, uri, Id, token), cancellationToken);
+        using var scope = IppLogScope.Begin(_context.Logger, Id, "GetStatus");
+        return await _resolver.RunAsync((uri, token) => IppRequests.GetStatusAsync(_context, uri, Id, token), cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -196,6 +198,14 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
     public async Task<PrinterConfiguration> GetConfigurationAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        using var scope = IppLogScope.Begin(_context.Logger, Id, "GetConfiguration");
+        return await ReadConfigurationAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    // The read behind GetConfigurationAsync, for the operations that need it inside their
+    // own scope.
+    private async Task<PrinterConfiguration> ReadConfigurationAsync(CancellationToken cancellationToken)
+    {
         if (_configuration is not null)
         {
             return _configuration;
@@ -213,6 +223,7 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
     public async Task<PrinterIdentity?> GetIdentityAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        using var scope = IppLogScope.Begin(_context.Logger, Id, "GetIdentity");
         var identity = await _resolver.RunAsync(
             (uri, token) => IppRequests.GetIdentityAsync(_context, uri, token),
             cancellationToken).ConfigureAwait(false);

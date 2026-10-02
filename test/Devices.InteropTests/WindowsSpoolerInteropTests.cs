@@ -231,14 +231,15 @@ public class WindowsSpoolerInteropTests
         SpoolerPrinter printer = new(new SpoolerPrinterEndpoint($"adaptarch-missing-{Guid.NewGuid():N}"));
         var cancellationToken = TestContext.Current.CancellationToken;
 
-        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => printer.GetStatusAsync(cancellationToken));
+        var failure = await Assert.ThrowsAsync<PrinterOperationException>(() => printer.GetStatusAsync(cancellationToken));
 
         // 1801 is ERROR_INVALID_PRINTER_NAME. The message carries what the operating system
-        // said, which is the part no test on Linux can produce.
+        // said, which is the part no test on Linux can produce; the queue travels as data.
         Assert.Contains("1801", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(printer.Id, failure.PrinterId);
 
         // DeviceCapabilities answers -1 rather than 0 for a queue that is not there, so the
         // configuration must fail rather than report a printer with no trays.
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => printer.GetConfigurationAsync(cancellationToken));
+        _ = await Assert.ThrowsAsync<PrinterOperationException>(() => printer.GetConfigurationAsync(cancellationToken));
     }
 }
