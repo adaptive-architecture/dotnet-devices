@@ -101,12 +101,8 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
         while (!deadline.IsCancellationRequested)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            PrintJobInfo? reading;
-            try
-            {
-                reading = await _queue.GetJobAsync(printerId, jobId, delayToken.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            var (read, reading) = await TryReadAsync(printerId, jobId, cancellationToken, delayToken.Token).ConfigureAwait(false);
+            if (!read)
             {
                 break;
             }
@@ -156,6 +152,19 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
         }
 
         PrintingLog.WatchEnded(Logger, jobId, printerId, "the whole timeout passed", readings);
+    }
+
+    // Read is false when the deadline ended the read; the caller's own cancellation throws.
+    private async Task<(bool Read, PrintJobInfo? Job)> TryReadAsync(PrinterId printerId, string jobId, CancellationToken caller, CancellationToken deadline)
+    {
+        try
+        {
+            return (true, await _queue.GetJobAsync(printerId, jobId, deadline).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException) when (!caller.IsCancellationRequested)
+        {
+            return (false, null);
+        }
     }
 
     // The state of the newest reading, kept from the first reading that showed the job

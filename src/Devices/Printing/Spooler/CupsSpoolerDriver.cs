@@ -51,9 +51,6 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     {
     }
 
-    internal static HttpClient ClientFor(IppTransportOptions? options) =>
-        options is null ? SharedClient.Value : ClientsByOptions.GetValue(options, CupsLocalSocket.CreateClient);
-
     public CupsSpoolerDriver(HttpClient httpClient)
         : this(httpClient, DefaultBaseUri, null, null)
     {
@@ -89,6 +86,9 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         _server = server;
         _userDefault = userDefault;
     }
+
+    internal static HttpClient ClientFor(IppTransportOptions? options) =>
+        options is null ? SharedClient.Value : ClientsByOptions.GetValue(options, CupsLocalSocket.CreateClient);
 
     // Every identifier this driver hands out, so a queue of a named server never reports
     // itself as a queue of the local spooler.
