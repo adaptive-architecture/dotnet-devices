@@ -157,6 +157,7 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
         }
         catch (OperationCanceledException) when (!caller.IsCancellationRequested)
         {
+            // The deadline fired, not the caller: the loop condition ends the watch.
         }
     }
 
