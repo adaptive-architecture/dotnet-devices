@@ -180,7 +180,7 @@ public class IppLogTests
 
         var wire = factory.Of(IppLog.Category);
         Assert.NotEmpty(wire);
-        var scopes = wire.Select(entry => Assert.IsAssignableFrom<IReadOnlyList<KeyValuePair<string, object>>>(Assert.Single(entry.Scopes))).ToList();
+        var scopes = wire.Select(entry => Assert.IsType<IReadOnlyList<KeyValuePair<string, object>>>(Assert.Single(entry.Scopes), exactMatch: false)).ToList();
         Assert.All(scopes, scope => Assert.Equal(printer.Id, Assert.Single(scope, pair => pair.Key == "PrinterId").Value));
         Assert.All(scopes, scope => Assert.Equal("Print", Assert.Single(scope, pair => pair.Key == "IppOperation").Value));
         Assert.Single(scopes.Select(scope => Assert.Single(scope, pair => pair.Key == "IppCorrelationId").Value).Distinct());
@@ -199,7 +199,7 @@ public class IppLogTests
         _ = await queue.GetJobAsync(PrinterId.ForIpp("printer.local"), "7", TestContext.Current.CancellationToken);
 
         var read = Assert.Single(factory.WithId(1021));
-        var scope = Assert.IsAssignableFrom<IReadOnlyList<KeyValuePair<string, object>>>(Assert.Single(read.Scopes));
+        var scope = Assert.IsType<IReadOnlyList<KeyValuePair<string, object>>>(Assert.Single(read.Scopes), exactMatch: false);
         Assert.Equal("7", Assert.Single(scope, pair => pair.Key == "JobId").Value);
         Assert.Equal("GetJob", Assert.Single(scope, pair => pair.Key == "IppOperation").Value);
     }

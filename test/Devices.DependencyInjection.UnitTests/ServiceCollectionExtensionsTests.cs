@@ -199,7 +199,7 @@ public class ServiceCollectionExtensionsTests
         _ = services.AddSingleton<IPrinterTransport>(transport);
         _ = services.AddPrinters();
 
-        using var provider = services.BuildServiceProvider();
+        await using var provider = services.BuildServiceProvider();
         var factory = Assert.IsType<PrinterFactory>(provider.GetRequiredService<IPrinterFactory>());
         var printer = await factory.OpenAsync(PrinterId.ForRaw("printer.local"), TestContext.Current.CancellationToken);
         _ = await printer.PrintAsync(PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl), null, TestContext.Current.CancellationToken);

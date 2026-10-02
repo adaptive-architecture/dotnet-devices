@@ -52,41 +52,58 @@ internal sealed record JpegInfo(int Width, int Height, int Components, double? D
             return (null, 1);
         }
 
-        double? resolution = null;
-        var unit = 2;
-        var orientation = 1;
         var directory = (int)Math.Min(U32(tiff, 4, little), Int32.MaxValue);
         if (directory < 0 || directory + 2 > tiff.Length)
         {
             return (null, 1);
         }
 
+        ExifFields fields = new();
         int count = U16(tiff, directory, little);
         for (var index = 0; index < count && directory + 2 + ((index + 1) * 12) <= tiff.Length; index++)
         {
-            var entry = directory + 2 + (index * 12);
-            var tag = U16(tiff, entry, little);
-            var type = U16(tiff, entry + 2, little);
-            if (tag == 0x0112 && type == 3)
-            {
-                orientation = U16(tiff, entry + 8, little);
-            }
-            else if (tag == 0x0128 && type == 3)
-            {
-                unit = U16(tiff, entry + 8, little);
-            }
-            else if (tag == 0x011A && type == 5)
-            {
-                var offset = (int)Math.Min(U32(tiff, entry + 8, little), Int32.MaxValue);
-                if (offset >= 0 && offset + 8 <= tiff.Length && U32(tiff, offset + 4, little) is > 0 and var denominator)
-                {
-                    resolution = (double)U32(tiff, offset, little) / denominator;
-                }
-            }
+            ReadEntry(tiff, directory + 2 + (index * 12), little, ref fields);
         }
 
-        var dpi = resolution is > 0 ? unit switch { 2 => resolution, 3 => resolution * 2.54, _ => null } : null;
-        return (dpi, orientation is >= 1 and <= 8 ? orientation : 1);
+        return (fields.Dpi, fields.Orientation is >= 1 and <= 8 ? fields.Orientation : 1);
+    }
+
+    // One 12-octet directory entry: the tag, its type, a count, then the value or an offset
+    // to it. Only the three tags the layout needs are read, each at the type EXIF gives it.
+    private static void ReadEntry(ReadOnlySpan<byte> tiff, int entry, bool little, ref ExifFields fields)
+    {
+        var tag = U16(tiff, entry, little);
+        var type = U16(tiff, entry + 2, little);
+        if (tag == 0x0112 && type == 3)
+        {
+            fields.Orientation = U16(tiff, entry + 8, little);
+        }
+        else if (tag == 0x0128 && type == 3)
+        {
+            fields.Unit = U16(tiff, entry + 8, little);
+        }
+        else if (tag == 0x011A && type == 5)
+        {
+            var offset = (int)Math.Min(U32(tiff, entry + 8, little), Int32.MaxValue);
+            if (offset >= 0 && offset + 8 <= tiff.Length && U32(tiff, offset + 4, little) is > 0 and var denominator)
+            {
+                fields.Resolution = (double)U32(tiff, offset, little) / denominator;
+            }
+        }
+    }
+
+    // EXIF units: 2 is dots per inch and 3 dots per centimetre; anything else states no density.
+    private struct ExifFields
+    {
+        public double? Resolution;
+        public int Unit = 2;
+        public int Orientation = 1;
+
+        public ExifFields()
+        {
+        }
+
+        public readonly double? Dpi => Resolution is > 0 ? Unit switch { 2 => Resolution, 3 => Resolution * 2.54, _ => null } : null;
     }
 
     private static ushort U16(ReadOnlySpan<byte> data, int at, bool little) =>

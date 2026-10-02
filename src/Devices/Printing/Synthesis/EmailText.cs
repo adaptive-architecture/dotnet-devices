@@ -273,22 +273,23 @@ internal static partial class EmailText
             // legacy text was written in, the same rule DocumentSynthesis.Decode applies to a
             // plain text file. us-ascii would print every accented letter as '?'.
             var charset = ContentParameters.GetValueOrDefault("charset");
-            var text = (charset is null ? (IsUtf8(bytes) ? Encoding.UTF8 : Encoding.GetEncoding(1252)) : EncodingFor(charset)).GetString(bytes);
+            var encoding = charset is null ? GuessEncoding(bytes) : EncodingFor(charset);
+            var text = encoding.GetString(bytes);
             return String.Equals(ContentParameters.GetValueOrDefault("format"), "flowed", StringComparison.OrdinalIgnoreCase)
                 ? Unflow(text, String.Equals(ContentParameters.GetValueOrDefault("delsp"), "yes", StringComparison.OrdinalIgnoreCase))
                 : text;
         }
 
-        private static bool IsUtf8(byte[] bytes)
+        private static Encoding GuessEncoding(byte[] bytes)
         {
             try
             {
                 _ = new UTF8Encoding(false, true).GetString(bytes);
-                return true;
+                return Encoding.UTF8;
             }
             catch (DecoderFallbackException)
             {
-                return false;
+                return Encoding.GetEncoding(1252);
             }
         }
 
