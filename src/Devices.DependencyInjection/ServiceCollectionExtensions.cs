@@ -10,7 +10,7 @@ namespace AdaptArch.Devices.DependencyInjection;
 
 /// <summary>
 /// Dependency injection registrations for <c>AdaptArch.Devices</c>.
-/// Kept in this package so the core library ships with zero runtime dependencies.
+/// Kept in this package so the core library takes no dependency on the hosting abstractions.
 /// </summary>
 public static class ServiceCollectionExtensions
 {

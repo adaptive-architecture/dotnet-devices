@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using AdaptArch.Devices.Printing.Ipp;
 using Microsoft.Extensions.Logging;
 using SharpIpp.Models.Requests;
@@ -22,10 +23,14 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     // A CUPS job attribute that no IPP specification defines; see FitsOntoQueueMedia.
     private static readonly IppAttribute FitToPage = new(Tag.Boolean, "fit-to-page", true);
 
-    // One client for every driver: the target is fixed, and a client per driver would
-    // leak a connection pool each time the factory makes one. It connects through the
-    // daemon's domain socket where there is one; see CupsLocalSocket.
+    // One client for every driver of one policy: the target is fixed, and a client per
+    // driver would leak a connection pool each time the factory makes one. The connect
+    // timeout, the credentials and the certificate trust live in the handler, so a policy
+    // needs a client of its own; the table is weakly keyed, so a policy that goes away
+    // takes its pool with it. Every client connects through the daemon's domain socket
+    // where there is one; see CupsLocalSocket.
     private static readonly Lazy<HttpClient> SharedClient = new(static () => CupsLocalSocket.CreateClient(new IppTransportOptions()));
+    private static readonly ConditionalWeakTable<IppTransportOptions, HttpClient> ClientsByOptions = [];
 
     private readonly IppContext _context;
     private readonly Uri _baseUri;
@@ -42,9 +47,12 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
     private readonly ConcurrentDictionary<string, PrinterConfiguration> _configurations = new(StringComparer.Ordinal);
 
     public CupsSpoolerDriver(PrintFormatPolicy? formats = null, IppTransportOptions? options = null, ILoggerFactory? loggerFactory = null)
-        : this(SharedClient.Value, DefaultBaseUri, formats, options, userDefault: CupsUserDefault.Find, loggerFactory: loggerFactory)
+        : this(ClientFor(options), DefaultBaseUri, formats, options, userDefault: CupsUserDefault.Find, loggerFactory: loggerFactory)
     {
     }
+
+    internal static HttpClient ClientFor(IppTransportOptions? options) =>
+        options is null ? SharedClient.Value : ClientsByOptions.GetValue(options, CupsLocalSocket.CreateClient);
 
     public CupsSpoolerDriver(HttpClient httpClient)
         : this(httpClient, DefaultBaseUri, null, null)

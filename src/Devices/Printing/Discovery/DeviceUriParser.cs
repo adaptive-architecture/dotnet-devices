@@ -133,14 +133,17 @@ internal sealed class DeviceUriParser
 
         // A name that resolves nowhere useful must not become an identity: a queue that
         // prints to the local daemon would otherwise merge with every other one.
-        if (String.IsNullOrEmpty(uri.Host) ||
-            IsLoopbackOrUnspecified(uri.Host) ||
-            Uri.CheckHostName(uri.Host) == UriHostNameType.Unknown)
+        // DnsSafeHost strips the brackets of an IPv6 literal, which the device key of
+        // every other channel does without.
+        var host = uri.DnsSafeHost;
+        if (String.IsNullOrEmpty(host) ||
+            IsLoopbackOrUnspecified(host) ||
+            Uri.CheckHostName(host) == UriHostNameType.Unknown)
         {
             return;
         }
 
-        Host = uri.Host;
+        Host = host;
         if (!uri.IsDefaultPort && uri.Port is > 0 and <= 65535)
         {
             Port = uri.Port;

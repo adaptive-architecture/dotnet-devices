@@ -590,6 +590,7 @@ public sealed class PrinterManager : IPrinterManager
     // The channels to ask for a status, most likely to answer first: the one the caller
     // named, then the rest in the configured transport order. ChooseForQueue picks the
     // head of this list, so a device with one working channel behaves as it always did.
+    // A status read is not a queue read, so a head with no queue is no cause for a warning.
     private List<DiscoveredPrinter> StatusOrder(PrinterDevice device, PrinterId id)
     {
         var allowed = Allowed(device);
@@ -598,7 +599,7 @@ public sealed class PrinterManager : IPrinterManager
             throw NoAllowedTransport(device, id);
         }
 
-        List<DiscoveredPrinter> ordered = [ChooseForQueue(device, id)];
+        List<DiscoveredPrinter> ordered = [ChooseForQueue(device, id, forQueue: false)];
         ordered.AddRange(allowed.Where(channel => channel != ordered[0]));
         return ordered;
     }
@@ -688,10 +689,12 @@ public sealed class PrinterManager : IPrinterManager
         if (usable.Count == 0 && (_formats.ConverterFor(contentType, converterName) is not null || DocumentSynthesis.Reads(contentType)))
         {
             // No channel reads the document, but a converter, or the PDF the library lays
-            // text and images out as, may render it into a format one does. The channel negotiates that target itself, from the
-            // formats the printer reported, so choosing here would second-guess
-            // what only that list can settle.
-            usable = allowed;
+            // text and images out as, may render it into a format one does. The channel
+            // negotiates that target itself, from the formats the printer reported, so
+            // choosing here would second-guess what only that list can settle. A raw
+            // channel converts nothing: it would write the bytes the printer said it
+            // cannot read, so it stays out.
+            usable = [.. allowed.Where(static channel => channel.HasJobQueue)];
         }
 
         if (usable.Count == 0)
@@ -733,7 +736,7 @@ public sealed class PrinterManager : IPrinterManager
 
     // The channel a queue is read from. Unlike a print, this needs a job queue whatever
     // the caller named, because a raw channel has no queue to read.
-    private DiscoveredPrinter ChooseForQueue(PrinterDevice device, PrinterId id)
+    private DiscoveredPrinter ChooseForQueue(PrinterDevice device, PrinterId id, bool forQueue = true)
     {
         var allowed = Allowed(device);
         if (allowed.Count == 0)
@@ -747,7 +750,7 @@ public sealed class PrinterManager : IPrinterManager
             : allowed.Find(static channel => channel.HasJobQueue) ?? named ?? allowed[0];
 
         // The fallback took a channel with no queue. A read of it reports no job at all.
-        if (!chosen.HasJobQueue)
+        if (forQueue && !chosen.HasJobQueue)
         {
             PrintingLog.QueueChannelHasNoQueue(_logger, id, chosen.Endpoint);
         }
@@ -764,6 +767,16 @@ public sealed class PrinterManager : IPrinterManager
             return cached;
         }
 
+        // An address needs no discovery, so it does not wait for one another caller started.
+        if (id.TryCreateEndpoint(out var endpoint) && endpoint is not null)
+        {
+            DiscoveredPrinter channel = new(id, endpoint, new PrinterInfo(id, id.Authority));
+            PrinterDevice device = new(id.DeviceKey, [channel]);
+            Remember(device);
+            PrintingLog.PrinterOpenedFromAddress(_logger, id);
+            return device;
+        }
+
         await _refresh.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -771,15 +784,6 @@ public sealed class PrinterManager : IPrinterManager
             if (_devices.TryGetValue(id.DeviceKey, out cached))
             {
                 return cached;
-            }
-
-            if (id.TryCreateEndpoint(out var endpoint) && endpoint is not null)
-            {
-                DiscoveredPrinter channel = new(id, endpoint, new PrinterInfo(id, id.Authority));
-                PrinterDevice device = new(id.DeviceKey, [channel]);
-                Remember(device);
-                PrintingLog.PrinterOpenedFromAddress(_logger, id);
-                return device;
             }
 
             // A discovery is expensive, and a caller that sees this on every print holds an

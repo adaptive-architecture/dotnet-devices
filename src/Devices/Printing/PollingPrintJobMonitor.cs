@@ -101,7 +101,16 @@ public sealed class PollingPrintJobMonitor : IPrintJobMonitor
         while (!deadline.IsCancellationRequested)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var reading = await _queue.GetJobAsync(printerId, jobId, cancellationToken).ConfigureAwait(false);
+            PrintJobInfo? reading;
+            try
+            {
+                reading = await _queue.GetJobAsync(printerId, jobId, delayToken.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+
             if (reading is null)
             {
                 yield return CompleteAfterTheQueueDroppedIt(printerId, jobId, printedAs, readings);

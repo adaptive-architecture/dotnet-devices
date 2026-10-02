@@ -97,8 +97,6 @@ internal static partial class PrintingLog
         }
     }
 
-    // 2050 block: job milestones. A job name is personal data, so it is at Debug only.
-
     [LoggerMessage(EventId = 2042, Level = LogLevel.Debug, Message = "The {ContentType} job for printer {PrinterId} was laid out as PDF.")]
     private static partial void DocumentLaidOut(ILogger logger, string contentType, PrinterId printerId);
 
@@ -121,6 +119,8 @@ internal static partial class PrintingLog
             EmailPartsSkipped(logger, printerId, skippedCount);
         }
     }
+
+    // 2050 block: job milestones. A job name is personal data, so it is at Debug only.
 
     [LoggerMessage(EventId = 2050, Level = LogLevel.Information, Message = "Job {JobId} for printer {PrinterId} was submitted on {Endpoint} as {ContentType}, {ByteCount} bytes.")]
     public static partial void JobSubmitted(ILogger logger, string jobId, PrinterId printerId, PrinterEndpoint endpoint, string contentType, int byteCount);

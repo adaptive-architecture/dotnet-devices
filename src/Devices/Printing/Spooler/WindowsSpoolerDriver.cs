@@ -309,7 +309,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         var deviceMode = IntPtr.Zero;
         try
         {
-            deviceMode = BuildDeviceMode(queueName, imageRequest);
+            deviceMode = BuildDeviceMode(queueName, imageRequest, job.Copies > 1);
             var jobId = print(job with { DeviceMode = deviceMode });
             SpoolerLog.JobSpooled(_logger, queueName, jobId, payload.Data.Length, payload.ContentType);
             return jobId;
@@ -361,7 +361,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         var deviceMode = IntPtr.Zero;
         try
         {
-            deviceMode = BuildDeviceMode(queueName, imageRequest);
+            deviceMode = BuildDeviceMode(queueName, imageRequest, copies > 1);
             var jobId = _images.Print(
                 new WindowsGdiJob(
                     queueName,
@@ -661,9 +661,11 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // default is asked for first, the mapped fields are written over it, and a second call
     // lets the driver reconcile what it was given. The answer is unmanaged memory the
     // caller frees, or zero when the job asked for nothing a field can carry.
-    private nint BuildDeviceMode(string queueName, DeviceModeRequest request)
+    // The image printer writes dmCopies into the mode it is given, so a job of several
+    // copies needs one even when no other field is set; without it one copy prints.
+    private nint BuildDeviceMode(string queueName, DeviceModeRequest request, bool forCopies = false)
     {
-        if (request.IsEmpty)
+        if (request.IsEmpty && !forCopies)
         {
             return IntPtr.Zero;
         }

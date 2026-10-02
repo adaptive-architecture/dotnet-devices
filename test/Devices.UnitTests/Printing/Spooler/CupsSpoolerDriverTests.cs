@@ -9,6 +9,20 @@ namespace AdaptArch.Devices.UnitTests.Printing.Spooler;
 public class CupsSpoolerDriverTests
 {
     [Fact]
+    public void ClientFor_BuildsOneClientPerPolicyAndSharesIt()
+    {
+        IppTransportOptions quick = new() { ConnectTimeout = TimeSpan.FromSeconds(2) };
+        IppTransportOptions patient = new() { ConnectTimeout = TimeSpan.FromSeconds(30) };
+
+        // The connect timeout, the credentials and the certificate trust live in the
+        // handler, so a policy of its own needs a client of its own, built once.
+        Assert.Same(CupsSpoolerDriver.ClientFor(quick), CupsSpoolerDriver.ClientFor(quick));
+        Assert.NotSame(CupsSpoolerDriver.ClientFor(quick), CupsSpoolerDriver.ClientFor(patient));
+        Assert.NotSame(CupsSpoolerDriver.ClientFor(quick), CupsSpoolerDriver.ClientFor(null));
+        Assert.Same(CupsSpoolerDriver.ClientFor(null), CupsSpoolerDriver.ClientFor(null));
+    }
+
+    [Fact]
     public async Task EnumeratePrintersAsync_ReportsEachQueueAsASpoolerEndpoint()
     {
         var body = IppMessages.Response(0x0000,

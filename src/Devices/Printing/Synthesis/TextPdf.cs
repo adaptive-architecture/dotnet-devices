@@ -54,10 +54,18 @@ internal static class TextPdf
     private static TextLayout Layout(string text, int columns, int rows, IReadOnlyList<PrintFont> fonts)
     {
         LayoutWriter writer = new(columns, rows);
-        var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
-        foreach (var rune in normalized.EnumerateRunes())
+        var afterReturn = false;
+        foreach (var rune in text.EnumerateRunes())
         {
-            if (rune.Value == '\n')
+            // A bare return and a return-newline pair are each one line break.
+            if (afterReturn && rune.Value == '\n')
+            {
+                afterReturn = false;
+                continue;
+            }
+
+            afterReturn = rune.Value == '\r';
+            if (rune.Value is '\n' or '\r')
             {
                 writer.BreakLine();
             }
@@ -214,6 +222,7 @@ internal static class TextPdf
         private List<TextLine> _page = [];
         private TextLine _line = new();
         private int _column;
+        private bool _overflowed;
 
         public LayoutWriter(int columns, int rows)
         {
@@ -228,7 +237,8 @@ internal static class TextPdf
             _page.Add(_line);
             _line = new TextLine();
             _column = 0;
-            if (_page.Count == _rows)
+            _overflowed = _page.Count == _rows;
+            if (_overflowed)
             {
                 Result.Pages.Add(_page);
                 _page = [];
@@ -237,6 +247,14 @@ internal static class TextPdf
 
         public void BreakPage()
         {
+            // A form feed right after the last line filled the page asks for the page the
+            // overflow already started, not for a blank one after it.
+            if (_overflowed)
+            {
+                _overflowed = false;
+                return;
+            }
+
             if (_line.Glyphs.Count > 0)
             {
                 _page.Add(_line);
@@ -259,6 +277,7 @@ internal static class TextPdf
 
             _line.Glyphs.Add(glyph with { Column = _column });
             _column += glyph.Cells;
+            _overflowed = false;
         }
 
         public TextLayout Finish()
@@ -292,8 +311,8 @@ internal static class TextPdf
     }
 
     // Font -1 is Courier, whose code is a Windows-1252 byte; any other font is embedded and
-    // its code is a glyph index.
-    private sealed record TextGlyph(int Font, int Code, int Cells, int Width)
+    // its code is a glyph index. A struct, because every character makes one.
+    private readonly record struct TextGlyph(int Font, int Code, int Cells, int Width)
     {
         public int Column { get; init; }
     }

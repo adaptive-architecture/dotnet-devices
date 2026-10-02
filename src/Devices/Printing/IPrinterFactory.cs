@@ -13,13 +13,16 @@ public interface IPrinterFactory
     /// <returns>A printer for the discovered endpoint.</returns>
     /// <exception cref="NotSupportedException">Thrown when the endpoint is not supported yet.</exception>
     /// <remarks>
-    /// The caller owns the returned printer. The caller must dispose the printer when the
-    /// printer implements <see cref="IDisposable"/>.
+    /// A printer the default factory returns owns no connection of its own: it shares the
+    /// clients of the factory, so the caller disposes the factory and not the printers.
+    /// Another implementation may hand out printers that implement <see cref="IDisposable"/>;
+    /// the caller disposes those.
     /// </remarks>
     IPrinter Open(DiscoveredPrinter printer);
 
     /// <summary>
-    /// Opens a printer by its identifier, probing to pick the right transport.
+    /// Opens a printer by its identifier. The scheme of the identifier names the transport,
+    /// so nothing is probed.
     /// </summary>
     /// <param name="id">The printer identifier.</param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>

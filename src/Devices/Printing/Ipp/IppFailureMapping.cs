@@ -9,8 +9,23 @@ namespace AdaptArch.Devices.Printing.Ipp;
 // pick the mapping with a `when (exception.InnerException is not null)` guard.
 internal static class IppFailureMapping
 {
-    public static PrinterOperationException ToIppError(IppCall call, Exception exception) =>
-        call.Failure($"Printer '{call.Endpoint}' reported an IPP error.", exception);
+    // The status code by name and number, and the printer's own words for it when it gave
+    // any: that is what tells "Bad document-format" from a refused page size.
+    public static PrinterOperationException ToIppError(IppCall call, Exception exception)
+    {
+        var status = call.Response is IppResponseMessage typed
+            ? $" {typed.StatusCode} (0x{(int)typed.StatusCode:X4})"
+            : String.Empty;
+        var said = OperationText(call.Response, "status-message") ?? OperationText(call.Response, "detailed-status-message");
+        return call.Failure($"Printer '{call.Endpoint}' reported IPP status{status}{(said is null ? "." : $": {said}")}", exception);
+    }
+
+    private static string? OperationText(IIppResponseMessage? response, string name) =>
+        response?.OperationAttributes?
+            .SelectMany(static group => group)
+            .Where(attribute => String.Equals(attribute.Name, name, StringComparison.Ordinal))
+            .Select(static attribute => IppRawAttributes.GetText(attribute.Value))
+            .FirstOrDefault(static text => !String.IsNullOrWhiteSpace(text));
 
     public static PrinterOperationException ToHttpError(IppCall call, System.Net.HttpStatusCode? status, Exception exception) =>
         call.Failure(

@@ -108,7 +108,7 @@ foreach (var device in devices)
 
 `PrinterPayload` carries bytes plus a `ContentType`, so transports and spoolers can route it
 correctly. `PrinterContentTypes` holds the constants (`Zpl`, `Epl`, `Cpcl`, `EscPos`, `Dpl`, `Text`,
-`Png`, `Jpeg`, `Pdf`, `OctetStream`).
+`Csv`, `Email`, `Png`, `Jpeg`, `Pdf`, `PwgRaster`, `Urf`, `Emf`, `OctetStream`).
 
 ```csharp
 PrinterPayload payload = PrinterPayload.FromString(

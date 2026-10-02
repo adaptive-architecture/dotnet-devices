@@ -83,7 +83,7 @@ when those were read.
 | Channel | Applies |
 | :--- | :--- |
 | `raw` | Nothing. The payload reaches the device unchanged. |
-| `spooler` on Windows | `JobName`, `Copies`, `Duplex`, `ColorMode`, `Orientation`, `MediaSource`, `MediaSize`, `ResolutionDpi`, `Quality`, `Placement`, `Smoothing`, `Rendering` and `MediaDimensions`. Printer languages report the rest in `PrintJobInfo.DroppedOptions`; image jobs apply every `Orientation` and every `Scaling` with GDI instead of the device mode. |
+| `spooler` on Windows | `JobName`, `Copies`, `Duplex`, `ColorMode`, `Orientation`, `MediaSource`, `MediaSize`, `ResolutionDpi`, `Quality`, `Scaling`, `Placement`, `Smoothing`, `Rendering` and `MediaDimensions`. Printer languages report the rest in `PrintJobInfo.DroppedOptions`; image jobs apply every `Orientation` and every `Scaling` with GDI instead of the device mode. |
 | `spooler` on CUPS, `cups` | Every job template attribute, narrowed by what the printer reported. CUPS renders the document itself unless the job names or requires a converter; then the library renders it, and applies `Placement`, `Smoothing`, `FitArea` and `MediaSizeSource.Document`, which are reported in `PrintJobInfo.DroppedOptions` otherwise. |
 | `ipp`, `ipps` | Everything the library models, narrowed by what the printer reported. The library renders what no attribute carries. |
 
@@ -110,7 +110,7 @@ The rules run in this order:
    overrules the payload: a device with no reported identity names itself with the identifier
    of its preferred channel, so the two cannot be told apart.
 5. **The most preferred channel is the fallback** when no channel suits the payload. The order
-   is `ipps`, `ipp`, `spooler`, `raw`.
+   is `ipps`, `ipp`, `spooler`, `cups`, `raw`.
 
 | Channel | Sends the bytes unchanged |
 | :--- | :--- |
@@ -172,7 +172,7 @@ services.AddPrinters(configureManager: options => options.Transports = [PrinterS
 - **`WatchJobAsync` counts allowed channels only.** A queue on a transport the manager may not
   open is not a queue it can read.
 
-The default is every transport, in the order `ipps`, `ipp`, `spooler`, `raw`.
+The default is every transport, in the order `ipps`, `ipp`, `spooler`, `cups`, `raw`.
 
 ### Get all the data, but print through the spooler
 

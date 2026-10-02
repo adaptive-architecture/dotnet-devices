@@ -259,6 +259,17 @@ internal static class FakePrinters
         };
     }
 
+    // A raw channel whose mDNS record named the languages it reads.
+    public static DiscoveredPrinter RawReading(string host, params string[] formats)
+    {
+        var id = PrinterId.ForRaw(host);
+        PrinterInfo info = new(id, host) { DriverName = String.Join(",", formats) };
+        return new DiscoveredPrinter(id, NetworkPrinterEndpoint.Raw(host), info)
+        {
+            Source = DiscoverySource.Mdns,
+        };
+    }
+
     // A queue that reported which device it prints to, the way a CUPS device URI does.
     public static DiscoveredPrinter Queue(string queueName, params PrinterDeviceKey[] aliases)
     {

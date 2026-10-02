@@ -47,6 +47,7 @@ no IPPS endpoint answers.
 | `AllowPlainIpp` | `true` | Many label printers speak plain IPP only, so the fallback is on. Set it to `false` to talk to IPPS printers only. |
 | `ServerCertificateValidation` | `null` | The default accepts every certificate, because network printers use self-signed certificates in nearly every case. |
 | `ConnectTimeout` | 5 seconds | Without it, the operating system default applies, which can be minutes. |
+| `RequestTimeout` | 100 seconds | Bounds one whole request, the document upload included. Raise it, or set `Timeout.InfiniteTimeSpan`, for a large raster over a slow link. |
 
 The default certificate policy **protects the print data against a passive observer only. It
 does not prove that the host is the printer you expect.** Set `ServerCertificateValidation` when
@@ -119,7 +120,8 @@ one.
 ## Job queues
 
 `IPrintJobQueue` inspects and manages the jobs of a printer. `CompositePrintJobQueue` routes a
-`spooler` identifier to the operating system spooler and a network identifier to IPP.
+`spooler` identifier to the operating system spooler, a `cups` identifier to that CUPS server,
+and a network identifier to IPP.
 
 **The IPP queue states which attributes it wants.** A printer left to its own default answers
 Get-Jobs with the job identifier alone, and none of the messages that say why a job stopped. Both

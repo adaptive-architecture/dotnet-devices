@@ -36,6 +36,21 @@ public partial class TextPdfTests
         Assert.Equal(1, TextPdf.Write("one page\f", Width, Height, []).PageCount);
 
     [Fact]
+    public void Write_AFormFeedAfterAFullPage_AddsNoBlankPage()
+    {
+        // The last line of the first page ends with a newline, which already turned the
+        // page; the form feed that follows must not turn it a second time.
+        const int rows = (int)((Height - (2 * TextPdf.Margin)) / TextPdf.LineHeight);
+        var text = String.Concat(Enumerable.Repeat("line\n", rows)) + "\fsecond";
+
+        Assert.Equal(2, TextPdf.Write(text, Width, Height, []).PageCount);
+    }
+
+    [Fact]
+    public void Write_AReturnNewlinePair_IsOneLineBreak() =>
+        Assert.Equal(1, TextPdf.Write("one\r\ntwo\rthree", Width, Height, []).PageCount);
+
+    [Fact]
     public void Write_MoreLinesThanAPageHolds_Overflows()
     {
         const int rows = (int)((Height - (2 * TextPdf.Margin)) / TextPdf.LineHeight);

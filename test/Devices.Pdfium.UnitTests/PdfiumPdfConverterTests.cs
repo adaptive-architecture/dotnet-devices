@@ -139,12 +139,13 @@ public class PdfiumPdfConverterTests
     public async Task ConvertAsync_ARasterDocument_StatesTheResolutionItsPixelsAreAt()
     {
         // The header must agree with the pixels, or the printer scales the page: a page
-        // rendered at the ceiling of the band is scaled to the resolution asked for.
+        // rendered at the ceiling of the band is scaled to the resolution asked for. One
+        // square inch proves it as well as a Letter page and renders in a fraction of the time.
         var documents = await Converter.ConvertAsync(
-            TestPdf.WithPages(1), Context(PrinterContentTypes.PwgRaster, 1200), TestContext.Current.CancellationToken);
+            TestPdf.RedSquare(), Context(PrinterContentTypes.PwgRaster, 1200), TestContext.Current.CancellationToken);
 
         Assert.Equal(1200u, ResolutionDpi(documents[0]));
-        Assert.Equal(10200u, HeaderField(documents[0], 372));
+        Assert.Equal(1200u, HeaderField(documents[0], 372));
     }
 
     [Fact]

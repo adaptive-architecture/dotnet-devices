@@ -13,8 +13,8 @@ public static class WindowsPrinting
     /// </summary>
     /// <remarks>
     /// It writes whichever format the channel asks for: one PNG a page for the Windows
-    /// spooler, which draws them through GDI, and one PWG Raster stream for an IPP printer,
-    /// which reads that and never PNG.
+    /// spooler, which draws them through GDI, and one PWG Raster or URF stream for an IPP
+    /// printer, which reads those and never PNG.
     /// <para>
     /// Add it to <see cref="PrinterManagerOptions.Converters"/> to enable PDF printing for
     /// one manager, or call <see cref="EnablePdfPrinting"/> to enable it for the
@@ -30,7 +30,7 @@ public static class WindowsPrinting
     /// <remarks>
     /// On the Windows print spooler each page is rendered to PNG with the in-box Windows
     /// engine and printed as one GDI document. On an IPP printer that does not read PDF the
-    /// document is rendered to one PWG Raster stream instead, and sent as one job.
+    /// document is rendered to one PWG Raster or URF stream instead, and sent as one job.
     /// <para>
     /// Call once at startup before printing a PDF. Without it, a PDF job on the spooler
     /// fails with <see cref="NotSupportedException"/> instead of spooling silence, and a

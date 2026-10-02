@@ -150,13 +150,18 @@ public class PrinterManagerPrintTests
     {
         var printer = FakePrinters.Raw("192.168.1.50", DiscoverySource.Mdns);
         FakePrinterFactory factory = new();
+        FakeLoggerFactory log = new();
         PrinterManager manager = new(
-            new FakeMdnsDiscovery([printer]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor());
+            new FakeMdnsDiscovery([printer]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor(),
+            new PrinterManagerOptions { LoggerFactory = log });
 
         _ = await manager.DiscoverAsync(null, TestContext.Current.CancellationToken);
         _ = await manager.GetStatusAsync(printer.Id, TestContext.Current.CancellationToken);
 
         Assert.Equal(printer.Id, Assert.Single(factory.Opened).Id);
+        // A status read is not a queue read, so a raw-only printer polled for status does
+        // not warn that it has no queue.
+        Assert.Empty(log.WithId(2034));
     }
 
     [Fact]
@@ -388,6 +393,27 @@ public class PrinterManagerPrintTests
 
         Assert.Equal("1", job.JobId);
         Assert.Equal(printer.Id, Assert.Single(factory.Opened).Id);
+    }
+
+    [Fact]
+    public async Task PrintAsync_AConverterRegistered_DoesNotReachARawChannelThatReadsOtherFormatsOnly()
+    {
+        // The raw channel reports PCL only and converts nothing, so a registered PDF
+        // converter cannot help it: the bytes would go unchanged to a printer that said it
+        // cannot read them, and the job would still be reported Completed.
+        var printer = FakePrinters.RawReading("192.168.1.50", "application/vnd.hp-PCL");
+        FakePrinterFactory factory = new();
+        PrinterManagerOptions options = new();
+        options.Converters.Add(new RecordingPdfConverter(1));
+        PrinterManager manager = new(
+            new FakeMdnsDiscovery([printer]), new FakeSpoolerDiscovery([]), new FakeNetworkProbe([]), factory, NoMonitor(), options);
+
+        _ = await manager.DiscoverAsync(null, TestContext.Current.CancellationToken);
+        var error = await Assert.ThrowsAsync<NotSupportedException>(() => manager.PrintAsync(
+            printer.Id, Pdf(), null, TestContext.Current.CancellationToken));
+
+        Assert.Contains(PrinterContentTypes.Pdf, error.Message, StringComparison.Ordinal);
+        Assert.Empty(factory.Opened);
     }
 
     // The printer may be opened with a policy of its own, so the required engine travels

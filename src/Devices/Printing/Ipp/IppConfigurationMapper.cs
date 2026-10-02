@@ -221,7 +221,10 @@ internal static class IppConfigurationMapper
     }
 
     // "number-up-supported" is a set of integers, of ranges, or of both. A range is
-    // expanded, because the model holds the values a caller may ask for.
+    // expanded, because the model holds the values a caller may ask for. The expansion is
+    // clamped, so an answer of 1-2147483647 cannot hang the read.
+    private const int MaxNumberUp = 100;
+
     private static List<int> ReadNumberUp(SharpIpp.Protocol.Models.Range[]? ranges)
     {
         if (ranges is null || ranges.Length == 0)
@@ -229,19 +232,17 @@ internal static class IppConfigurationMapper
             return [];
         }
 
-        List<int> values = [];
+        SortedSet<int> values = [];
         foreach (var range in ranges)
         {
-            for (var value = range.Lower; value <= range.Upper; value++)
+            var upper = Math.Min(range.Upper, MaxNumberUp);
+            for (var value = Math.Max(range.Lower, 1); value <= upper; value++)
             {
-                if (value > 0 && !values.Contains(value))
-                {
-                    values.Add(value);
-                }
+                values.Add(value);
             }
         }
 
-        return values;
+        return [.. values];
     }
 
     // A printer that reports only "one-sided" cannot print on two sides.

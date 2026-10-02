@@ -207,6 +207,8 @@ An event identifier is stable. It is never reused for another meaning and never 
 | 1032 | Information | A document was converted to a raster, because the printer reads no format of the document itself. **The printer received a raster and not the document you handed in**, so the fonts and the vectors are the converter's rendering of them. |
 | 1033 | Debug | The size of the converted document, with the format it was converted to. |
 | 1034 | Debug | A document was **not** converted, with the reason, so it went unchanged and the printer may refuse it. Event 2041 reports the options it lost. It fires only when a converter is registered, the job named none, and the printer reads no format that converter writes; a job that named or required one fails instead. An application that registered no converter never meant to convert, and gets the printer's own rejection. |
+| 1035 | Debug | A document was submitted, with its format and its size in octets. |
+| 1036 | Error | The printer answered before the whole document was uploaded, so **the job may print only in part**. The line names how many octets were sent of how many. |
 
 ### `AdaptArch.Devices.Printing.Discovery`
 
@@ -245,6 +247,7 @@ An event identifier is stable. It is never reused for another meaning and never 
 | 4000 | Debug | The Windows spooler took a job. |
 | 4001 | Debug | How many queues the Windows spooler reported. |
 | 4011 | Error | The identity of a queue was not read, so its port aliases are lost and it may show as a printer of its own. |
+| 4012 | Warning | A Windows queue was not listed, because no identifier can carry its name. |
 | 4020 | Debug | The options the Windows driver did not apply. Event 2041 reports each of them. |
 
 An application that sets no factory writes nothing and pays almost nothing: each event stops at
@@ -328,7 +331,7 @@ catches them.
 
 ### A label prints on one CUPS queue and not another
 
-CUPS does not convert a printer-language job. The library sends ZPL, EPL, CPCL and ESC/POS as
+CUPS does not convert a printer-language job. The library sends ZPL, EPL, CPCL, ESC/POS and DPL as
 `application/vnd.cups-raw`, and CUPS hands those bytes to the backend unchanged whether the
 queue is raw, has a driver or is driverless. The backend is what differs:
 

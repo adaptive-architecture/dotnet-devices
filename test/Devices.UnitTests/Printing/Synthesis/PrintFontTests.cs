@@ -32,6 +32,42 @@ public class PrintFontTests
         Assert.Throws<ArgumentException>(() => PrintFont.FromBytes(new byte[] { 1, 2, 3, 4, 5, 6 }));
 
     [Fact]
+    public void FromBytes_AFontWhoseCharacterMapNamesMoreCodesThanUnicode_IsRefused()
+    {
+        // The font's own cmap is replaced by two Unicode format 12 groups that each span
+        // every 32-bit code; without a cap the reader loops forever on the first.
+        var font = RasterDocuments.FontProgramme();
+        var cmap = TableOffset(font, "cmap");
+        byte[] table =
+        [
+            0, 0, 0, 1, 0, 3, 0, 10, 0, 0, 0, 12,
+            0, 12, 0, 0, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0, 2,
+            0, 0, 0, 0, 0x7F, 0xFF, 0xFF, 0xFF, 0, 0, 0, 1,
+            0, 0, 0, 0, 0x7F, 0xFF, 0xFF, 0xFF, 0, 0, 0, 1,
+        ];
+        table.CopyTo(font, cmap);
+
+        var error = Assert.Throws<ArgumentException>(() => PrintFont.FromBytes(font));
+
+        Assert.Contains("more codes than Unicode", error.Message, StringComparison.Ordinal);
+    }
+
+    private static int TableOffset(byte[] font, string tag)
+    {
+        var count = (font[4] << 8) | font[5];
+        for (var index = 0; index < count; index++)
+        {
+            var record = 12 + (index * 16);
+            if (Encoding.ASCII.GetString(font, record, 4) == tag)
+            {
+                return (font[record + 8] << 24) | (font[record + 9] << 16) | (font[record + 10] << 8) | font[record + 11];
+            }
+        }
+
+        throw new InvalidOperationException($"no {tag} table");
+    }
+
+    [Fact]
     public void TextFontsFor_TheJobList_ReplacesEveryOther()
     {
         var mine = PrintFont.FromBytes(RasterDocuments.FontProgramme());

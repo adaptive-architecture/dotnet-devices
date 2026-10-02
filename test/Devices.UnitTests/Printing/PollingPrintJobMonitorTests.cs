@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using System.Linq;
+﻿using System.Linq;
 using AdaptArch.Devices.Printing;
 using Microsoft.Extensions.Logging;
 using Xunit;
@@ -102,22 +101,22 @@ public class PollingPrintJobMonitorTests
     [Fact]
     public async Task WatchJobAsync_EndsAtTheTimeoutEvenWhenThePollIntervalIsLonger()
     {
-        // Regression: the timeout must cut a running poll delay short. The long poll
-        // interval is what makes the bug visible.
+        // Regression: the timeout must cut a running poll delay short. The poll interval
+        // is longer than the guard below, so a watch that waits for it is reported as a
+        // failure rather than measured against the wall clock, which is noisy under load.
         FakeQueue queue = new InfiniteQueue(Job(PrintJobState.Printing, 1));
         PollingPrintJobMonitor monitor = new(queue);
-        PrintJobMonitorOptions options = new() { PollInterval = TimeSpan.FromMilliseconds(500), Timeout = TimeSpan.FromMilliseconds(20) };
+        PrintJobMonitorOptions options = new() { PollInterval = TimeSpan.FromHours(1), Timeout = TimeSpan.FromMilliseconds(20) };
+        using var guard = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        guard.CancelAfter(TimeSpan.FromSeconds(30));
 
-        var stopwatch = Stopwatch.StartNew();
         List<PrintJobInfo> seen = [];
-        await foreach (var job in monitor.WatchJobAsync(Printer, "42", options, TestContext.Current.CancellationToken))
+        await foreach (var job in monitor.WatchJobAsync(Printer, "42", options, guard.Token))
         {
             seen.Add(job);
         }
-        stopwatch.Stop();
 
         Assert.Single(seen);
-        Assert.True(stopwatch.ElapsedMilliseconds < 250, $"Expected the watch to end near the 20ms timeout, not the 500ms poll interval; it took {stopwatch.ElapsedMilliseconds}ms.");
     }
 
     private static PrintJobInfo Job(PrintJobState state, int? done) =>

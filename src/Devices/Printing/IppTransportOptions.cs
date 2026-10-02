@@ -54,6 +54,14 @@ public sealed class IppTransportOptions
     public TimeSpan ConnectTimeout { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>
+    /// Gets or sets the time allowed for one whole IPP request, the upload of the document
+    /// included. Defaults to 100 seconds, the <see cref="HttpClient"/> default. Raise it, or
+    /// set <see cref="Timeout.InfiniteTimeSpan"/>, when a large raster goes to a printer on
+    /// a slow link; a request that passes it fails with a <see cref="TimeoutException"/>.
+    /// </summary>
+    public TimeSpan RequestTimeout { get; set; } = TimeSpan.FromSeconds(100);
+
+    /// <summary>
     /// Gets or sets the factory that makes the logger of the IPP path. Defaults to
     /// <c>null</c>, which writes no log. Set it to see each endpoint probe, each IPP
     /// operation and its status code, and each job that was read, at the <c>Debug</c> level.

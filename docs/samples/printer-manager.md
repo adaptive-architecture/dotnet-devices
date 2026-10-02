@@ -29,9 +29,13 @@ The four tabs are:
   label and an EPL label, unchanged), `PrintJobs/copies.json` (three copies of a ZPL label and
   of a JPEG, each as one job), `PrintJobs/pdf-placement.json` (where a 4 by 6 inch
   label lands on larger stock, to be measured rather than judged), `PrintJobs/pdf-vector.json`
-  (the same PDF drawn as vectors and as bitmaps through the Windows spooler) and `PrintJobs/pdf-urf.json`
+  (the same PDF drawn as vectors and as bitmaps through the Windows spooler), `PrintJobs/pdf-urf.json`
   (PDFium rendering every PDF for a CUPS queue, which a macOS queue must receive as URF; each
-  submission logs the engine that rendered it and the format sent), and `PrintJobs/text-and-images.json`
+  submission logs the engine that rendered it and the format sent), `PrintJobs/queue-sweep-pdf.json`
+  (PDFium rendering every PDF as a raster for an IPP printer or a CUPS queue, page range and
+  placement included), `PrintJobs/pdf-engines.json` (the same two jobs through each PDF engine
+  the build registered, sheet by sheet), `PrintJobs/pdf-spooler.json` (two PDFs through a
+  spooler queue, one job each, in page order), and `PrintJobs/text-and-images.json`
   (plain text, CSV, an email, a placed JPEG and a PNG, which the library lays out as PDF where
   the channel cannot take them, and an HTML-only email that must be refused). A set can also be uploaded, so the same test runs on Windows, Linux and
   macOS and the results compare job by job. The run ends with a summary of what became of
@@ -90,14 +94,10 @@ be measured with a ruler on real stock:
                "offsetXMillimeters": 15, "offsetYMillimeters": 10 } }
 ```
 
-A placement or the document's own media size applies on an IPP printer or a CUPS queue only
-when the job names a converter, because a page nobody renders cannot be moved and a converter
-that is merely registered does not take over; otherwise it is reported dropped.
-
 `converter` names the engine that renders a document, where the build registered more than
-one. It maps to `PrintOptions.ConverterName`, which also forces the conversion: an IPP printer
-that reads PDF would otherwise be sent the document untouched and neither engine would run.
-The shipped **PDF engines** set uses it to print the same two jobs through each engine in turn:
+one. It maps to `PrintOptions.ConverterName`; [Document formats](https://adaptive-architecture.github.io/dotnet-devices/docs/document-formats.html) says when a
+converter runs and what a placement needs. The shipped **PDF engines** set uses it to print the
+same two jobs through each engine in turn:
 
 ```json
 { "file": "pages.pdf",

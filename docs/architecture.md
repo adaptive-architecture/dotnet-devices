@@ -32,7 +32,11 @@ expressed in-process.
 
 The printing code is in `src/Devices/Printing`, in four layers: the models, the printers
 and their transports, the discovery sources, and one transport policy that every IPP
-connection follows. [Printers](https://adaptive-architecture.github.io/dotnet-devices/docs/printers.html) describes each layer and the reasons behind it.
+connection follows. [Printers](https://adaptive-architecture.github.io/dotnet-devices/docs/printers.html)
+describes the identifiers, endpoints, payloads and transports a consumer meets;
+[Discovery](https://adaptive-architecture.github.io/dotnet-devices/docs/discovery.html) the
+sources; and [Status and monitoring](https://adaptive-architecture.github.io/dotnet-devices/docs/status-and-monitoring.html)
+the transport policy.
 
 ## Naming convention
 

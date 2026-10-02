@@ -325,8 +325,9 @@ just the publish.
 ## Formatting and style
 
 `.editorconfig` enforces the style, and [AGENTS.md](../AGENTS.md) states the rules that a
-reviewer checks. A `pre-commit` hook (husky) formats on commit; restore the local tools with
-`dotnetup dotnet tool restore`.
+reviewer checks. A `pre-commit` hook (husky) formats the staged `.cs` files on commit and
+stages the result. The first `dotnetup dotnet restore` of a clone installs it; to install it
+by hand, or after `HUSKY=0` skipped it, run `dotnetup dotnet husky install`.
 
 ```bash
 dotnetup dotnet format

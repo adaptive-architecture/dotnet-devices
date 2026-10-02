@@ -1,4 +1,5 @@
 ﻿using AdaptArch.Devices.Printing;
+using AdaptArch.Devices.Printing.Ipp;
 using Xunit;
 
 namespace AdaptArch.Devices.UnitTests.Printing;
@@ -79,6 +80,17 @@ public class PrintingModelTests
         Assert.Equal(9100, options.Port);
         Assert.Equal(TimeSpan.FromSeconds(1), options.ConnectTimeout);
         Assert.Equal(32, options.MaxDegreeOfParallelism);
+    }
+
+    [Fact]
+    public void IppTransportOptions_RequestTimeoutBoundsTheWholeRequest()
+    {
+        using var bounded = IppHttpClientFactory.Create(new IppTransportOptions { RequestTimeout = TimeSpan.FromMinutes(10) });
+        using var unbounded = IppHttpClientFactory.Create(new IppTransportOptions { RequestTimeout = Timeout.InfiniteTimeSpan });
+
+        Assert.Equal(TimeSpan.FromMinutes(10), bounded.Timeout);
+        Assert.Equal(Timeout.InfiniteTimeSpan, unbounded.Timeout);
+        Assert.Throws<ArgumentOutOfRangeException>(() => IppHttpClientFactory.Create(new IppTransportOptions { RequestTimeout = TimeSpan.Zero }));
     }
 
     [Fact]

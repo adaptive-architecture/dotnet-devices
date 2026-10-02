@@ -94,6 +94,18 @@ public class IppConfigurationMapperTests
     }
 
     [Fact]
+    public async Task Map_ClampsAHugeNumberUpRange()
+    {
+        var body = IppMessages.Response(0x0000,
+            (0x33, "number-up-supported", Range(1, Int32.MaxValue)));
+        var attributes = await IppMessages.DecodePrinterAttributesAsync(body);
+
+        var configuration = IppConfigurationMapper.Map(Id, attributes, null);
+
+        Assert.Equal(Enumerable.Range(1, 100), configuration.NumberUpValues);
+    }
+
+    [Fact]
     public async Task Map_ReadsTheDefaultOrientationAndResolution()
     {
         var body = IppMessages.Response(0x0000,
