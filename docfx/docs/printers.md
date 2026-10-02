@@ -170,6 +170,12 @@ one and is never the wrong one for the payload.
 the printer reports an empty one. An explicit `false` is a capability statement, and both
 judge against it.
 
+`PageRanges` and `ResolutionDpi` are judged last, once the channel knows who applies them. A
+converter that renders the job selects the pages itself and renders at a resolution from
+`pwg-raster-document-resolution-supported`, so neither is held against a printer that selects
+no pages or prints at other resolutions. A job the printer reads itself is judged on both, as
+every other option is.
+
 `OnUnsupported` does not cover `ConverterName`. A named or required converter that cannot
 run fails the job with `NotSupportedException` before anything is sent, whichever value is
 set, because it says which engine renders the job, not a setting the printer may ignore.

@@ -87,6 +87,13 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         _userDefault = userDefault;
     }
 
+    // Receives each document as it is submitted; the context carries it to the submit.
+    public IPrintCapture? Capture
+    {
+        get => _context.Capture;
+        set => _context.Capture = value;
+    }
+
     internal static HttpClient ClientFor(IppTransportOptions? options) =>
         options is null ? SharedClient.Value : ClientsByOptions.GetValue(options, CupsLocalSocket.CreateClient);
 
@@ -189,14 +196,24 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
             cancellationToken).ConfigureAwait(false);
         PrintOptionValidator.ThrowIfRefused(options, id, conversion.Dropped);
 
+        // A job nothing rendered leaves the pages and the resolution to the queue, so they
+        // are judged against it now; a rendered one applied them in the raster.
         var effectiveOptions = conversion.Options;
+        var dropped = conversion.Dropped;
+        if (!conversion.IsConverted && options is { OnUnsupported: not UnsupportedOptionBehavior.Send })
+        {
+            var configuration = await GetConversionConfigurationAsync(queueName, cancellationToken).ConfigureAwait(false);
+            effectiveOptions = PrintOptionValidator.Apply(effectiveOptions, configuration, ConverterOptions.Only, out var late);
+            dropped = [.. dropped, .. late];
+        }
+
         IReadOnlyList<IppAttribute> extras = [];
         if (!conversion.IsConverted && !conversion.PlacedOnMedia && FitsOntoQueueMedia(payload, options))
         {
             var defaultMedia = options?.MediaSize is null && options?.MediaDimensions is null
                 ? await IppRequests.GetDefaultMediaAsync(_context, uri, id, cancellationToken).ConfigureAwait(false)
                 : null;
-            effectiveOptions = PrintOptionValidator.WithQueueFit(conversion.Options, defaultMedia);
+            effectiveOptions = PrintOptionValidator.WithQueueFit(effectiveOptions, defaultMedia);
             extras = [FitToPage];
         }
 
@@ -204,7 +221,7 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
             _context,
             uri,
             id,
-            new IppSubmission(conversion.Payload, conversion.Format, effectiveOptions, conversion.Dropped)
+            new IppSubmission(conversion.Payload, conversion.Format, effectiveOptions, dropped)
             {
                 ExtraJobAttributes = extras,
                 ConverterUsed = conversion.ConverterUsed,

@@ -128,8 +128,10 @@ Three further things came out of the review and are worth stating:
   `PdfiumRenderer` therefore serializes every call into the library behind one
   `SemaphoreSlim`, including the one-time `FPDF_InitLibrary`. Without that gate the process
   crashes rather than fails, which is why a test renders eight jobs at once. A document the
-  Windows spooler draws as vectors holds that gate from open to dispose, because its pages are
-  drawn later, inside the print job.
+  Windows spooler draws as vectors takes the gate for each page it draws and not from open to
+  dispose: PDFium forbids calls that overlap, not documents that stay open between calls, and
+  a job slow to spool must not hold up every other render. A document a caller never disposes
+  is closed by a finalizer, under the same gate.
 - **`FPDF_RenderPage` is bound here, not by `PDFiumCore`**, which binds only the bitmap
   renderer. The native library of every Windows RID exports it, so one `[LibraryImport("pdfium")]`
   in `PdfiumRenderer` reaches it with no new dependency, and the page handle is

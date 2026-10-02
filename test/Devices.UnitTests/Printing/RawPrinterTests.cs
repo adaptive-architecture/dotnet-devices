@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using AdaptArch.Devices.Printing;
 using AdaptArch.Devices.UnitTests.Printing.Discovery;
 using AdaptArch.Devices.UnitTests.Printing.Ipp;
@@ -29,6 +30,27 @@ public class RawPrinterTests
         // The raw channel gives no job identifier, so the job is done when the bytes are out.
         Assert.Equal(PrintJobState.Completed, job.State);
         Assert.NotNull(job.CompletedAt);
+    }
+
+    [Fact]
+    public async Task PrintAsync_HandsTheBytesToTheCaptureBeforeWritingThem()
+    {
+        using TcpListener listener = new(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        using CancellationTokenSource timeoutSource = new(TimeSpan.FromSeconds(10));
+        var acceptTask = listener.AcceptTcpClientAsync(timeoutSource.Token);
+        RecordingCapture capture = new();
+        RawPrinter printer = new(NetworkPrinterEndpoint.Raw("127.0.0.1", port)) { Capture = capture };
+
+        _ = await printer.PrintAsync(PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl), null, timeoutSource.Token);
+        using var accepted = await acceptTask;
+
+        var write = Assert.Single(capture.Writes);
+        Assert.Equal(printer.Id, write.PrinterId);
+        Assert.Equal(PrinterContentTypes.Zpl, write.ContentType);
+        Assert.Equal("^XA^XZ", Encoding.ASCII.GetString(write.Data));
+        Assert.Null(write.ConverterUsed);
     }
 
     [Fact]

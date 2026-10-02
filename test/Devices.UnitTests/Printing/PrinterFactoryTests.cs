@@ -64,6 +64,23 @@ public class PrinterFactoryTests
     }
 
     [Fact]
+    public void Open_HandsItsCaptureToEveryPrinter()
+    {
+        RecordingCapture capture = new();
+        using PrinterFactory factory = new() { Capture = capture };
+
+        var raw = Assert.IsType<RawPrinter>(factory.Open(Found(NetworkPrinterEndpoint.Raw("printer.local"))));
+        var spooler = Assert.IsType<SpoolerPrinter>(factory.Open(Found(new SpoolerPrinterEndpoint("Lobby"))));
+        using var ipp = Assert.IsType<IppPrinter>(factory.Open(Found(NetworkPrinterEndpoint.Ipp("printer.local"))));
+        var cups = Assert.IsType<CupsPrinter>(factory.Open(Found(new CupsPrinterEndpoint("cups.local", "Lobby"))));
+
+        Assert.Same(capture, raw.Capture);
+        Assert.Same(capture, spooler.Capture);
+        Assert.Same(capture, ipp.Capture);
+        Assert.Same(capture, cups.Capture);
+    }
+
+    [Fact]
     public void Open_HandsItsFormatsToARawPrinter()
     {
         PrintFormatPolicy formats = new([new PrinterFormat("image/x-label", PrinterFormatKind.Image)], []);

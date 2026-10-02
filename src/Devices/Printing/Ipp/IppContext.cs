@@ -27,4 +27,8 @@ internal sealed class IppContext
     // Never null: a caller that set no factory gets NullLogger, which returns at the
     // IsEnabled guard of every generated method.
     public ILogger Logger { get; }
+
+    // Receives each document as it is submitted. Set by the printer that owns the context,
+    // after its own init property is set.
+    public IPrintCapture? Capture { get; set; }
 }

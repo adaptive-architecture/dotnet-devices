@@ -16,7 +16,7 @@ internal sealed class WindowsPdfConverter : PdfPayloadConverter
     // This engine smooths whatever it is asked, so a job that wanted none still gets
     // smoothed glyphs here; only the composition the base class applies is nearest
     // neighbour, which is the half of it that is ours.
-    protected override Task<IReadOnlyList<RenderedPdfPage>> RenderAsync(
+    protected override IAsyncEnumerable<RenderedPdfPage> RenderAsync(
         byte[] pdf,
         PrintConversionContext context,
         int dpi,

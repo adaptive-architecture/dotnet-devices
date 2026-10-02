@@ -63,6 +63,10 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         _logger = SpoolerLog.Create(loggerFactory);
     }
 
+    // Receives what the queue is given: the RAW bytes, or the PNG of each page the GDI path
+    // draws. A document drawn as vectors is drawing calls and has no bytes to capture.
+    public IPrintCapture? Capture { get; init; }
+
     public Task<IReadOnlyList<DiscoveredPrinter>> EnumeratePrintersAsync(CancellationToken cancellationToken)
     {
         if (!_isWindows)
@@ -298,6 +302,10 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         }
 
         var rendered = await ConvertAsync(queueName, payload.ContentType, converter, bytes, renderDpi, options, cancellationToken).ConfigureAwait(false);
+        foreach (var page in rendered)
+        {
+            await CaptureAsync(queueName, PrinterContentTypes.Png, page, converter.Name, cancellationToken).ConfigureAwait(false);
+        }
         var jobId = Spool(queueName, imageRequest, job, payload, deviceModeJob => _images.PrintPages(deviceModeJob, rendered));
         return Queued(queueName, jobId, options, converter.Name, PrinterContentTypes.Png, dropped);
     }
@@ -343,7 +351,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     // rasterises it. Orientation and scaling are applied by the layout math, not by
     // the device mode, so both are kept out of DroppedOptions and out of the mode.
     // Copies travel as dmCopies, which the GDI path honours, so one job prints all.
-    private Task<PrintJobInfo> SubmitImageAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
+    private async Task<PrintJobInfo> SubmitImageAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -361,6 +369,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         var copies = options?.Copies ?? 1;
         var bytes = payload.Data.ToArray();
         var jobName = options?.JobName ?? queueName;
+        await CaptureAsync(queueName, payload.ContentType, bytes, null, cancellationToken).ConfigureAwait(false);
 
         var deviceMode = IntPtr.Zero;
         try
@@ -381,12 +390,12 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
                 bytes);
 
             SpoolerLog.JobSpooled(_logger, queueName, jobId, bytes.Length, payload.ContentType);
-            return Task.FromResult(new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
+            return new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
             {
                 JobName = options?.JobName,
                 SubmittedContentType = payload.ContentType,
                 DroppedOptionDetails = dropped,
-            });
+            };
         }
         finally
         {
@@ -515,7 +524,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         return pages;
     }
 
-    private Task<PrintJobInfo> SubmitRawAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
+    private async Task<PrintJobInfo> SubmitRawAsync(string queueName, PrinterPayload payload, PrintOptions? options, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -541,6 +550,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
         PrintOptionValidator.ThrowIfRefused(options, PrinterId.ForSpooler(queueName), dropped);
         var copies = options?.Copies ?? 1;
         var bytes = payload.Data.ToArray();
+        await CaptureAsync(queueName, payload.ContentType, bytes, null, cancellationToken).ConfigureAwait(false);
 
         var dataTypePtr = IntPtr.Zero;
         var jobNamePtr = IntPtr.Zero;
@@ -578,12 +588,12 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
             var jobId = SubmitDocument(queueName, printerHandle, documentInfo, bytes, copies);
 
             SpoolerLog.JobSpooled(_logger, queueName, jobId, bytes.Length * copies, payload.ContentType);
-            return Task.FromResult(new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
+            return new PrintJobInfo(jobId.ToString(CultureInfo.InvariantCulture), PrinterId.ForSpooler(queueName), PrintJobState.Queued)
             {
                 JobName = options?.JobName,
                 SubmittedContentType = payload.ContentType,
                 DroppedOptionDetails = dropped,
-            });
+            };
         }
         finally
         {
@@ -1185,6 +1195,11 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
 
     // The typed failure a caller can catch and read: the queue as the printer, and the Win32
     // call as the operation. EnumPrinters names no queue, so that one carries no printer.
+    private ValueTask CaptureAsync(string queueName, string contentType, byte[] bytes, string? converterUsed, CancellationToken cancellationToken) =>
+        Capture is IPrintCapture capture
+            ? capture.CaptureAsync(new PrintCapture(PrinterId.ForSpooler(queueName), new SpoolerPrinterEndpoint(queueName), contentType, bytes, converterUsed), cancellationToken)
+            : ValueTask.CompletedTask;
+
     private static PrinterOperationException Failure(string? queueName, string operation, string message, Exception? inner = null)
     {
         var printerId = queueName is null ? null : (PrinterId?)PrinterId.ForSpooler(queueName);

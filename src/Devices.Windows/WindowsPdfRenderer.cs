@@ -1,4 +1,5 @@
-﻿using System.Runtime.InteropServices.WindowsRuntime;
+﻿using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices.WindowsRuntime;
 using System.Runtime.Versioning;
 using AdaptArch.Devices.Printing;
 using AdaptArch.Devices.Printing.Raster;
@@ -15,9 +16,9 @@ namespace AdaptArch.Devices.Windows;
 [SupportedOSPlatform("windows10.0.10240.0")]
 internal static class WindowsPdfRenderer
 {
-    // Renders the selected pages in document order. Ranges is the 1-based option the
-    // caller set; null renders the whole document.
-    internal static async Task<IReadOnlyList<RenderedPdfPage>> RenderAsync(
+    // Renders the selected pages in document order, one at a time as the caller takes them.
+    // Ranges is the 1-based option the caller set; null renders the whole document.
+    internal static IAsyncEnumerable<RenderedPdfPage> RenderAsync(
         byte[] pdf,
         int dpi,
         IReadOnlyList<PageRange>? ranges,
@@ -25,6 +26,8 @@ internal static class WindowsPdfRenderer
         string? password,
         CancellationToken cancellationToken)
     {
+        // Checked here and not in the iterator, which runs only when the first page is asked
+        // for: a machine with no engine fails at the call.
         ArgumentNullException.ThrowIfNull(pdf);
 
         // The version is checked, and not only the platform: .NET 10 still supports Windows
@@ -38,12 +41,38 @@ internal static class WindowsPdfRenderer
                 "and on Windows Server with the Desktop Experience. This machine has none.");
         }
 
-        cancellationToken.ThrowIfCancellationRequested();
-        dpi = PdfRenderLimits.ClampDpi(dpi);
+        return RenderPagesAsync(pdf, PdfRenderLimits.ClampDpi(dpi), ranges, colorSpace, password, cancellationToken);
+    }
 
+    private static async IAsyncEnumerable<RenderedPdfPage> RenderPagesAsync(
+        byte[] pdf,
+        int dpi,
+        IReadOnlyList<PageRange>? ranges,
+        RasterColorSpace colorSpace,
+        string? password,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // The stream outlives the load: the engine reads pages from it lazily.
+        using var source = new InMemoryRandomAccessStream();
+        var (document, selected) = await LoadAsync(source, pdf, ranges, password, cancellationToken).ConfigureAwait(false);
+        foreach (var index in selected)
+        {
+            using var page = document.GetPage((uint)index);
+            yield return await RenderPageAsync(page, dpi, index, colorSpace, password, cancellationToken).ConfigureAwait(false) with { PageCount = selected.Count };
+        }
+    }
+
+    private static async Task<(PdfDocument Document, IReadOnlyList<int> Selected)> LoadAsync(
+        InMemoryRandomAccessStream source,
+        byte[] pdf,
+        IReadOnlyList<PageRange>? ranges,
+        string? password,
+        CancellationToken cancellationToken)
+    {
         try
         {
-            using var source = new InMemoryRandomAccessStream();
             await source.WriteAsync(pdf.AsBuffer()).AsTask(cancellationToken).ConfigureAwait(false);
             source.Seek(0);
 
@@ -63,14 +92,7 @@ internal static class WindowsPdfRenderer
                 throw new InvalidOperationException("The page ranges select no page of this PDF.");
             }
 
-            List<RenderedPdfPage> rendered = new(selected.Count);
-            foreach (var index in selected)
-            {
-                using var page = document.GetPage((uint)index);
-                rendered.Add(await RenderPageAsync(page, dpi, index, colorSpace, cancellationToken).ConfigureAwait(false));
-            }
-
-            return rendered;
+            return (document, selected);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -78,21 +100,46 @@ internal static class WindowsPdfRenderer
         }
         catch (Exception exception) when (exception is not InvalidOperationException)
         {
-            // WinRT reports a corrupt file and a wrong password as the same COM fault, which
-            // names nothing the caller can act on. What the job carried is the only thing that
-            // separates them here, so it is what the message goes on.
-            throw new InvalidOperationException(
-                password is null
-                    ? "The PDF could not be read. It may be corrupt, or password-protected and the job carried no password."
-                    : "The PDF could not be read. It may be corrupt, or the password the job carried does not open it.",
-                exception);
+            throw Unreadable(password, exception);
         }
     }
+
+    // WinRT reports a corrupt file and a wrong password as the same COM fault, which names
+    // nothing the caller can act on. What the job carried is the only thing that separates
+    // them here, so it is what the message goes on.
+    private static InvalidOperationException Unreadable(string? password, Exception exception) =>
+        new(
+            password is null
+                ? "The PDF could not be read. It may be corrupt, or password-protected and the job carried no password."
+                : "The PDF could not be read. It may be corrupt, or the password the job carried does not open it.",
+            exception);
 
     // The engine only writes encoded bitmaps, so the page is rendered to an uncompressed
     // BMP and read straight back. GetPixelDataAsync answers with tightly packed pixels,
     // which is what the encoders need and what a locked buffer does not promise.
     private static async Task<RenderedPdfPage> RenderPageAsync(
+        PdfPage page,
+        int dpi,
+        int index,
+        RasterColorSpace colorSpace,
+        string? password,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await RenderPageCoreAsync(page, dpi, index, colorSpace, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is not InvalidOperationException)
+        {
+            throw Unreadable(password, exception);
+        }
+    }
+
+    private static async Task<RenderedPdfPage> RenderPageCoreAsync(
         PdfPage page,
         int dpi,
         int index,

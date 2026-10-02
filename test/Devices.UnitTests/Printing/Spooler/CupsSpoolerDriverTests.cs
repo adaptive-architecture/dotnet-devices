@@ -154,6 +154,46 @@ public class CupsSpoolerDriverTests
     }
 
     [Fact]
+    public async Task SubmitAsync_AJobCupsRenders_JudgesThePageRangesAgainstTheQueue()
+    {
+        // Nothing of ours rendered, so the queue is the one asked to select pages, and it
+        // said it cannot: the option is dropped and named rather than sent to be ignored.
+        QueueHandler handler = new(
+            IppMessages.Response(0x0000, (0x49, "document-format-supported", PrinterContentTypes.Pdf), (0x22, "page-ranges-supported", (byte)0)),
+            SubmittedJob());
+        CupsSpoolerDriver driver = new(new HttpClient(handler));
+
+        var job = await driver.SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { PageRanges = [new PageRange(2, 3)], OnUnsupported = UnsupportedOptionBehavior.Drop },
+            TestContext.Current.CancellationToken);
+
+        var dropped = Assert.Single(job.DroppedOptionDetails, option => option.Option == nameof(PrintOptions.PageRanges));
+        Assert.Equal(PrintOptionStage.PrinterCapabilities, dropped.Stage);
+        Assert.DoesNotContain("page-ranges", Latin1(handler.RequestBodies[^1]), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_HandsTheCaptureTheDocumentTheQueueReceives()
+    {
+        // The queue takes the PDF as it is, so the capture gets the PDF, named for the queue
+        // and not for the daemon's address.
+        QueueHandler handler = new(RasterQueue(), SubmittedJob());
+        RecordingCapture capture = new();
+        CupsSpoolerDriver driver = new(new HttpClient(handler)) { Capture = capture };
+
+        _ = await driver.SubmitAsync("lobby", PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf), null, TestContext.Current.CancellationToken);
+
+        var write = Assert.Single(capture.Writes);
+        Assert.Equal(PrinterId.ForSpooler("lobby"), write.PrinterId);
+        Assert.Equal(new SpoolerPrinterEndpoint("lobby"), write.Endpoint);
+        Assert.Equal(PrinterContentTypes.Pdf, write.ContentType);
+        Assert.Equal("%PDF-1.4", Latin1(write.Data));
+        Assert.Null(write.ConverterUsed);
+    }
+
+    [Fact]
     public async Task SubmitAsync_ANamedConverter_RendersUrfForAQueueThatListsIt()
     {
         QueueHandler handler = new(RasterQueue(PrinterContentTypes.PwgRaster, PrinterContentTypes.Urf), SubmittedJob());

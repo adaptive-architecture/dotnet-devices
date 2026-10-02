@@ -27,16 +27,17 @@ public static class PdfiumDocument
     /// <param name="pdf">The document.</param>
     /// <param name="options">The resolution, the pages, the colour space and the smoothing.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>One rendered page for each page selected.</returns>
+    /// <returns>One rendered page for each page selected, yielded as each is rendered.</returns>
     /// <exception cref="ArgumentNullException">Thrown when the document or the options are <c>null</c>.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when the document cannot be read, has no pages, or the ranges select none.</exception>
+    /// <exception cref="InvalidOperationException">Thrown, on the first page, when the document cannot be read, has no pages, or the ranges select none.</exception>
     /// <remarks>
     /// A page longer than the library renders at the resolution asked for is rendered smaller
     /// than that resolution, so that a poster-size page cannot exhaust the memory of one job.
     /// The page box each answer carries is the size the document asked for, whatever the
-    /// pixels ended up being.
+    /// pixels ended up being. The document stays open until the enumeration ends, so take the
+    /// pages as they come and let the enumeration run to its end or dispose it.
     /// </remarks>
-    public static Task<IReadOnlyList<RenderedPdfPage>> RenderAsync(
+    public static IAsyncEnumerable<RenderedPdfPage> RenderAsync(
         byte[] pdf,
         PdfRenderOptions options,
         CancellationToken cancellationToken = default) =>

@@ -15,7 +15,7 @@ internal sealed class PdfiumPdfConverter : PdfPayloadConverter, IPrintDeviceRend
     // on every platform the package runs on.
     public override string Name => "PDFium";
 
-    protected override Task<IReadOnlyList<RenderedPdfPage>> RenderAsync(
+    protected override IAsyncEnumerable<RenderedPdfPage> RenderAsync(
         byte[] pdf,
         PrintConversionContext context,
         int dpi,
