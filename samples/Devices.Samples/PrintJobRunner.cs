@@ -1,5 +1,4 @@
-﻿using System.Net.Sockets;
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using AdaptArch.Devices.Printing;
 using AdaptArch.Devices.Samples.Contracts;
 
@@ -110,9 +109,8 @@ internal sealed class PrintJobRunner
             skipped = true;
             failure = $"Nothing was sent, because this printer does not read the format. {exception.Message}";
         }
-        catch (Exception exception) when (exception is InvalidOperationException or TimeoutException or IOException or SocketException)
+        catch (Exception exception) when (exception is InvalidOperationException or TimeoutException or IOException)
         {
-            // SocketException is what a raw channel throws for a host that refuses the connection.
             failure = $"Nothing was sent: {exception.Message}";
         }
         catch (OperationCanceledException)

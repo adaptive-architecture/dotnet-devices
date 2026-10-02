@@ -93,7 +93,26 @@ public class WindowsGdiImagePrinterTests
         Assert.Equal(0, gdi.OpenDeviceContexts);
         Assert.Equal(0, gdi.OpenGraphics);
         Assert.Equal(0, gdi.OpenImages);
-        Assert.Equal(gdi.StartupCount, gdi.ShutdownCount);
+    }
+
+    [Fact]
+    public void PrintPages_StartsGdiPlusOnceForEveryJobAndStopsItOnShutdown()
+    {
+        // Starting and stopping the engine for each job was work the next job undid; it now
+        // starts on the first job and stops when the process exits, which Shutdown stands for.
+        FakeWindowsGdiInterop gdi = new();
+        WindowsGdiImagePrinter printer = new(gdi);
+
+        _ = printer.PrintPages(JobFor(), [Png]);
+        _ = printer.PrintPages(JobFor(), [Png, Png]);
+
+        Assert.Equal(1, gdi.StartupCount);
+        Assert.Equal(0, gdi.ShutdownCount);
+
+        printer.Shutdown();
+        printer.Shutdown();
+
+        Assert.Equal(1, gdi.ShutdownCount);
     }
 
     [Fact]
@@ -113,7 +132,6 @@ public class WindowsGdiImagePrinterTests
         Assert.Equal(0, gdi.OpenGraphics);
         Assert.Equal(0, gdi.OpenImages);
         Assert.Equal(0, gdi.OpenStreams);
-        Assert.Equal(gdi.StartupCount, gdi.ShutdownCount);
     }
 
     [Fact]
@@ -133,7 +151,7 @@ public class WindowsGdiImagePrinterTests
     }
 
     [Fact]
-    public void PrintPages_ADeviceContextThatCannotBeMade_ShutsGdiPlusDownAgain()
+    public void PrintPages_ADeviceContextThatCannotBeMade_LeavesGdiPlusStartedForTheNextJob()
     {
         // 1801 is ERROR_INVALID_PRINTER_NAME: a queue that went away between the spooler
         // call and the draw.
@@ -143,7 +161,8 @@ public class WindowsGdiImagePrinterTests
         var failure = Assert.Throws<InvalidOperationException>(() => printer.PrintPages(JobFor(), [Png]));
 
         Assert.Contains("1801", failure.Message, StringComparison.Ordinal);
-        Assert.Equal(1, gdi.ShutdownCount);
+        Assert.Equal(1, gdi.StartupCount);
+        Assert.Equal(0, gdi.ShutdownCount);
         Assert.Equal(0, gdi.OpenDeviceContexts);
     }
 
@@ -157,6 +176,13 @@ public class WindowsGdiImagePrinterTests
 
         Assert.Contains("start GDI+ with status 18", failure.Message, StringComparison.Ordinal);
         Assert.DoesNotContain(nameof(IWindowsGdiInterop.CreateDC), gdi.Calls);
+        Assert.Equal(0, gdi.ShutdownCount);
+
+        // A failed start is not remembered as a start: the next job tries again, and there is
+        // nothing to shut down.
+        _ = Assert.Throws<InvalidOperationException>(() => printer.PrintPages(JobFor(), [Png]));
+        Assert.Equal(2, gdi.Calls.Count(call => call == nameof(IWindowsGdiInterop.Startup)));
+        printer.Shutdown();
         Assert.Equal(0, gdi.ShutdownCount);
     }
 
