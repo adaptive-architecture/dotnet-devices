@@ -11,8 +11,9 @@ internal static class SpoolerDriverFactory
     public static ISpoolerDriver Create(
         PrintFormatPolicy? formats = null,
         IppTransportOptions? options = null,
-        ILoggerFactory? loggerFactory = null) =>
+        ILoggerFactory? loggerFactory = null,
+        IPrintCapture? capture = null) =>
         OperatingSystem.IsWindows()
-            ? new WindowsSpoolerDriver(formats, loggerFactory)
-            : new CupsSpoolerDriver(formats, options, loggerFactory);
+            ? new WindowsSpoolerDriver(formats, loggerFactory) { Capture = capture }
+            : new CupsSpoolerDriver(formats, options, loggerFactory) { Capture = capture };
 }

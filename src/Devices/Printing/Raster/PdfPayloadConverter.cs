@@ -45,13 +45,15 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
     /// <param name="dpi">The resolution to render at, already clamped to <see cref="PdfRenderLimits"/>. The page is scaled to the context's resolution afterwards.</param>
     /// <param name="colorSpace">The colour space to render in.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>One rendered page for each page selected.</returns>
+    /// <returns>One rendered page for each page selected, as each is rendered.</returns>
     /// <remarks>
     /// The resolution and the colour space are passed rather than read from the context,
     /// because the target decides both: a PNG page is always colour, and a raster page is
-    /// whatever the printer asked for.
+    /// whatever the printer asked for. The pages are yielded one at a time and encoded as
+    /// they arrive, so a long document costs the memory of one page and not of all of them;
+    /// each page states the count of the whole render in <see cref="RenderedPdfPage.PageCount"/>.
     /// </remarks>
-    protected abstract Task<IReadOnlyList<RenderedPdfPage>> RenderAsync(
+    protected abstract IAsyncEnumerable<RenderedPdfPage> RenderAsync(
         byte[] pdf,
         PrintConversionContext context,
         int dpi,
@@ -77,10 +79,8 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
         CancellationToken cancellationToken)
     {
         var renderDpi = PdfRenderLimits.ClampDpi(context.Dpi);
-        var pages = await RenderAsync(data, context, renderDpi, RasterColorSpace.Srgb8, cancellationToken).ConfigureAwait(false);
-
-        List<byte[]> images = new(pages.Count);
-        foreach (var page in pages)
+        List<byte[]> images = [];
+        await foreach (var page in RenderAsync(data, context, renderDpi, RasterColorSpace.Srgb8, cancellationToken).ConfigureAwait(false))
         {
             cancellationToken.ThrowIfCancellationRequested();
             var placed = Place(page, context, renderDpi);
@@ -91,8 +91,9 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
     }
 
     // One raster stream carries every page, so this answers with a single document and
-    // not with one a page. Pages are written as they are rendered, because a document held
-    // whole would cost more memory than the job it prints.
+    // not with one a page. Each page is written as it is rendered, because a document held
+    // whole would cost more memory than the job it prints; the writer waits for the first
+    // page, which carries the page count the stream header states.
     private async Task<IReadOnlyList<byte[]>> ConvertToRasterAsync(
         byte[] data,
         PrintConversionContext context,
@@ -100,26 +101,28 @@ public abstract class PdfPayloadConverter : IPrintPayloadConverter
     {
         var renderDpi = PdfRenderLimits.ClampDpi(context.Dpi);
         var colorSpace = PwgRaster.ColorSpaceFor(context.RasterType);
-        var pages = await RenderAsync(data, context, renderDpi, colorSpace, cancellationToken).ConfigureAwait(false);
+        var isUrf = String.Equals(context.TargetContentType, PrinterContentTypes.Urf, StringComparison.OrdinalIgnoreCase);
 
         await using MemoryStream document = new();
-        RasterOptions options = new()
-        {
-            ResolutionDpi = context.Dpi,
-            ColorSpace = colorSpace,
-            TotalPageCount = pages.Count,
-            Duplex = context.Duplex,
-            SheetBack = PwgRaster.SheetBackFor(context.SheetBack),
-            MediaName = context.MediaName,
-            MediaSizeNames = context.MediaSizeNames,
-        };
-        RasterWriter writer = String.Equals(context.TargetContentType, PrinterContentTypes.Urf, StringComparison.OrdinalIgnoreCase)
-            ? new UrfWriter(document, options)
-            : new PwgRasterWriter(document, options);
-
-        foreach (var page in pages)
+        RasterWriter? writer = null;
+        await foreach (var page in RenderAsync(data, context, renderDpi, colorSpace, cancellationToken).ConfigureAwait(false))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (writer is null)
+            {
+                RasterOptions options = new()
+                {
+                    ResolutionDpi = context.Dpi,
+                    ColorSpace = colorSpace,
+                    TotalPageCount = page.PageCount,
+                    Duplex = context.Duplex,
+                    SheetBack = PwgRaster.SheetBackFor(context.SheetBack),
+                    MediaName = context.MediaName,
+                    MediaSizeNames = context.MediaSizeNames,
+                };
+                writer = isUrf ? new UrfWriter(document, options) : new PwgRasterWriter(document, options);
+            }
+
             var placed = Place(page, context, renderDpi);
             writer.WritePage(placed.Pixels, placed.Width, placed.Height);
         }

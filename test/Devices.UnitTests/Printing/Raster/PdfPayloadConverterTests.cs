@@ -1,4 +1,5 @@
 ﻿using System.Buffers.Binary;
+using System.Runtime.CompilerServices;
 using AdaptArch.Devices.Printing;
 using AdaptArch.Devices.Printing.Raster;
 using Xunit;
@@ -62,17 +63,18 @@ public class PdfPayloadConverterTests
 
         public int RenderedAt { get; private set; }
 
-        protected override Task<IReadOnlyList<RenderedPdfPage>> RenderAsync(
+        protected override async IAsyncEnumerable<RenderedPdfPage> RenderAsync(
             byte[] pdf,
             PrintConversionContext context,
             int dpi,
             RasterColorSpace colorSpace,
-            CancellationToken cancellationToken)
+            [EnumeratorCancellation] CancellationToken cancellationToken)
         {
             RenderedAt = dpi;
             var pixels = new byte[2 * dpi * dpi];
             Array.Fill(pixels, (byte)0xFF);
-            return Task.FromResult<IReadOnlyList<RenderedPdfPage>>([new RenderedPdfPage(pixels, 2 * dpi, dpi, colorSpace, 144, 72)]);
+            await Task.Yield();
+            yield return new RenderedPdfPage(pixels, 2 * dpi, dpi, colorSpace, 144, 72);
         }
     }
 }

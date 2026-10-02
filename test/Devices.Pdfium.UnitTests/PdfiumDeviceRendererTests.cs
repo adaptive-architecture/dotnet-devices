@@ -43,19 +43,30 @@ public class PdfiumDeviceRendererTests
     }
 
     [Fact]
-    public async Task OpenAsync_HoldsTheEngineUntilTheDocumentIsDisposed()
+    public async Task OpenAsync_LeavesTheEngineFreeBetweenDraws()
     {
-        // PDFium is not thread-safe, and a spooled job draws its pages long after it opened
-        // the document. Another job must wait for it rather than enter the engine beside it.
-        var document = await Renderer.OpenAsync(TestPdf.WithPages(1), Context(null), TestContext.Current.CancellationToken);
-        var render = PdfiumDocument.RenderAsync(TestPdf.RedSquare(), new PdfRenderOptions { Dpi = 72 }, TestContext.Current.CancellationToken);
+        // A spooled job draws its pages long after it opened the document, and a job that is
+        // slow to spool must not hold up every other render in the process: the gate is taken
+        // for each call into the engine, not for the life of the document.
+        using var document = await Renderer.OpenAsync(TestPdf.WithPages(1), Context(null), TestContext.Current.CancellationToken);
 
-        Assert.NotSame(render, await Task.WhenAny(render, Task.Delay(200, TestContext.Current.CancellationToken)));
+        _ = Assert.Single(await PdfiumDocument.RenderAsync(TestPdf.RedSquare(), new PdfRenderOptions { Dpi = 72 }, TestContext.Current.CancellationToken).ToListAsync());
 
+        // The document is still whole after the other render, and disposing twice is quiet.
+        Assert.Equal(1, document.PageCount);
+        _ = document.PageSize(0);
         document.Dispose();
         document.Dispose();
+    }
 
-        _ = Assert.Single(await render);
+    [Fact]
+    public async Task OpenAsync_ADocumentNeverDisposed_DoesNotHoldTheEngine()
+    {
+        // The leak a consumer can make through the public interface: the document is dropped
+        // without Dispose. Every later render in the process used to wait forever.
+        _ = await Renderer.OpenAsync(TestPdf.WithPages(1), Context(null), TestContext.Current.CancellationToken);
+
+        _ = Assert.Single(await PdfiumDocument.RenderAsync(TestPdf.RedSquare(), new PdfRenderOptions { Dpi = 72 }, TestContext.Current.CancellationToken).ToListAsync());
     }
 
     [Fact]
@@ -64,7 +75,7 @@ public class PdfiumDeviceRendererTests
         _ = await Assert.ThrowsAsync<InvalidOperationException>(
             () => Renderer.OpenAsync([1, 2, 3], Context(null), TestContext.Current.CancellationToken));
 
-        _ = Assert.Single(await PdfiumDocument.RenderAsync(TestPdf.RedSquare(), new PdfRenderOptions { Dpi = 72 }, TestContext.Current.CancellationToken));
+        _ = Assert.Single(await PdfiumDocument.RenderAsync(TestPdf.RedSquare(), new PdfRenderOptions { Dpi = 72 }, TestContext.Current.CancellationToken).ToListAsync());
     }
 
     [Fact]

@@ -19,7 +19,7 @@ public class PdfiumDocumentTests
         var pages = await PdfiumDocument.RenderAsync(
             TestPdf.Barcode(),
             new PdfRenderOptions { Dpi = 150 },
-            TestContext.Current.CancellationToken);
+            TestContext.Current.CancellationToken).ToListAsync();
 
         var page = Assert.Single(pages);
         Assert.Equal(288, page.WidthPoints);
@@ -37,7 +37,7 @@ public class PdfiumDocumentTests
         var pages = await PdfiumDocument.RenderAsync(
             TestPdf.Barcode(),
             new PdfRenderOptions { Dpi = 150, ColorSpace = RasterColorSpace.Grayscale8 },
-            TestContext.Current.CancellationToken);
+            TestContext.Current.CancellationToken).ToListAsync();
 
         var page = Assert.Single(pages);
         Assert.Equal(1, page.BytesPerPixel);
@@ -50,7 +50,7 @@ public class PdfiumDocumentTests
         var pages = await PdfiumDocument.RenderAsync(
             EncryptedPdf.OnePage("secret"),
             new PdfRenderOptions { Dpi = 150, Password = "secret" },
-            TestContext.Current.CancellationToken);
+            TestContext.Current.CancellationToken).ToListAsync();
 
         // One inch square at 150 dots an inch, and the page is filled with black, so the
         // password really did open the content stream and not only the catalogue.
@@ -66,7 +66,7 @@ public class PdfiumDocumentTests
             () => PdfiumDocument.RenderAsync(
                 EncryptedPdf.OnePage("secret"),
                 new PdfRenderOptions { Dpi = 150 },
-                TestContext.Current.CancellationToken));
+                TestContext.Current.CancellationToken).ToListAsync());
 
         // The caller can act on this one, which is the whole point of telling it apart from a
         // corrupt file.
@@ -80,7 +80,7 @@ public class PdfiumDocumentTests
             () => PdfiumDocument.RenderAsync(
                 EncryptedPdf.OnePage("secret"),
                 new PdfRenderOptions { Dpi = 150, Password = "wrong" },
-                TestContext.Current.CancellationToken));
+                TestContext.Current.CancellationToken).ToListAsync());
 
         Assert.Contains("does not open", exception.Message, StringComparison.Ordinal);
 

@@ -581,6 +581,35 @@ public class WindowsSpoolerDriverSeamTests
     }
 
     [Fact]
+    public async Task SubmitAsync_HandsTheCaptureWhatTheQueueIsGiven()
+    {
+        // RAW: the bytes as spooled. An image: the file as given to GDI. A document: the PNG
+        // of each rendered page, named with the converter that drew it.
+        FakeWindowsSpoolerInterop interop = new();
+        FakeWindowsGdiImagePrinter images = new();
+        RecordingPdfConverter converter = new(pages: 2);
+        RecordingCapture capture = new();
+        WindowsSpoolerDriver driver = new(interop, images, isWindows: true, new PrintFormatPolicy(null, [converter])) { Capture = capture };
+        var png = new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A };
+
+        _ = await driver.SubmitAsync("lobby", PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl), null, TestContext.Current.CancellationToken);
+        _ = await driver.SubmitAsync("lobby", PrinterPayload.FromBytes(png, PrinterContentTypes.Png), null, TestContext.Current.CancellationToken);
+        _ = await driver.SubmitAsync("lobby", PrinterPayload.FromBytes(new byte[] { 1, 2, 3 }, PrinterContentTypes.Pdf), null, TestContext.Current.CancellationToken);
+
+        Assert.Equal(4, capture.Writes.Count);
+        Assert.All(capture.Writes, write => Assert.Equal(PrinterId.ForSpooler("lobby"), write.PrinterId));
+        Assert.Equal(PrinterContentTypes.Zpl, capture.Writes[0].ContentType);
+        Assert.Equal("^XA^XZ", Encoding.ASCII.GetString(capture.Writes[0].Data));
+        Assert.Null(capture.Writes[0].ConverterUsed);
+        Assert.Equal(PrinterContentTypes.Png, capture.Writes[1].ContentType);
+        Assert.Equal(png, capture.Writes[1].Data);
+        Assert.Null(capture.Writes[1].ConverterUsed);
+        Assert.Equal(PrinterContentTypes.Png, capture.Writes[2].ContentType);
+        Assert.Equal(converter.Name, capture.Writes[2].ConverterUsed);
+        Assert.Equal(converter.Name, capture.Writes[3].ConverterUsed);
+    }
+
+    [Fact]
     public async Task SubmitAsync_ADocument_ConvertsItToPagesAndPrintsOneGdiJob()
     {
         FakeWindowsSpoolerInterop interop = new();

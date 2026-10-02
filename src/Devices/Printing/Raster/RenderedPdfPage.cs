@@ -28,4 +28,11 @@ public sealed record RenderedPdfPage(
     /// Gets how many octets one pixel takes: one for grayscale, three for red, green, blue.
     /// </summary>
     public int BytesPerPixel => ColorSpace == RasterColorSpace.Srgb8 ? 3 : 1;
+
+    /// <summary>
+    /// Gets how many pages the render that produced this page yields in all, the same on every
+    /// page of it. A raster stream states the count in its header, before the first page is
+    /// written, so the first page has to carry it. Defaults to one.
+    /// </summary>
+    public int PageCount { get; init; } = 1;
 }

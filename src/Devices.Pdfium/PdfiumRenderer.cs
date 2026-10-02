@@ -44,33 +44,66 @@ internal static partial class PdfiumRenderer
 
     // PDFium is not thread-safe, and PrinterManager may call a converter for two jobs at
     // once. One gate around every call serializes the whole library, including the one-time
-    // initialization below, which therefore needs no lock of its own.
+    // initialization below, which therefore needs no lock of its own. A document stays open
+    // between calls without the gate: PDFium forbids calls that overlap, not documents that do.
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static bool s_initialized;
 
-    // Renders the selected pages in document order. PageRanges is the 1-based option the
-    // caller set; null renders the whole document.
-    internal static async Task<IReadOnlyList<RenderedPdfPage>> RenderAsync(
+    // Renders the selected pages in document order, one at a time as the caller takes them,
+    // so a long document costs one page of memory. PageRanges is the 1-based option the
+    // caller set; null renders the whole document. The gate is taken for the open, for each
+    // page and for the close, and the document stays open in between.
+    internal static async IAsyncEnumerable<RenderedPdfPage> RenderAsync(
         byte[] pdf,
         PdfRenderOptions options,
-        CancellationToken cancellationToken)
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(pdf);
         ArgumentNullException.ThrowIfNull(options);
 
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        OpenedPdf opened;
         try
         {
-            return Render(pdf, options, cancellationToken);
+            opened = Open(pdf, options);
         }
         finally
         {
             _ = Gate.Release();
         }
+
+        try
+        {
+            var dpi = PdfRenderLimits.ClampDpi(options.Dpi);
+            var flags = options.Smoothing ? PrintingFlags : PrintingFlags | NoSmoothingFlags;
+            foreach (var index in opened.Selected)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                RenderedPdfPage page;
+                try
+                {
+                    page = RenderPage(opened.Document, index, dpi, options.ColorSpace, flags) with { PageCount = opened.Selected.Count };
+                }
+                finally
+                {
+                    _ = Gate.Release();
+                }
+
+                yield return page;
+            }
+        }
+        finally
+        {
+            using var hold = Hold();
+            opened.Dispose();
+        }
     }
 
-    // Opens the document under the gate and keeps the gate until the document is disposed,
-    // because its pages are drawn later, one at a time, inside the print job.
+    // Opens the document under the gate and hands it back with the gate released: its pages
+    // are drawn later, one at a time, inside the print job, and each draw takes the gate for
+    // itself. A job that is slow to spool therefore holds up no other render, and a caller
+    // that never disposes the document leaks the document and not the engine.
     internal static async Task<IPrintDeviceDocument> OpenAsync(
         byte[] pdf,
         PdfRenderOptions options,
@@ -84,26 +117,33 @@ internal static partial class PdfiumRenderer
         {
             return new DeviceDocument(Open(pdf, options));
         }
-        catch
+        finally
         {
             _ = Gate.Release();
-            throw;
         }
     }
 
-    private static List<RenderedPdfPage> Render(byte[] pdf, PdfRenderOptions options, CancellationToken cancellationToken)
+    // The gate for one synchronous call into the engine. The default hold holds nothing, for
+    // a call made by a caller that already has the gate.
+    private static GateHold Hold()
     {
-        using var opened = Open(pdf, options);
-        var dpi = PdfRenderLimits.ClampDpi(options.Dpi);
-        var flags = options.Smoothing ? PrintingFlags : PrintingFlags | NoSmoothingFlags;
-        List<RenderedPdfPage> rendered = new(opened.Selected.Count);
-        foreach (var index in opened.Selected)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            rendered.Add(RenderPage(opened.Document, index, dpi, options.ColorSpace, flags));
-        }
+        Gate.Wait();
+        return new GateHold(true);
+    }
 
-        return rendered;
+    private readonly struct GateHold : IDisposable
+    {
+        private readonly bool _held;
+
+        public GateHold(bool held) => _held = held;
+
+        public void Dispose()
+        {
+            if (_held)
+            {
+                _ = Gate.Release();
+            }
+        }
     }
 
     private static OpenedPdf Open(byte[] pdf, PdfRenderOptions options)
@@ -258,8 +298,20 @@ internal static partial class PdfiumRenderer
 
         public IReadOnlyList<int> Selected { get; }
 
+        // A document the caller forgot is closed by the finalizer, under the gate as every call
+        // is, so the leak costs the document and its pinned bytes until the next collection
+        // and nothing else.
+        ~OpenedPdf() => Close(true);
+
         public void Dispose()
         {
+            Close(false);
+            GC.SuppressFinalize(this);
+        }
+
+        private void Close(bool finalizing)
+        {
+            using var hold = finalizing ? Hold() : default;
             fpdfview.FPDF_CloseDocument(Document);
             _pinned.Free();
         }
@@ -279,6 +331,7 @@ internal static partial class PdfiumRenderer
         public MediaDimensions PageSize(int index)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            using var hold = Hold();
             using FS_SIZEF_ size = new();
             if (fpdfview.FPDF_GetPageSizeByIndexF(_pdf.Document, _pdf.Selected[index], size) == 0)
             {
@@ -298,6 +351,7 @@ internal static partial class PdfiumRenderer
                 throw new PlatformNotSupportedException("PDFium draws into a device context only on Windows.");
             }
 
+            using var hold = Hold();
             var number = _pdf.Selected[index] + 1;
             var page = fpdfview.FPDF_LoadPage(_pdf.Document, _pdf.Selected[index])
                 ?? throw new InvalidOperationException(
@@ -324,8 +378,8 @@ internal static partial class PdfiumRenderer
             }
 
             _disposed = true;
+            using var hold = Hold();
             _pdf.Dispose();
-            _ = Gate.Release();
         }
     }
 }

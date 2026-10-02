@@ -111,6 +111,8 @@ public static class ServiceCollectionExtensions
             Transport = provider.GetRequiredService<IPrinterTransport>(),
             SnmpStatusClient = provider.GetRequiredService<SnmpPrinterStatusClient>(),
             IppStatusClient = provider.GetRequiredService<IppPrinterStatusClient>(),
+            // Optional: an application that registered an IPrintCapture sees every write.
+            Capture = provider.GetService<IPrintCapture>(),
             // The manager options carry the formats and the converters, so a printer the
             // factory opens reads the same policy as the manager that asked for it.
             Formats = provider.GetRequiredService<PrinterManagerOptions>().BuildFormatPolicy(),

@@ -316,15 +316,94 @@ public class IppPrinterDocumentFormatTests
         Assert.Contains("300 dpi", dropped.Reason, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task PrintAsync_HandsTheCaptureTheDocumentAsSubmitted()
+    {
+        // The printer reads no PDF, so the raster is what it receives, and the raster is what
+        // the capture gets: the bytes a debugger wants are the ones on the wire.
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        OperationHandler handler = new(RasterAttributes(), JobResponse());
+        RecordingCapture capture = new();
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler)) { Formats = new PrintFormatPolicy(null, [converter]), Capture = capture };
+
+        _ = await printer.PrintAsync(PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf), null, TestContext.Current.CancellationToken);
+
+        var write = Assert.Single(capture.Writes);
+        Assert.Equal(printer.Id, write.PrinterId);
+        Assert.Equal(PrinterContentTypes.PwgRaster, write.ContentType);
+        Assert.Equal(converter.Name, write.ConverterUsed);
+        Assert.Equal(FakeConverter.Marker, Encoding.Latin1.GetString(write.Data));
+    }
+
+    [Fact]
+    public async Task PrintAsync_PageRangesReachTheConverterEvenWhenThePrinterSelectsNoPages()
+    {
+        // page-ranges-supported=false says what the printer can do, and the converter selects
+        // the pages itself, so judging the option against the printer first threw it away.
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        OperationHandler handler = new(RasterAttributes((0x22, "page-ranges-supported", (byte)0)), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler)) { Formats = new PrintFormatPolicy(null, [converter]) };
+
+        var job = await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { PageRanges = [new PageRange(2, 3)], OnUnsupported = UnsupportedOptionBehavior.Drop },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, Assert.Single(converter.LastContext.PageRanges).Lower);
+        Assert.DoesNotContain(nameof(PrintOptions.PageRanges), job.DroppedOptions);
+        Assert.DoesNotContain("page-ranges", Encoding.Latin1.GetString(handler.PrintJobBody), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PrintAsync_AResolutionTheRasterListCarries_IsRenderedAndNotDropped()
+    {
+        // The printer prints at 300 itself but rasters at 300 and 600: a raster at 600 is
+        // what it asked for, so the option is honoured and not judged against the first list.
+        FakeConverter converter = new(1, PrinterContentTypes.PwgRaster);
+        OperationHandler handler = new(RasterAttributes((0x32, "printer-resolution-supported", Resolution(300))), JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler)) { Formats = new PrintFormatPolicy(null, [converter]) };
+
+        var job = await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { ResolutionDpi = 600, OnUnsupported = UnsupportedOptionBehavior.Drop },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(600, converter.LastContext.Dpi);
+        Assert.DoesNotContain(nameof(PrintOptions.ResolutionDpi), job.DroppedOptions);
+    }
+
+    [Fact]
+    public async Task PrintAsync_AJobNothingRenders_StillJudgesThePageRangesAgainstThePrinter()
+    {
+        // The printer reads the PDF itself, so it is the one asked to select pages, and it said
+        // it cannot: the option is dropped and named, as before.
+        OperationHandler handler = new(
+            IppMessages.Response(0x0000, (0x49, "document-format-supported", PrinterContentTypes.Pdf), (0x22, "page-ranges-supported", (byte)0)),
+            JobResponse());
+        using IppPrinter printer = new(Endpoint, new HttpClient(handler));
+
+        var job = await printer.PrintAsync(
+            PrinterPayload.FromString("%PDF-1.4", PrinterContentTypes.Pdf),
+            new PrintOptions { PageRanges = [new PageRange(2, 3)], OnUnsupported = UnsupportedOptionBehavior.Drop },
+            TestContext.Current.CancellationToken);
+
+        var dropped = Assert.Single(job.DroppedOptionDetails, option => option.Option == nameof(PrintOptions.PageRanges));
+        Assert.Equal(PrintOptionStage.PrinterCapabilities, dropped.Stage);
+        Assert.DoesNotContain("page-ranges", Encoding.Latin1.GetString(handler.PrintJobBody), StringComparison.Ordinal);
+    }
+
     // A printer that reads PWG Raster, rasters at 300 and 600, and turns its sheets over.
-    private static byte[] RasterAttributes() =>
+    private static byte[] RasterAttributes(params (byte Tag, string Name, object Value)[] more) =>
         IppMessages.Response(0x0000,
+        [
             (0x49, "document-format-supported", PrinterContentTypes.PwgRaster),
             (0x44, "pwg-raster-document-type-supported", "sgray_8"),
             (0x44, null, "srgb_8"),
             (0x32, "pwg-raster-document-resolution-supported", Resolution(300)),
             (0x32, null, Resolution(600)),
-            (0x44, "pwg-raster-document-sheet-back", "rotated"));
+            (0x44, "pwg-raster-document-sheet-back", "rotated"),
+            .. more,
+        ]);
 
     // RFC 8010: width and height as 4-byte integers, then the unit 3 for dots an inch.
     private static byte[] Resolution(int dpi) =>

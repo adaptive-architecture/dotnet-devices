@@ -39,6 +39,33 @@ public class PrintOptionValidatorTests
     }
 
     [Fact]
+    public void Apply_ExcludingTheConverterOptions_LeavesThePagesAndTheResolutionToTheConverter()
+    {
+        PrinterConfiguration configuration = new(PrinterId.ForRaw("printer.local")) { SupportsDuplex = false, SupportsPageRanges = false, SupportedResolutionsDpi = [300] };
+        PrintOptions options = new() { Duplex = DuplexMode.LongEdge, PageRanges = [new PageRange(1, 2)], ResolutionDpi = 600, OnUnsupported = UnsupportedOptionBehavior.Drop };
+
+        var result = PrintOptionValidator.Apply(options, configuration, ConverterOptions.Exclude, out var dropped);
+
+        Assert.Equal(["Duplex"], dropped.Select(d => d.Option));
+        Assert.NotNull(result.PageRanges);
+        Assert.Equal(600, result.ResolutionDpi);
+    }
+
+    [Fact]
+    public void Apply_OnlyTheConverterOptions_JudgesThePagesAndTheResolutionAlone()
+    {
+        PrinterConfiguration configuration = new(PrinterId.ForRaw("printer.local")) { SupportsDuplex = false, SupportsPageRanges = false, SupportedResolutionsDpi = [300] };
+        PrintOptions options = new() { Duplex = DuplexMode.LongEdge, PageRanges = [new PageRange(1, 2)], ResolutionDpi = 600, OnUnsupported = UnsupportedOptionBehavior.Drop };
+
+        var result = PrintOptionValidator.Apply(options, configuration, ConverterOptions.Only, out var dropped);
+
+        Assert.Equal(["PageRanges", "ResolutionDpi"], dropped.Select(d => d.Option));
+        Assert.Equal(DuplexMode.LongEdge, result.Duplex);
+        Assert.Null(result.PageRanges);
+        Assert.Null(result.ResolutionDpi);
+    }
+
+    [Fact]
     public void Apply_ThrowNamesTheUnsupportedOption()
     {
         var options = new PrintOptions { Duplex = DuplexMode.LongEdge, OnUnsupported = UnsupportedOptionBehavior.Throw };

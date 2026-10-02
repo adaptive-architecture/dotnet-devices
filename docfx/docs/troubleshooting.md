@@ -390,6 +390,44 @@ if (configuration.ForwardsOverIpp == true)
 the make and model nor the presence of a PPD is a dependable signal: macOS generates a PPD for
 every AirPrint queue, and both texts are free-form.
 
+## Capture what the channel sends
+
+A job that prints wrong is read from the bytes the printer received, which are not always the
+bytes the application handed in: a PDF may have left as PWG Raster, and an image as a PNG a
+page. Implement `IPrintCapture` and give it to the factory, and every printer it opens calls
+it once for each write, just before the bytes leave the process:
+
+```csharp
+sealed class FileCapture : IPrintCapture
+{
+    public async ValueTask CaptureAsync(PrintCapture capture, CancellationToken cancellationToken)
+    {
+        var name = $"{capture.PrinterId.ToString().Replace('/', '_')}-{DateTime.UtcNow:HHmmssfff}";
+        await File.WriteAllBytesAsync(Path.Combine("captures", name), capture.Data.ToArray(), cancellationToken);
+    }
+}
+
+services.AddSingleton<IPrintCapture, FileCapture>();   // with dependency injection
+PrinterFactory factory = new() { Capture = new FileCapture() };  // without
+```
+
+`PrintCapture` carries the printer, the endpoint, the content type **as sent** and the name of
+the converter that rendered the bytes, or `null` when the document went as it was. The memory
+is valid for the call only, so copy it to keep it. The library awaits the call, so a capture
+that writes a file is safe and a slow one slows the job.
+
+| Channel | What is captured |
+| :--- | :--- |
+| `raw://` | The bytes written to the socket. |
+| `ipp://`, `ipps://`, `cups://` and `spooler://` on Linux and macOS | The document as submitted: the raster where the library converted, the document itself otherwise. |
+| `spooler://` on Windows, printer language | The bytes spooled as `RAW`. |
+| `spooler://` on Windows, image or document drawn through GDI | One PNG for each page the driver is given. |
+| `spooler://` on Windows, `PrintRendering.Vector` | Nothing: the engine draws into the device context, and there are no bytes. |
+
+Two other seams exist and work without the capture: an `HttpClient` with a `DelegatingHandler`
+given to an IPP printer logs the HTTP bodies, and `IPrinterTransport` is public, so a raw
+printer can write through a transport that tees the bytes.
+
 ## Read the raw answer
 
 When no mapped field names the cause, read what the printer sent. Turn the switch on:

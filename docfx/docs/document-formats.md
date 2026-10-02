@@ -83,8 +83,8 @@ PdfiumPrinting.EnablePdfPrinting();
 
 `WindowsPrinting.PdfConverter` and `PdfiumPrinting.PdfConverter` each write PNG for the
 Windows spooler, and PWG Raster and URF for an IPP printer or a CUPS queue, from one render.
-PDFium is not thread-safe, so `AdaptArch.Devices.Pdfium` renders one job at a time within a
-process. Its `libpdfium.dylib` ships unsigned: nothing to a CLI or a service, and something a
+PDFium is not thread-safe, so `AdaptArch.Devices.Pdfium` makes one call into the engine at a
+time within a process. Its `libpdfium.dylib` ships unsigned: nothing to a CLI or a service, and something a
 notarized macOS `.app` bundle must sign for itself.
 
 **The target is a raster the printer names: PWG Raster or URF.** IPP Everywhere requires PWG
@@ -115,8 +115,9 @@ await printer.PrintAsync(payload, new PrintOptions { Rendering = PrintRendering.
 Placement, scaling, orientation, the fit area and `Smoothing` apply to both paths, and the
 document is opened before any job exists either way, so a corrupt file still spools nothing.
 `ResolutionDpi` sets the device mode, and on the bitmap path also the render resolution.
-PDFium renders one job at a time, and a drawn job holds the engine until it is spooled, so
-another PDF job in the same process waits for it.
+PDFium takes the engine for each page it draws and lets go of it between pages, so a drawn
+job that is slow to spool holds up no other PDF job in the process, and a document a caller
+forgets to dispose costs its own memory and nothing else.
 
 `WindowsPrinting.PdfConverter` renders bitmaps only, as does every converter on every other
 channel: `PrintRendering.Vector` there prints bitmaps, and `Rendering` is listed in
@@ -137,7 +138,8 @@ otherwise select a subset of the subset. A `ResolutionDpi` the job asked for and
 is reported dropped, and the job asks the printer for the one the raster carries. A printer
 that lists nothing inside the band keeps its own resolution: the PDF engine renders at the
 nearest edge of the band and scales the page up, so the canvas, the offsets and the header
-all describe the same sheet.
+all describe the same sheet. Pages are rendered and written one at a time, so a long document
+costs the memory of one page, about 26 MB for A4 in colour at 300 dpi, and not of all of them.
 
 `PwgRasterWriter` and `PngWriter` are public, so an application with a rasterizer of its own
 gets a conforming encoder without writing one, and the core package pays no dependency for

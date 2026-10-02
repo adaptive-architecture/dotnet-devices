@@ -106,6 +106,16 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
     public PrintFormatPolicy Formats { get; init; } = PrintFormatPolicy.Default;
 
     /// <summary>
+    /// Gets the capture that receives each document as it is submitted, converted where the
+    /// library converted it. Defaults to <c>null</c>, which captures nothing.
+    /// </summary>
+    public IPrintCapture? Capture
+    {
+        get => _context.Capture;
+        init => _context.Capture = value;
+    }
+
+    /// <summary>
     /// Gets the factory that makes the log of the options a job lost. Defaults to
     /// <c>null</c>, which falls back to <see cref="IppTransportOptions.LoggerFactory"/>, and
     /// then writes nothing.
@@ -131,12 +141,16 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         using var scope = IppLogScope.Begin(_context.Logger, Id, "Print");
 
+        // The pages and the resolution are judged after the conversion has decided who
+        // applies them: a converter selects pages a printer cannot, and renders at a
+        // resolution from the raster list, not from the one the printer prints at itself.
         var effectiveOptions = options;
         IReadOnlyList<DroppedOption> dropped = [];
+        PrinterConfiguration? judged = null;
         if (options is not null && options.OnUnsupported != UnsupportedOptionBehavior.Send)
         {
-            var configuration = await ReadConfigurationAsync(cancellationToken).ConfigureAwait(false);
-            effectiveOptions = PrintOptionValidator.Apply(options, configuration, out dropped);
+            judged = await ReadConfigurationAsync(cancellationToken).ConfigureAwait(false);
+            effectiveOptions = PrintOptionValidator.Apply(options, judged, ConverterOptions.Exclude, out dropped);
         }
 
         // A printer language must never be re-typed by the server. Only a raw payload
@@ -159,13 +173,20 @@ public sealed class IppPrinter : IPrinter, IQueueEvidenceChannel, IDisposable
         }
 
         var submission = await IppDocumentConversion.ConvertIfNeededAsync(ConversionChannel, payload, format, effectiveOptions, cancellationToken).ConfigureAwait(false);
+        var sendOptions = submission.Options;
+        if (judged is not null && !submission.IsConverted)
+        {
+            // Nothing rendered, so the printer applies the pages and the resolution itself.
+            sendOptions = PrintOptionValidator.Apply(submission.Options, judged, ConverterOptions.Only, out var late);
+            dropped = [.. dropped, .. late];
+        }
 
         var job = await _resolver.RunAsync(
             (uri, token) => IppRequests.SubmitAsync(
                 _context,
                 uri,
                 Id,
-                new IppSubmission(submission.Payload, submission.Format, submission.Options, dropped) { ConverterUsed = submission.ConverterUsed },
+                new IppSubmission(submission.Payload, submission.Format, sendOptions, dropped) { ConverterUsed = submission.ConverterUsed },
                 token),
             cancellationToken).ConfigureAwait(false);
         PrintOptionValidator.Prepend(job, submission.Dropped);

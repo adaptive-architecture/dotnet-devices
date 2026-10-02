@@ -44,6 +44,13 @@ public sealed class SpoolerPrinter : IPrinter
     public IppTransportOptions? IppTransport { get; init; }
 
     /// <summary>
+    /// Gets the capture that receives the bytes the queue is given: what a Windows queue spools
+    /// as RAW, the PNG of each page the GDI path draws, or the document a CUPS queue receives.
+    /// Defaults to <c>null</c>, which captures nothing.
+    /// </summary>
+    public IPrintCapture? Capture { get; init; }
+
+    /// <summary>
     /// Gets the factory that makes the log. Defaults to <c>null</c>, which falls back to
     /// the factory of <see cref="IppTransport"/>, and then writes nothing.
     /// </summary>
@@ -63,7 +70,7 @@ public sealed class SpoolerPrinter : IPrinter
     // initializer that runs after the constructor. LazyInitializer, not "??=": this type may
     // be a singleton, and two concurrent first calls must not each build a driver.
     private ISpoolerDriver Driver =>
-        LazyInitializer.EnsureInitialized(ref _driver, () => SpoolerDriverFactory.Create(Formats, IppTransport, EffectiveLoggerFactory));
+        LazyInitializer.EnsureInitialized(ref _driver, () => SpoolerDriverFactory.Create(Formats, IppTransport, EffectiveLoggerFactory, Capture));
 
     internal SpoolerPrinter(SpoolerPrinterEndpoint endpoint, ISpoolerDriver? driver)
     {

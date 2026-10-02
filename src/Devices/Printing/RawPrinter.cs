@@ -75,6 +75,12 @@ public sealed class RawPrinter : IPrinter
     internal IPrinterTransport? Transport { get; init; }
 
     /// <summary>
+    /// Gets the capture that receives the bytes as they are written to the socket. Defaults to
+    /// <c>null</c>, which captures nothing.
+    /// </summary>
+    public IPrintCapture? Capture { get; init; }
+
+    /// <summary>
     /// Gets the formats this printer knows. Defaults to <see cref="PrintFormatPolicy.Default"/>.
     /// A raw channel converts nothing; the policy only says which formats are images, whose
     /// <see cref="PrintOptions.ConverterName"/> is reported dropped rather than refused.
@@ -116,6 +122,11 @@ public sealed class RawPrinter : IPrinter
             && Formats.KindOf(payload.ContentType) != PrinterFormatKind.Image)
         {
             throw PrintConverters.Unhonoured(converterName, payload.ContentType, Id, "a raw channel sends the bytes as they are and renders nothing");
+        }
+
+        if (Capture is IPrintCapture capture)
+        {
+            await capture.CaptureAsync(new PrintCapture(Id, Endpoint, payload.ContentType, payload.Data), cancellationToken).ConfigureAwait(false);
         }
 
         await Writer.WriteAsync(Endpoint, payload, cancellationToken).ConfigureAwait(false);

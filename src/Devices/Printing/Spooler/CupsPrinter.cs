@@ -56,6 +56,22 @@ public sealed class CupsPrinter : IPrinter
         _transportLoggerFactory = options.LoggerFactory;
     }
 
+    /// <summary>
+    /// Gets the capture that receives each document as the queue is given it, converted where
+    /// the library converted it. Defaults to <c>null</c>, which captures nothing.
+    /// </summary>
+    public IPrintCapture? Capture
+    {
+        get => (_driver as CupsSpoolerDriver)?.Capture;
+        init
+        {
+            if (_driver is CupsSpoolerDriver driver)
+            {
+                driver.Capture = value;
+            }
+        }
+    }
+
     private static CupsSpoolerDriver CreateDriver(
         CupsPrinterEndpoint endpoint,
         HttpClient httpClient,
@@ -109,8 +125,9 @@ public sealed class CupsPrinter : IPrinter
         IReadOnlyList<DroppedOption> dropped = [];
         if (options is not null && options.OnUnsupported != UnsupportedOptionBehavior.Send)
         {
+            // The driver judges the pages and the resolution once it knows whether it renders.
             var configuration = await GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
-            effectiveOptions = PrintOptionValidator.Apply(options, configuration, out dropped);
+            effectiveOptions = PrintOptionValidator.Apply(options, configuration, ConverterOptions.Exclude, out dropped);
         }
 
         var job = await _driver.SubmitAsync(_queueName, payload, effectiveOptions, cancellationToken).ConfigureAwait(false);

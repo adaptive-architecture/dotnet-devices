@@ -41,6 +41,13 @@ internal static class IppRequests
         IppOperations operations = new(context, uri, "Print-Job", printerId);
         SharpIpp.Models.Responses.PrintJobResponse response;
         IppLog.DocumentSubmitted(context.Logger, documentFormat, uri, buffer.Length);
+        if (context.Capture is IPrintCapture capture)
+        {
+            // The identifier names the channel the caller sees: a CUPS queue by name, a
+            // printer by address. The URI is the fallback for an identifier that names none.
+            var endpoint = printerId.TryCreateEndpoint(out var named) && named is not null ? named : NetworkPrinterEndpoint.Ipp(uri.Host, uri.Port);
+            await capture.CaptureAsync(new PrintCapture(printerId, endpoint, documentFormat, payload.Data, submission.ConverterUsed), cancellationToken).ConfigureAwait(false);
+        }
         var extras = submission.ExtraJobAttributes;
         Func<SharpIppClient, PrintJobRequest, CancellationToken, Task<SharpIpp.Models.Responses.PrintJobResponse>> send = extras.Count == 0
             ? static (client, message, token) => client.PrintJobAsync(message, token)

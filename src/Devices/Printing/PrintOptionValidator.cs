@@ -1,11 +1,30 @@
 ﻿namespace AdaptArch.Devices.Printing;
 
+// The two options a converter applies itself when it runs: the pages it selects and the
+// resolution it renders at. They are judged against the printer only once the channel knows
+// the printer, and not a converter, will apply them.
+internal enum ConverterOptions
+{
+    // Judge every option, the two included: for a channel where no converter ever runs.
+    Include,
+
+    // Judge every option but the two: before the channel knows whether a converter runs.
+    Exclude,
+
+    // Judge the two alone: after the channel found that nothing rendered, so the printer is
+    // the one asked to select the pages and print at the resolution.
+    Only,
+}
+
 // A printer that reported nothing cannot judge anything, so the options pass unchanged.
 internal static class PrintOptionValidator
 {
     private const string CapabilityReason = "the printer does not list the value among its capabilities";
 
-    public static PrintOptions? Apply(PrintOptions? options, PrinterConfiguration configuration, out IReadOnlyList<DroppedOption> dropped)
+    public static PrintOptions? Apply(PrintOptions? options, PrinterConfiguration configuration, out IReadOnlyList<DroppedOption> dropped) =>
+        Apply(options, configuration, ConverterOptions.Include, out dropped);
+
+    public static PrintOptions? Apply(PrintOptions? options, PrinterConfiguration configuration, ConverterOptions converterOptions, out IReadOnlyList<DroppedOption> dropped)
     {
         dropped = [];
         if (options is null || options.OnUnsupported == UnsupportedOptionBehavior.Send || IsEmpty(configuration))
@@ -13,7 +32,7 @@ internal static class PrintOptionValidator
             return options;
         }
 
-        var unsupported = Collect(options, configuration);
+        var unsupported = Collect(options, configuration, converterOptions);
         if (unsupported.Count == 0)
         {
             return options;
@@ -31,14 +50,40 @@ internal static class PrintOptionValidator
 
     // Every option the printer said it does not apply. A capability the printer did not
     // report judges nothing, so an empty list on the configuration lets the option pass.
-    private static List<string> Collect(PrintOptions options, PrinterConfiguration configuration)
+    private static List<string> Collect(PrintOptions options, PrinterConfiguration configuration, ConverterOptions converterOptions)
     {
         List<string> unsupported = [];
-        CollectSheet(options, configuration, unsupported);
-        CollectMedia(options, configuration, unsupported);
-        CollectQuality(options, configuration, unsupported);
-        CollectLayout(options, configuration, unsupported);
+        if (converterOptions != ConverterOptions.Only)
+        {
+            CollectSheet(options, configuration, unsupported);
+            CollectMedia(options, configuration, unsupported);
+            CollectQuality(options, configuration, unsupported);
+            CollectLayout(options, configuration, unsupported);
+        }
+
+        if (converterOptions != ConverterOptions.Exclude)
+        {
+            CollectConverterOptions(options, configuration, unsupported);
+        }
+
         return unsupported;
+    }
+
+    // What a converter would have applied itself, judged against the printer that applies
+    // it instead: the pages it can select, and the resolutions it prints at.
+    private static void CollectConverterOptions(PrintOptions options, PrinterConfiguration configuration, List<string> unsupported)
+    {
+        if (options.PageRanges is { Count: > 0 } && configuration.SupportsPageRanges == false)
+        {
+            unsupported.Add(nameof(PrintOptions.PageRanges));
+        }
+
+        if (options.ResolutionDpi is int dpi
+            && configuration.SupportedResolutionsDpi.Count > 0
+            && !configuration.SupportedResolutionsDpi.Contains(dpi))
+        {
+            unsupported.Add(nameof(PrintOptions.ResolutionDpi));
+        }
     }
 
     // What the printer does with the sheet itself.
@@ -52,11 +97,6 @@ internal static class PrintOptionValidator
         if (options.ColorMode == PrintColorMode.Color && configuration.SupportsColor == false)
         {
             unsupported.Add(nameof(PrintOptions.ColorMode));
-        }
-
-        if (options.PageRanges is { Count: > 0 } && configuration.SupportsPageRanges == false)
-        {
-            unsupported.Add(nameof(PrintOptions.PageRanges));
         }
     }
 
@@ -95,13 +135,6 @@ internal static class PrintOptionValidator
     // How well the printer puts the ink down.
     private static void CollectQuality(PrintOptions options, PrinterConfiguration configuration, List<string> unsupported)
     {
-        if (options.ResolutionDpi is int dpi
-            && configuration.SupportedResolutionsDpi.Count > 0
-            && !configuration.SupportedResolutionsDpi.Contains(dpi))
-        {
-            unsupported.Add(nameof(PrintOptions.ResolutionDpi));
-        }
-
         if (options.Quality is PrintQuality quality
             && configuration.Qualities.Count > 0
             && !configuration.Qualities.Contains(quality))

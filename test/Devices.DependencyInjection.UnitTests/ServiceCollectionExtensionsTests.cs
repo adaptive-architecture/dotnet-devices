@@ -299,6 +299,35 @@ public class ServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddPrinters_HandsARegisteredCaptureToTheFactory()
+    {
+        ServiceCollection services = new();
+        NullCapture capture = new();
+        _ = services.AddSingleton<IPrintCapture>(capture);
+        _ = services.AddPrinters();
+
+        using var provider = services.BuildServiceProvider();
+
+        Assert.Same(capture, Assert.IsType<PrinterFactory>(provider.GetRequiredService<IPrinterFactory>()).Capture);
+    }
+
+    [Fact]
+    public void AddPrinters_WithNoCaptureRegistered_LeavesTheFactoryWithout()
+    {
+        ServiceCollection services = new();
+        _ = services.AddPrinters();
+
+        using var provider = services.BuildServiceProvider();
+
+        Assert.Null(Assert.IsType<PrinterFactory>(provider.GetRequiredService<IPrinterFactory>()).Capture);
+    }
+
+    private sealed class NullCapture : IPrintCapture
+    {
+        public ValueTask CaptureAsync(PrintCapture capture, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+    }
+
+    [Fact]
     public void AddPrinters_LeavesTheSpoolerAloneWhenNoCupsServerIsNamed()
     {
         ServiceCollection services = new();
