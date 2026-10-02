@@ -13,17 +13,28 @@ namespace AdaptArch.Devices.Printing.Spooler;
 // loop, the layout arithmetic and the teardown order run under test anywhere.
 internal sealed class WindowsGdiImagePrinter : IWindowsGdiImagePrinter
 {
-    private readonly IWindowsGdiInterop _gdi;
+    // One for the process, so GDI+ starts once and not once a job. It is shut down when the
+    // process exits, which is when GDI+ expects it; a driver made for a test takes its own.
+    public static readonly WindowsGdiImagePrinter Shared = new(WindowsGdiInteropAdapter.Instance, shutDownAtExit: true);
 
-    public WindowsGdiImagePrinter()
-        : this(WindowsGdiInteropAdapter.Instance)
+    private readonly IWindowsGdiInterop _gdi;
+    private readonly Lock _startup = new();
+    private nint _token;
+    private bool _started;
+
+    internal WindowsGdiImagePrinter(IWindowsGdiInterop gdi)
+        : this(gdi, shutDownAtExit: false)
     {
     }
 
-    internal WindowsGdiImagePrinter(IWindowsGdiInterop gdi)
+    private WindowsGdiImagePrinter(IWindowsGdiInterop gdi, bool shutDownAtExit)
     {
         ArgumentNullException.ThrowIfNull(gdi);
         _gdi = gdi;
+        if (shutDownAtExit)
+        {
+            AppDomain.CurrentDomain.ProcessExit += (_, _) => Shutdown();
+        }
     }
 
     // wingdi.h DM_COPIES. The GDI path honours the copy count in the device
@@ -52,21 +63,42 @@ internal sealed class WindowsGdiImagePrinter : IWindowsGdiImagePrinter
             throw new ArgumentException("A job prints at least one page.", nameof(pages));
         }
 
-        var input = WindowsGdiInterop.StartupInput.Version1();
-        var startupStatus = _gdi.Startup(out var token, input, out _);
-        if (startupStatus != GdiplusOk)
-        {
-            throw new InvalidOperationException(
-                $"Printing '{job.QueueName}' failed to start GDI+ with status {startupStatus}.");
-        }
+        EnsureStarted(job.QueueName);
+        return Spool(job, pages.Count, (deviceContext, page, index) => DrawPage(deviceContext, job, pages[index], page));
+    }
 
-        try
+    // GDI+ is started on the first image job and stays started: starting and stopping it for
+    // each job was work the next job undid. A start that fails is not remembered, so the next
+    // job tries again.
+    private void EnsureStarted(string queueName)
+    {
+        lock (_startup)
         {
-            return Spool(job, pages.Count, (deviceContext, page, index) => DrawPage(deviceContext, job, pages[index], page));
+            if (_started)
+            {
+                return;
+            }
+
+            var startupStatus = _gdi.Startup(out _token, WindowsGdiInterop.StartupInput.Version1(), out _);
+            if (startupStatus != GdiplusOk)
+            {
+                throw new InvalidOperationException($"Printing '{queueName}' failed to start GDI+ with status {startupStatus}.");
+            }
+
+            _started = true;
         }
-        finally
+    }
+
+    // Stops GDI+ when it was started. Called when the process exits, and by a test.
+    internal void Shutdown()
+    {
+        lock (_startup)
         {
-            _gdi.Shutdown(token);
+            if (_started)
+            {
+                _gdi.Shutdown(_token);
+                _started = false;
+            }
         }
     }
 

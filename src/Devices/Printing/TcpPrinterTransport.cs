@@ -71,6 +71,12 @@ public sealed class TcpPrinterTransport : IPrinterTransport
         {
             throw new TimeoutException($"Timed out connecting to printer '{network}'.", exception);
         }
+        catch (SocketException exception)
+        {
+            // A refused port, an unknown host or an unreachable network: the same typed failure
+            // every other channel throws, so a caller catches one type for every printer.
+            throw new PrinterConnectionException($"Could not connect to printer '{network}': {exception.Message}", exception);
+        }
 
         // Its own budget: a printer that stops reading must not block the caller for ever.
         timeoutSource.CancelAfter(_timeout);
@@ -83,6 +89,11 @@ public sealed class TcpPrinterTransport : IPrinterTransport
         catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
             throw new TimeoutException($"Timed out writing to printer '{network}'.", exception);
+        }
+        catch (IOException exception) when (exception.InnerException is SocketException)
+        {
+            // The printer closed the connection while the document was going to it.
+            throw new PrinterConnectionException($"Printer '{network}' closed the connection before the document was written: {exception.Message}", exception);
         }
 
         // Some printers wait for this before they print the last page.

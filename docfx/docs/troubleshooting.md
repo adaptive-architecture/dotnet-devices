@@ -292,7 +292,8 @@ Two notes:
 `PrinterConnectionException` holds the cause of **each** endpoint that was tried, not only the
 last one. This matters: the probe tries up to six endpoints, and a TLS handshake that failed over
 IPPS is the cause you need, while the "connection refused" of a later plain IPP port would hide
-it.
+it. A `raw://` printer that refuses or closes the connection throws the same type with one
+cause, the `SocketException`, as `InnerException` and an empty `Failures`.
 
 ```csharp
 catch (PrinterConnectionException exception)

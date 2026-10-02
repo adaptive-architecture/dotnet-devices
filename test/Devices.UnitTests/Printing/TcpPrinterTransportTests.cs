@@ -30,6 +30,30 @@ public class TcpPrinterTransportTests
     }
 
     [Fact]
+    public async Task WriteAsync_ARefusedConnection_IsAPrinterConnectionException()
+    {
+        // Nothing listens on the port once the listener is gone, so the connect is refused at
+        // once. The raw channel then throws what every other channel throws, with the socket
+        // error kept as the cause.
+        int port;
+        using (TcpListener listener = new(IPAddress.Loopback, 0))
+        {
+            listener.Start();
+            port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            listener.Stop();
+        }
+
+        TcpPrinterTransport transport = new();
+
+        var failure = await Assert.ThrowsAsync<PrinterConnectionException>(() =>
+            transport.WriteAsync(NetworkPrinterEndpoint.Raw("127.0.0.1", port), PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl), TestContext.Current.CancellationToken));
+
+        Assert.Contains($"127.0.0.1:{port}", failure.Message, StringComparison.Ordinal);
+        Assert.IsType<SocketException>(failure.InnerException);
+        Assert.Empty(failure.Failures);
+    }
+
+    [Fact]
     public void CanHandle_AcceptsOnlyNetworkEndpoints()
     {
         TcpPrinterTransport transport = new();

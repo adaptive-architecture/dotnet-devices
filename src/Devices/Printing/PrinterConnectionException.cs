@@ -1,14 +1,17 @@
 ﻿namespace AdaptArch.Devices.Printing;
 
 /// <summary>
-/// Thrown when no IPP endpoint of a printer answered. <see cref="Failures"/> holds the cause
+/// Thrown when a printer could not be reached: no IPP endpoint of it answered, or the raw
+/// channel's connection was refused or closed. For IPP, <see cref="Failures"/> holds the cause
 /// of each endpoint that was tried.
 /// </summary>
 /// <remarks>
 /// The library tries IPPS (TLS) first and plain IPP next, across the caller path and the
 /// well-known paths, which is up to six endpoints. Each one can fail for a different reason,
 /// and the first one is usually the one that tells the truth: a TLS handshake that failed on
-/// IPPS is more useful than the "connection refused" that a later plain IPP port gives.
+/// IPPS is more useful than the "connection refused" that a later plain IPP port gives. A raw
+/// channel has one endpoint, so <see cref="Failures"/> is empty and the cause is
+/// <see cref="Exception.InnerException"/>.
 /// <para>
 /// This type derives from <see cref="InvalidOperationException"/>, which the printing API
 /// documented before, so an existing <c>catch</c> block still catches it.

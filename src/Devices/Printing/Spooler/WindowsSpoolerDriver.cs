@@ -41,7 +41,7 @@ internal sealed class WindowsSpoolerDriver : ISpoolerDriver
     private readonly bool _isWindows;
 
     public WindowsSpoolerDriver(PrintFormatPolicy? formats = null, ILoggerFactory? loggerFactory = null)
-        : this(WindowsSpoolerInteropAdapter.Instance, new WindowsGdiImagePrinter(), OperatingSystem.IsWindows(), formats, loggerFactory)
+        : this(WindowsSpoolerInteropAdapter.Instance, WindowsGdiImagePrinter.Shared, OperatingSystem.IsWindows(), formats, loggerFactory)
     {
     }
 
