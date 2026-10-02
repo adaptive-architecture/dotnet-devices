@@ -1,5 +1,6 @@
 ﻿using System.Buffers.Binary;
 using System.IO.Compression;
+using AdaptArch.Devices.Printing.Raster;
 
 namespace AdaptArch.Devices.Printing.Synthesis;
 
@@ -11,6 +12,10 @@ internal static class PngReader
 
     private static readonly (int X, int Y, int DX, int DY)[] Passes =
         [(0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)];
+
+    // The most pixels a PNG may hold: the library renders no page larger than this, so a
+    // larger image gains nothing and a header claiming one must not drive an allocation.
+    private const long MaxPixels = (long)PdfRenderLimits.MaxRenderPixels * PdfRenderLimits.MaxRenderPixels;
 
     public static DecodedImage Decode(ReadOnlySpan<byte> png)
     {
@@ -25,13 +30,35 @@ internal static class PngReader
             throw new InvalidDataException("The PNG has no valid image header.");
         }
 
+        if ((long)chunks.Width * chunks.Height > MaxPixels)
+        {
+            throw new InvalidDataException($"The PNG is {chunks.Width} by {chunks.Height} pixels, more than the {MaxPixels} the library decodes.");
+        }
+
+        // The header fixes the size of the filtered image data, so the inflate reads that
+        // much and no more: a small IDAT inflating to gigabytes stops at the line it fills.
+        PngFormat format = new(chunks.Width, chunks.Height, chunks.Depth, chunks.ColorType, chunks.Palette, chunks.Transparency);
+        var raw = new byte[chunks.Interlaced ? format.InterlacedLength : format.LineLength(chunks.Width) * chunks.Height];
         chunks.Compressed.Position = 0;
         using ZLibStream zlib = new(chunks.Compressed, CompressionMode.Decompress);
-        using MemoryStream raw = new();
-        zlib.CopyTo(raw);
+        if (Inflate(zlib, raw) < raw.Length)
+        {
+            throw new InvalidDataException("The PNG image data ends before its last line.");
+        }
 
-        PngFormat format = new(chunks.Width, chunks.Height, chunks.Depth, chunks.ColorType, chunks.Palette, chunks.Transparency);
-        return chunks.Interlaced ? Deinterlace(raw.ToArray(), format, chunks.Dpi) : Progressive(raw.ToArray(), format, chunks.Dpi);
+        return chunks.Interlaced ? Deinterlace(raw, format, chunks.Dpi) : Progressive(raw, format, chunks.Dpi);
+    }
+
+    private static int Inflate(ZLibStream zlib, byte[] raw)
+    {
+        try
+        {
+            return zlib.ReadAtLeast(raw, raw.Length, throwOnEndOfStream: false);
+        }
+        catch (InvalidDataException exception)
+        {
+            throw new InvalidDataException("The PNG image data is not a valid zlib stream.", exception);
+        }
     }
 
     private static PngChunks ReadChunks(ReadOnlySpan<byte> png)
@@ -40,10 +67,15 @@ internal static class PngReader
         var at = 8;
         while (at + 8 <= png.Length)
         {
-            var length = (int)BinaryPrimitives.ReadUInt32BigEndian(png[at..]);
+            var length = BinaryPrimitives.ReadUInt32BigEndian(png[at..]);
             var type = png.Slice(at + 4, 4);
-            var data = png.Slice(at + 8, length);
-            at += 12 + length;
+            if (length > png.Length - at - 12L)
+            {
+                throw new InvalidDataException($"The PNG chunk '{System.Text.Encoding.ASCII.GetString(type)}' at offset {at} claims {length} bytes, past the end of the file.");
+            }
+
+            var data = png.Slice(at + 8, (int)length);
+            at += 12 + (int)length;
 
             if (type.SequenceEqual("IEND"u8))
             {
@@ -91,11 +123,6 @@ internal static class PngReader
 
         for (var y = 0; y < height; y++)
         {
-            if (offset + 1 + stride > raw.Length)
-            {
-                throw new InvalidDataException("The PNG image data ends before its last line.");
-            }
-
             var filter = raw[offset];
             raw.AsSpan(offset + 1, stride).CopyTo(current);
             offset += 1 + stride;
@@ -160,6 +187,25 @@ internal static class PngReader
         private bool HasAlpha => ColorType is 4 or 6 || Transparency.Length > 0;
 
         public DecodedImage Empty(double? dpi) => new(Width, Height, IsColor ? 3 : 1, HasAlpha, dpi);
+
+        // One filtered scanline of the given width: the filter octet, then the samples.
+        public int LineLength(int width) => 1 + (((width * Channels * Depth) + 7) / 8);
+
+        public int InterlacedLength
+        {
+            get
+            {
+                var total = 0;
+                foreach ((var startX, var startY, var stepX, var stepY) in Passes)
+                {
+                    var passWidth = (Width - startX + stepX - 1) / stepX;
+                    var passHeight = (Height - startY + stepY - 1) / stepY;
+                    total += passWidth > 0 && passHeight > 0 ? LineLength(passWidth) * passHeight : 0;
+                }
+
+                return total;
+            }
+        }
 
         public void Store(DecodedImage image, int pixel, byte[] line, int x)
         {
@@ -265,8 +311,15 @@ internal static class PngReader
         {
             if (type.SequenceEqual("IHDR"u8))
             {
-                Width = (int)BinaryPrimitives.ReadUInt32BigEndian(data);
-                Height = (int)BinaryPrimitives.ReadUInt32BigEndian(data[4..]);
+                if (data.Length < 13)
+                {
+                    throw new InvalidDataException($"The PNG header chunk is {data.Length} bytes long, and 13 are needed.");
+                }
+
+                // Read as signed on purpose: a dimension past Int32 reads negative and is
+                // refused with the rest of the header.
+                Width = BinaryPrimitives.ReadInt32BigEndian(data);
+                Height = BinaryPrimitives.ReadInt32BigEndian(data[4..]);
                 Depth = data[8];
                 ColorType = data[9];
                 Interlaced = data[12] == 1;
@@ -279,10 +332,16 @@ internal static class PngReader
             {
                 Transparency = data.ToArray();
             }
-            else if (type.SequenceEqual("pHYs"u8) && data[8] == 1)
+            else if (type.SequenceEqual("pHYs"u8))
             {
-                // Pixels per metre.
-                Dpi = BinaryPrimitives.ReadUInt32BigEndian(data) * 0.0254;
+                if (data.Length < 9)
+                {
+                    throw new InvalidDataException($"The PNG pHYs chunk is {data.Length} bytes long, and 9 are needed.");
+                }
+
+                // Pixels per metre. Zero means unknown, the same as no chunk at all.
+                var perMetre = BinaryPrimitives.ReadUInt32BigEndian(data);
+                Dpi = data[8] == 1 && perMetre > 0 ? perMetre * 0.0254 : null;
             }
             else if (type.SequenceEqual("IDAT"u8))
             {

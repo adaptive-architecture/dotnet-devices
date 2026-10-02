@@ -84,8 +84,12 @@ carried only in part for printer languages: `dmScale` is a percentage and not a 
 orientation and every scaling mode, so neither is dropped there. IPP and CUPS carry all of them.
 
 **A short device mode is refused, not worked around.** A job fails with
-`InvalidOperationException` when the driver reports a device mode smaller than `DEVMODEW`,
+`PrinterOperationException` when the driver reports a device mode smaller than `DEVMODEW`,
 because writing the fields back would overwrite the driver-private data behind it.
+
+**Every Windows spooler failure is a `PrinterOperationException`** whose `PrinterId` is the
+`spooler://` identifier of the queue and whose `Operation` is the Win32 call that failed, such
+as `OpenPrinter` or `StartDocPrinter`; the message carries the Win32 error code and its text.
 
 The defaults on `PrinterConfiguration` come from the same device mode.
 [Page placement](page-placement.md) covers how a GDI image job is sized and positioned.

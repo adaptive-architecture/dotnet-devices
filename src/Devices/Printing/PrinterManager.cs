@@ -97,6 +97,11 @@ public sealed class PrinterManager : IPrinterManager
         {
             throw new ArgumentException("A manager that may open no transport can print nothing.", nameof(options));
         }
+
+        if (_options.Transports.Distinct().Count() != _options.Transports.Count)
+        {
+            throw new ArgumentException("Transports lists a transport twice, which would list its channels twice.", nameof(options));
+        }
     }
 
     /// <inheritdoc />
@@ -485,6 +490,9 @@ public sealed class PrinterManager : IPrinterManager
 
     private static List<PrinterDeviceKey> Distinct(List<PrinterDeviceKey> keys) => [.. keys.Distinct()];
 
+    // How many keys the cache holds, for the tests that prove it does not grow.
+    internal int CachedKeyCount => _devices.Count;
+
     private void Remember(PrinterDevice device)
     {
         _devices[device.Key] = device;
@@ -768,13 +776,13 @@ public sealed class PrinterManager : IPrinterManager
         }
 
         // An address needs no discovery, so it does not wait for one another caller started.
+        // It is not remembered either: building it costs nothing, and a service printing to
+        // many ad-hoc addresses would otherwise grow the cache without bound.
         if (id.TryCreateEndpoint(out var endpoint) && endpoint is not null)
         {
             DiscoveredPrinter channel = new(id, endpoint, new PrinterInfo(id, id.Authority));
-            PrinterDevice device = new(id.DeviceKey, [channel]);
-            Remember(device);
             PrintingLog.PrinterOpenedFromAddress(_logger, id);
-            return device;
+            return new PrinterDevice(id.DeviceKey, [channel]);
         }
 
         await _refresh.WaitAsync(cancellationToken).ConfigureAwait(false);

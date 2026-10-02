@@ -46,7 +46,6 @@ internal sealed class WindowsGdiImagePrinter : IWindowsGdiImagePrinter
         ArgumentNullException.ThrowIfNull(job);
         ArgumentException.ThrowIfNullOrWhiteSpace(job.QueueName);
         ArgumentNullException.ThrowIfNull(pages);
-        ArgumentNullException.ThrowIfNull(job.Extension);
         ArgumentException.ThrowIfNullOrWhiteSpace(job.JobName);
         if (pages.Count == 0)
         {
@@ -246,14 +245,13 @@ internal sealed class WindowsGdiImagePrinter : IWindowsGdiImagePrinter
         PrinterPage page)
     {
         var queueName = job.QueueName;
-        var temporaryPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}{job.Extension}");
-        File.WriteAllBytes(temporaryPath, bytes);
         var image = IntPtr.Zero;
+        var stream = IntPtr.Zero;
         var graphics = IntPtr.Zero;
         var pageStarted = false;
         try
         {
-            var loadStatus = _gdi.LoadImageFromFile(temporaryPath, out image);
+            var loadStatus = _gdi.LoadImage(bytes, out image, out stream);
             if (loadStatus != GdiplusOk)
             {
                 throw new InvalidOperationException(
@@ -353,17 +351,9 @@ internal sealed class WindowsGdiImagePrinter : IWindowsGdiImagePrinter
                 _ = _gdi.DisposeImage(image);
             }
 
-            try
+            if (stream != IntPtr.Zero)
             {
-                File.Delete(temporaryPath);
-            }
-            catch (IOException)
-            {
-                // The page is already spooled; a leftover temporary file must not fail it.
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // Same as above: the print stands even when cleanup loses.
+                _gdi.ReleaseStream(stream);
             }
         }
     }
@@ -403,10 +393,6 @@ internal sealed class WindowsGdiImagePrinter : IWindowsGdiImagePrinter
 // driver to the page draw, so one record keeps every signature short.
 internal sealed record WindowsGdiJob(
     string QueueName,
-
-    // The suffix of the temporary file GDI+ loads, empty when the media type names none.
-    // GDI+ decodes by header, so the suffix decides nothing.
-    string Extension,
     string JobName,
     nint DeviceMode,
     int Copies,

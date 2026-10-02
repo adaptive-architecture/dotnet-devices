@@ -74,7 +74,7 @@ public class WindowsSpoolerDriverSeamTests
         // 1722: RPC_S_SERVER_UNAVAILABLE, a print server that is not answering.
         FakeWindowsSpoolerInterop interop = new() { FailingCall = nameof(IWindowsSpoolerInterop.EnumPrinters), FailureError = 1722 };
 
-        var failure = await Assert.ThrowsAsync<InvalidOperationException>(
+        var failure = await Assert.ThrowsAsync<PrinterOperationException>(
             () => DriverFor(interop).EnumeratePrintersAsync(TestContext.Current.CancellationToken));
 
         Assert.Contains("1722", failure.Message, StringComparison.Ordinal);
@@ -178,7 +178,7 @@ public class WindowsSpoolerDriverSeamTests
         // 5 is ERROR_ACCESS_DENIED: someone else's job, which the caller must hear about.
         FakeWindowsSpoolerInterop interop = new() { FailingCall = nameof(IWindowsSpoolerInterop.SetJob), FailureError = 5 };
 
-        var failure = await Assert.ThrowsAsync<InvalidOperationException>(
+        var failure = await Assert.ThrowsAsync<PrinterOperationException>(
             () => DriverFor(interop).CancelJobAsync("lobby", "7", TestContext.Current.CancellationToken));
 
         Assert.Contains("5", failure.Message, StringComparison.Ordinal);
@@ -249,7 +249,7 @@ public class WindowsSpoolerDriverSeamTests
     {
         FakeWindowsSpoolerInterop interop = new() { WriteNothing = true };
 
-        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => DriverFor(interop).SubmitAsync(
+        var failure = await Assert.ThrowsAsync<PrinterOperationException>(() => DriverFor(interop).SubmitAsync(
             "lobby",
             PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
             null,
@@ -263,7 +263,7 @@ public class WindowsSpoolerDriverSeamTests
     {
         FakeWindowsSpoolerInterop interop = new() { FailingCall = nameof(IWindowsSpoolerInterop.WritePrinter), FailureError = 1801 };
 
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => DriverFor(interop).SubmitAsync(
+        _ = await Assert.ThrowsAsync<PrinterOperationException>(() => DriverFor(interop).SubmitAsync(
             "lobby",
             PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
             null,
@@ -284,7 +284,7 @@ public class WindowsSpoolerDriverSeamTests
         // 1801 is ERROR_INVALID_PRINTER_NAME.
         FakeWindowsSpoolerInterop interop = new() { FailingCall = nameof(IWindowsSpoolerInterop.OpenPrinter), FailureError = 1801 };
 
-        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => DriverFor(interop).SubmitAsync(
+        var failure = await Assert.ThrowsAsync<PrinterOperationException>(() => DriverFor(interop).SubmitAsync(
             "nowhere",
             PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
             null,
@@ -327,7 +327,7 @@ public class WindowsSpoolerDriverSeamTests
             FailingCallSuccesses = 1,
         };
 
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => DriverFor(interop).SubmitAsync(
+        _ = await Assert.ThrowsAsync<PrinterOperationException>(() => DriverFor(interop).SubmitAsync(
             "lobby",
             PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
             new PrintOptions { Copies = 3 },
@@ -363,7 +363,7 @@ public class WindowsSpoolerDriverSeamTests
         // driver-private tail behind it.
         FakeWindowsSpoolerInterop interop = new() { ShortDeviceModeSize = 8 };
 
-        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => DriverFor(interop).SubmitAsync(
+        var failure = await Assert.ThrowsAsync<PrinterOperationException>(() => DriverFor(interop).SubmitAsync(
             "lobby",
             PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
             new PrintOptions { Orientation = PrintOrientation.Landscape },
@@ -371,6 +371,41 @@ public class WindowsSpoolerDriverSeamTests
 
         Assert.Contains("8 byte device mode", failure.Message, StringComparison.Ordinal);
         Assert.Equal(0, interop.OpenHandleCount);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_AShortSizeProbe_IsReportedAsARefusalAndNotAsAStaleWin32Error()
+    {
+        // A positive answer smaller than DEVMODEW is the driver declining, and GetLastError
+        // then still holds whatever came before, typically "completed successfully".
+        FakeWindowsSpoolerInterop interop = new() { ShortProbeSize = 16 };
+
+        var failure = await Assert.ThrowsAsync<PrinterOperationException>(() => DriverFor(interop).SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
+            new PrintOptions { Orientation = PrintOrientation.Landscape },
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("16 bytes", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Win32 error", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(PrinterId.ForSpooler("lobby"), failure.PrinterId);
+        Assert.Equal(nameof(IWindowsSpoolerInterop.DocumentProperties), failure.Operation);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_AWin32Failure_NamesTheQueueAndTheCallAsData()
+    {
+        FakeWindowsSpoolerInterop interop = new() { FailingCall = nameof(IWindowsSpoolerInterop.OpenPrinter), FailureError = 1801 };
+
+        var failure = await Assert.ThrowsAsync<PrinterOperationException>(() => DriverFor(interop).SubmitAsync(
+            "lobby",
+            PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl),
+            null,
+            TestContext.Current.CancellationToken));
+
+        Assert.Contains("queue 'lobby'", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(PrinterId.ForSpooler("lobby"), failure.PrinterId);
+        Assert.Equal(nameof(IWindowsSpoolerInterop.OpenPrinter), failure.Operation);
     }
 
     [Fact]
@@ -811,7 +846,7 @@ public class WindowsSpoolerDriverSeamTests
             FailureError = 1801,
         };
 
-        var failure = await Assert.ThrowsAsync<InvalidOperationException>(
+        var failure = await Assert.ThrowsAsync<PrinterOperationException>(
             () => DriverFor(interop).GetConfigurationAsync("nowhere", TestContext.Current.CancellationToken));
 
         Assert.Contains(nameof(IWindowsSpoolerInterop.DeviceCapabilities), failure.Message, StringComparison.Ordinal);
@@ -949,10 +984,15 @@ public class WindowsSpoolerDriverSeamTests
         FakeWindowsGdiImagePrinter images = new();
         FakeDeviceRenderer converter = new(pages: 1) { OpenFailure = new InvalidOperationException("corrupt") };
 
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(
+        var failure = await Assert.ThrowsAsync<PrinterOperationException>(
             () => SubmitPdfAsync(DrawingDriver(images, converter), new PrintOptions { Rendering = PrintRendering.Vector }));
 
+        // The engine's own exception stays as the cause, with its stack trace; the wrapper
+        // adds what the engine never knew: the queue.
         Assert.Empty(images.Jobs);
+        Assert.Same(converter.OpenFailure, failure.InnerException);
+        Assert.Contains("corrupt", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(PrinterId.ForSpooler("lobby"), failure.PrinterId);
     }
 
     [Fact]
@@ -961,10 +1001,12 @@ public class WindowsSpoolerDriverSeamTests
         FakeWindowsGdiImagePrinter images = new() { Failure = new InvalidOperationException("StartDoc") };
         FakeDeviceRenderer converter = new(pages: 1);
 
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(
+        var failure = await Assert.ThrowsAsync<PrinterOperationException>(
             () => SubmitPdfAsync(DrawingDriver(images, converter), new PrintOptions { Rendering = PrintRendering.Vector }));
 
         Assert.True(Assert.Single(converter.Opened).Disposed);
+        Assert.Same(images.Failure, failure.InnerException);
+        Assert.Equal(PrinterId.ForSpooler("lobby"), failure.PrinterId);
     }
 
     [Theory]

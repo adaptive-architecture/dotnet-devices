@@ -289,7 +289,7 @@ public sealed class SnmpPrinterStatusClient
                 SnmpReply reply;
                 try
                 {
-                    reply = SnmpMessages.Parse(result.Buffer);
+                    reply = SnmpMessages.Parse(result.Buffer, host);
                 }
                 catch (InvalidDataException exception)
                 {

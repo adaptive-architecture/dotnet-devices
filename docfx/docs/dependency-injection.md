@@ -29,7 +29,10 @@ state that is safe to share:
   running a discovery at once. **That cache is why `PrinterManager` must stay a singleton.**
 
 Every registration uses `TryAdd`, so a registration the application made first is left in place,
-and a second call to `AddPrinters()` changes nothing.
+and a second call to `AddPrinters()` changes nothing. The `IPrinterTransport`,
+`SnmpPrinterStatusClient` and `IppPrinterStatusClient` singletons are what the factory gives
+every raw printer it opens, so an application that registers its own, say a
+`TcpPrinterTransport` with a longer connect timeout, sees it used by the manager too.
 
 ## The two callbacks
 

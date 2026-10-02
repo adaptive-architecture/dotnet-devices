@@ -21,7 +21,7 @@ internal sealed class FakeWindowsGdiInterop : IWindowsGdiInterop
 
     public List<string> Calls { get; } = [];
 
-    public List<string> LoadedPaths { get; } = [];
+    public int OpenStreams { get; private set; }
 
     /// <summary>What each loaded file held, read before GDI+ would have decoded it.</summary>
     public List<byte[]> LoadedBytes { get; } = [];
@@ -166,16 +166,16 @@ internal sealed class FakeWindowsGdiInterop : IWindowsGdiInterop
         ShutdownCount++;
     }
 
-    public int LoadImageFromFile(string filename, out nint image)
+    public int LoadImage(byte[] bytes, out nint image, out nint stream)
     {
-        Calls.Add(nameof(LoadImageFromFile));
-        LoadedPaths.Add(filename);
+        Calls.Add(nameof(LoadImage));
+        LoadedBytes.Add(bytes);
 
-        // Read it here: after this call the printer deletes the file, so this is the only
-        // moment a test can see that the bytes really reached the disk.
-        LoadedBytes.Add(File.Exists(filename) ? File.ReadAllBytes(filename) : []);
-
-        if (Fails(nameof(LoadImageFromFile)))
+        // The real adapter makes the stream before the decode can fail, so a failed load
+        // still leaves a stream to release.
+        OpenStreams++;
+        stream = _nextHandle++;
+        if (Fails(nameof(LoadImage)))
         {
             image = 0;
             return GdiplusFailure;
@@ -184,6 +184,12 @@ internal sealed class FakeWindowsGdiInterop : IWindowsGdiInterop
         OpenImages++;
         image = _nextHandle++;
         return 0;
+    }
+
+    public void ReleaseStream(nint stream)
+    {
+        Calls.Add(nameof(ReleaseStream));
+        OpenStreams--;
     }
 
     public int DisposeImage(nint image)

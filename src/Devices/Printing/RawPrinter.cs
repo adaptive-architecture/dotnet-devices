@@ -71,12 +71,22 @@ public sealed class RawPrinter : IPrinter
     /// </remarks>
     public ILoggerFactory? LoggerFactory { get; init; }
 
+    // The transport the bytes go through. Null builds a TcpPrinterTransport on first use.
+    internal IPrinterTransport? Transport { get; init; }
+
+    /// <summary>
+    /// Gets the formats this printer knows. Defaults to <see cref="PrintFormatPolicy.Default"/>.
+    /// A raw channel converts nothing; the policy only says which formats are images, whose
+    /// <see cref="PrintOptions.ConverterName"/> is reported dropped rather than refused.
+    /// </summary>
+    public PrintFormatPolicy Formats { get; init; } = PrintFormatPolicy.Default;
+
     // Both are built on first use: an init property is set after the constructor runs, so a
     // transport built in the constructor would carry no log.
     private ILogger Logger => LazyInitializer.EnsureInitialized(ref _logger, () => PrintingLog.Create(LoggerFactory));
 
-    private TcpPrinterTransport Transport =>
-        LazyInitializer.EnsureInitialized(ref _transport, () => new TcpPrinterTransport { LoggerFactory = LoggerFactory });
+    private IPrinterTransport Writer =>
+        Transport ?? LazyInitializer.EnsureInitialized(ref _transport, () => new TcpPrinterTransport { LoggerFactory = LoggerFactory });
 
     /// <inheritdoc />
     public PrinterId Id { get; }
@@ -103,12 +113,12 @@ public sealed class RawPrinter : IPrinter
 
         // An image is never converted, so a name on one is only reported.
         if (options?.ConverterName is string converterName
-            && PrintFormatPolicy.Default.KindOf(payload.ContentType) != PrinterFormatKind.Image)
+            && Formats.KindOf(payload.ContentType) != PrinterFormatKind.Image)
         {
             throw PrintConverters.Unhonoured(converterName, payload.ContentType, Id, "a raw channel sends the bytes as they are and renders nothing");
         }
 
-        await Transport.WriteAsync(Endpoint, payload, cancellationToken).ConfigureAwait(false);
+        await Writer.WriteAsync(Endpoint, payload, cancellationToken).ConfigureAwait(false);
 
         var completedAt = DateTimeOffset.UtcNow;
         PrintJobInfo job = new(Guid.NewGuid().ToString("n"), Id, PrintJobState.Completed)

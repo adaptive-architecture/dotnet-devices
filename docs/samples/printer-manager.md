@@ -137,6 +137,46 @@ reads from configuration:
 dotnetup dotnet run --project samples/Devices.Samples -- --RequiredConverters:application/pdf=PDFium
 ```
 
+## Run without a browser
+
+```bash
+dotnetup dotnet run --project samples/Devices.Samples -- job-set smoke-zpl raw://192.168.1.50
+```
+
+`job-set <set> <printer-id>` runs one set and exits; nothing listens. The set is a file in
+`PrintJobs/`, by name with or without `.json`, or a path to one. The printer is any
+identifier `PrinterId.Parse` reads, or a bare host, which is taken as `raw://`. Each line
+the page would show is written to standard output as `level: text`. The run goes on past a
+failed job, as the page does, and the exit code is 1 when any job failed, 2 when the
+arguments or the set are wrong. A published executable takes the same arguments, so a
+smoke set runs from a script or a CI job.
+
+## Run against a virtual printer
+
+Nothing in a job set needs paper. The integration tests ship two container images that
+answer as a printer does, built from `test/Devices.IntegrationTests/docker/`:
+
+```bash
+docker build --network host -t ippeve test/Devices.IntegrationTests/docker/ippeve
+docker run --rm -p 8631:8631 -e IPPEVE_NAME=virtual -e IPPEVE_FORMATS=application/pdf,image/pwg-raster,image/urf ippeve
+
+docker build --network host -t cups test/Devices.IntegrationTests/docker/cups
+docker run --rm -p 6310:631 cups
+```
+
+The first is `ippeveprinter`, the CUPS project's IPP Everywhere test server: print to
+`ipp://localhost:8631` and it keeps each document under `/spool` in the container. The
+formats it lists are the ones in `IPPEVE_FORMATS`, so a set can be run against a printer that
+reads PDF and against one that reads rasters only. The second is a CUPS daemon with four
+queues that write to files instead of a device: print to `cups://localhost:6310/raw-queue`, or
+to `cups://localhost:6310/pwg-queue` for a queue that takes PWG Raster and no URF.
+`held-queue` is stopped, so a job sent to it stays where the Status tab can read it back.
+
+On the machine's own CUPS daemon, `sh ./pipeline/cups-host-queues.sh up` creates a stopped
+queue and an IPP Everywhere queue forwarding to a local `ippeveprinter`, both reachable as
+`spooler://` printers; `down` removes them. `ippeveprinter` answers every job after a refused
+one with `server-error-busy`, so run `down` and `up` again before a second run.
+
 ## The HTTP interface
 
 | Method and path | What it does |

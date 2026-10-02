@@ -8,6 +8,7 @@ internal sealed class FakeLoggerFactory : ILoggerFactory
 {
     private readonly List<FakeLogEntry> _entries = [];
     private readonly List<string> _categories = [];
+    private readonly AsyncLocal<IReadOnlyList<object>> _scopes = new();
 
     // Every logger this factory makes writes into one list, so a test reads the whole run in
     // order. Each entry names its category, so a test can read one area by itself.
@@ -23,6 +24,12 @@ internal sealed class FakeLoggerFactory : ILoggerFactory
     public LogLevel MinimumLevel { get; set; } = LogLevel.Trace;
 
     public FakeLogger Logger => new(this, "test");
+
+    internal IReadOnlyList<object> CurrentScopes
+    {
+        get => _scopes.Value ?? [];
+        set => _scopes.Value = value;
+    }
 
     public IReadOnlyList<FakeLogEntry> Of(string category) =>
         _entries.FindAll(entry => String.Equals(entry.Category, category, StringComparison.Ordinal));
@@ -61,23 +68,32 @@ internal sealed class FakeLogger : ILogger
 
     public IReadOnlyList<int> EventIds => _factory.EventIds;
 
+    // Scopes are kept per async flow, the way a real provider keeps them, so an entry
+    // written inside one carries it even when the awaits hop threads.
     public IDisposable BeginScope<TState>(TState state)
-        where TState : notnull => NullScope.Instance;
+        where TState : notnull => new Scope(_factory, state);
 
     // The library guards each event itself, so this is what a test moves to prove a guard.
     public bool IsEnabled(LogLevel logLevel) => logLevel >= _factory.MinimumLevel;
 
     public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter) =>
-        _factory.Add(new FakeLogEntry(_category, logLevel, eventId.Id, formatter(state, exception), exception));
+        _factory.Add(new FakeLogEntry(_category, logLevel, eventId.Id, formatter(state, exception), exception, _factory.CurrentScopes));
 
-    private sealed class NullScope : IDisposable
+    private sealed class Scope : IDisposable
     {
-        public static readonly NullScope Instance = new();
+        private readonly FakeLoggerFactory _factory;
+        private readonly IReadOnlyList<object> _outer;
 
-        public void Dispose()
+        public Scope(FakeLoggerFactory factory, object state)
         {
+            _factory = factory;
+            _outer = factory.CurrentScopes;
+            factory.CurrentScopes = [.. _outer, state];
         }
+
+        public void Dispose() => _factory.CurrentScopes = _outer;
     }
 }
 
-internal sealed record FakeLogEntry(string Category, LogLevel Level, int EventId, string Message, Exception Exception);
+// Scopes are the states of the scopes open when the entry was written, outermost first.
+internal sealed record FakeLogEntry(string Category, LogLevel Level, int EventId, string Message, Exception Exception, IReadOnlyList<object> Scopes);

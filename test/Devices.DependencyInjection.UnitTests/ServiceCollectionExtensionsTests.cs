@@ -190,6 +190,39 @@ public class ServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public async Task AddPrinters_OpensRawPrintersOnTheRegisteredTransportAndClients()
+    {
+        // A transport the application registered first is the one a raw print goes through;
+        // TryAdd leaves it in place and the factory is built on it.
+        ServiceCollection services = new();
+        RecordingTransport transport = new();
+        _ = services.AddSingleton<IPrinterTransport>(transport);
+        _ = services.AddPrinters();
+
+        using var provider = services.BuildServiceProvider();
+        var factory = Assert.IsType<PrinterFactory>(provider.GetRequiredService<IPrinterFactory>());
+        var printer = await factory.OpenAsync(PrinterId.ForRaw("printer.local"), TestContext.Current.CancellationToken);
+        _ = await printer.PrintAsync(PrinterPayload.FromString("^XA^XZ", PrinterContentTypes.Zpl), null, TestContext.Current.CancellationToken);
+
+        Assert.Single(transport.Written);
+        Assert.Same(provider.GetRequiredService<SnmpPrinterStatusClient>(), factory.SnmpStatusClient);
+        Assert.Same(provider.GetRequiredService<IppPrinterStatusClient>(), factory.IppStatusClient);
+    }
+
+    private sealed class RecordingTransport : IPrinterTransport
+    {
+        public List<PrinterPayload> Written { get; } = [];
+
+        public bool CanHandle(PrinterEndpoint endpoint) => true;
+
+        public Task WriteAsync(PrinterEndpoint endpoint, PrinterPayload payload, CancellationToken cancellationToken)
+        {
+            Written.Add(payload);
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
     public void AddPrinters_GivesEveryPrintingServiceTheSameLoggerFactory()
     {
         // A log that reaches only half of the library answers half of a support case.

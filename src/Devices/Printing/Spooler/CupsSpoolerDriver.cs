@@ -167,6 +167,7 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         ArgumentNullException.ThrowIfNull(payload);
 
         var uri = QueueUri(queueName);
+        using var scope = IppLogScope.Begin(_context.Logger, IdFor(queueName), "Print");
         var id = IdFor(queueName);
         IppConversionChannel channel = new(
             _formats,
@@ -244,16 +245,18 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         _formats.KindOf(payload.ContentType) == PrinterFormatKind.Document
         && options?.MediaSizeSource != MediaSizeSource.Document;
 
-    public Task<PrinterStatus> GetStatusAsync(string queueName, CancellationToken cancellationToken)
+    public async Task<PrinterStatus> GetStatusAsync(string queueName, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.GetStatusAsync(_context, QueueUri(queueName), IdFor(queueName), cancellationToken);
+        using var scope = IppLogScope.Begin(_context.Logger, IdFor(queueName), "GetStatus");
+        return await IppRequests.GetStatusAsync(_context, QueueUri(queueName), IdFor(queueName), cancellationToken).ConfigureAwait(false);
     }
 
-    public Task<PrinterConfiguration> GetConfigurationAsync(string queueName, CancellationToken cancellationToken)
+    public async Task<PrinterConfiguration> GetConfigurationAsync(string queueName, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.GetConfigurationAsync(_context, QueueUri(queueName), IdFor(queueName), cancellationToken);
+        using var scope = IppLogScope.Begin(_context.Logger, IdFor(queueName), "GetConfiguration");
+        return await IppRequests.GetConfigurationAsync(_context, QueueUri(queueName), IdFor(queueName), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PrinterIdentity?> GetIdentityAsync(string queueName, CancellationToken cancellationToken)
@@ -263,22 +266,25 @@ internal sealed class CupsSpoolerDriver : ISpoolerDriver
         return identity.IsEmpty ? null : identity;
     }
 
-    public Task<IReadOnlyList<PrintJobInfo>> GetJobsAsync(string queueName, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<PrintJobInfo>> GetJobsAsync(string queueName, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.GetJobsAsync(_context, QueueUri(queueName), IdFor(queueName), cancellationToken);
+        using var scope = IppLogScope.Begin(_context.Logger, IdFor(queueName), "GetJobs");
+        return await IppRequests.GetJobsAsync(_context, QueueUri(queueName), IdFor(queueName), cancellationToken).ConfigureAwait(false);
     }
 
-    public Task<PrintJobInfo?> GetJobAsync(string queueName, string jobId, CancellationToken cancellationToken)
+    public async Task<PrintJobInfo?> GetJobAsync(string queueName, string jobId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.GetJobAsync(_context, QueueUri(queueName), IdFor(queueName), jobId, cancellationToken);
+        using var scope = IppLogScope.Begin(_context.Logger, IdFor(queueName), "GetJob", jobId);
+        return await IppRequests.GetJobAsync(_context, QueueUri(queueName), IdFor(queueName), jobId, cancellationToken).ConfigureAwait(false);
     }
 
-    public Task<bool> CancelJobAsync(string queueName, string jobId, CancellationToken cancellationToken)
+    public async Task<bool> CancelJobAsync(string queueName, string jobId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(queueName);
-        return IppRequests.CancelJobAsync(_context, QueueUri(queueName), jobId, PrintOptions.EffectiveUserName(null), cancellationToken);
+        using var scope = IppLogScope.Begin(_context.Logger, IdFor(queueName), "CancelJob", jobId);
+        return await IppRequests.CancelJobAsync(_context, QueueUri(queueName), jobId, PrintOptions.EffectiveUserName(null), cancellationToken).ConfigureAwait(false);
     }
 
     // The escape also covers a name handed to this driver directly, without an endpoint.

@@ -77,11 +77,15 @@ internal static partial class WindowsGdiInterop
     [LibraryImport("gdiplus.dll", EntryPoint = "GdiplusShutdown")]
     internal static partial void Shutdown(nint token);
 
-    // gdiplus flat drawing. The image is loaded from a file so no COM IStream
-    // is needed, and drawn through a graphics object bound to the printer DC.
+    // gdiplus flat drawing. The image is loaded from a memory IStream, so a page never
+    // touches the disk, and drawn through a graphics object bound to the printer DC.
     [SupportedOSPlatform("windows")]
-    [LibraryImport("gdiplus.dll", EntryPoint = "GdipLoadImageFromFile", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
-    internal static partial int LoadImageFromFile(string filename, out nint image);
+    [LibraryImport("shlwapi.dll", EntryPoint = "SHCreateMemStream")]
+    internal static partial nint CreateMemoryStream([In] byte[] init, uint length);
+
+    [SupportedOSPlatform("windows")]
+    [LibraryImport("gdiplus.dll", EntryPoint = "GdipLoadImageFromStream")]
+    internal static partial int LoadImageFromStream(nint stream, out nint image);
 
     [SupportedOSPlatform("windows")]
     [LibraryImport("gdiplus.dll", EntryPoint = "GdipDisposeImage")]

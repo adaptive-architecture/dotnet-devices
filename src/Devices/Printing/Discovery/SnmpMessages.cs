@@ -48,11 +48,12 @@ internal static class SnmpMessages
     /// Reads an SNMP response.
     /// </summary>
     /// <param name="payload">The bytes of the response.</param>
+    /// <param name="host">The host the response came from, named in the error status message.</param>
     /// <returns>The decoded response.</returns>
     /// <exception cref="InvalidDataException">Thrown when the message is malformed.</exception>
     /// <exception cref="SnmpTooBigException">Thrown when the agent reported <c>tooBig</c>. The caller can ask for less.</exception>
     /// <exception cref="InvalidOperationException">Thrown when the agent reported another error status.</exception>
-    public static SnmpReply Parse(byte[] payload)
+    public static SnmpReply Parse(byte[] payload, string host)
     {
         ArgumentNullException.ThrowIfNull(payload);
 
@@ -86,7 +87,7 @@ internal static class SnmpMessages
         if (pdu.ErrorStatus != ErrorCode.NoError)
         {
             throw new InvalidOperationException(
-                $"The SNMP agent reported error status {pdu.ErrorStatus} at index {pdu.ErrorIndex}.");
+                $"The SNMP agent at '{host}' reported error status {pdu.ErrorStatus} at index {pdu.ErrorIndex}.");
         }
 
         // A collection expression over the variable list emits a compiler wrapper type

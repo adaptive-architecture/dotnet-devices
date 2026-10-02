@@ -1,4 +1,5 @@
-﻿using System.Runtime.Versioning;
+﻿using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 
 namespace AdaptArch.Devices.Printing.Spooler;
 
@@ -48,8 +49,21 @@ internal sealed class WindowsGdiInteropAdapter : IWindowsGdiInterop
         WindowsGdiInterop.Shutdown(token);
 
     [SupportedOSPlatform("windows")]
-    public int LoadImageFromFile(string filename, out nint image) =>
-        WindowsGdiInterop.LoadImageFromFile(filename, out image);
+    public int LoadImage(byte[] bytes, out nint image, out nint stream)
+    {
+        stream = WindowsGdiInterop.CreateMemoryStream(bytes, (uint)bytes.Length);
+        if (stream == IntPtr.Zero)
+        {
+            // SHCreateMemStream answers null for one reason only, and 3 is GDI+'s OutOfMemory.
+            image = IntPtr.Zero;
+            return 3;
+        }
+
+        return WindowsGdiInterop.LoadImageFromStream(stream, out image);
+    }
+
+    [SupportedOSPlatform("windows")]
+    public void ReleaseStream(nint stream) => Marshal.Release(stream);
 
     [SupportedOSPlatform("windows")]
     public int DisposeImage(nint image) =>

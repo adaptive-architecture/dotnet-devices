@@ -54,15 +54,21 @@ public sealed class IppPrintJobQueue : IPrintJobQueue
     /// <inheritdoc />
     /// <exception cref="InvalidOperationException">Thrown when no IPP endpoint answers, or the printer reports an IPP error.</exception>
     /// <exception cref="InvalidDataException">Thrown when the printer returns a malformed IPP response.</exception>
-    public Task<IReadOnlyList<PrintJobInfo>> GetJobsAsync(PrinterId printerId, CancellationToken cancellationToken) =>
-        _resolver.RunAsync((uri, token) => IppRequests.GetJobsAsync(_context, uri, printerId, token), cancellationToken);
+    public async Task<IReadOnlyList<PrintJobInfo>> GetJobsAsync(PrinterId printerId, CancellationToken cancellationToken)
+    {
+        using var scope = IppLogScope.Begin(_context.Logger, printerId, "GetJobs");
+        return await _resolver.RunAsync((uri, token) => IppRequests.GetJobsAsync(_context, uri, printerId, token), cancellationToken).ConfigureAwait(false);
+    }
 
     /// <inheritdoc />
     /// <remarks>Returns <c>null</c> when <paramref name="jobId"/> is not a number, or the printer reports the job as not found.</remarks>
     /// <exception cref="InvalidOperationException">Thrown when no IPP endpoint answers, or the printer reports an IPP error other than "job not found".</exception>
     /// <exception cref="InvalidDataException">Thrown when the printer returns a malformed IPP response.</exception>
-    public Task<PrintJobInfo?> GetJobAsync(PrinterId printerId, string jobId, CancellationToken cancellationToken) =>
-        _resolver.RunAsync((uri, token) => IppRequests.GetJobAsync(_context, uri, printerId, jobId, token), cancellationToken);
+    public async Task<PrintJobInfo?> GetJobAsync(PrinterId printerId, string jobId, CancellationToken cancellationToken)
+    {
+        using var scope = IppLogScope.Begin(_context.Logger, printerId, "GetJob", jobId);
+        return await _resolver.RunAsync((uri, token) => IppRequests.GetJobAsync(_context, uri, printerId, jobId, token), cancellationToken).ConfigureAwait(false);
+    }
 
     /// <inheritdoc />
     /// <remarks>
@@ -71,6 +77,9 @@ public sealed class IppPrintJobQueue : IPrintJobQueue
     /// </remarks>
     /// <exception cref="InvalidOperationException">Thrown when no IPP endpoint answers, or the printer reports an IPP error other than "job not found".</exception>
     /// <exception cref="InvalidDataException">Thrown when the printer returns a malformed IPP response.</exception>
-    public Task<bool> CancelJobAsync(PrinterId printerId, string jobId, CancellationToken cancellationToken) =>
-        _resolver.RunAsync((uri, token) => IppRequests.CancelJobAsync(_context, uri, jobId, PrintOptions.EffectiveUserName(null), token), cancellationToken);
+    public async Task<bool> CancelJobAsync(PrinterId printerId, string jobId, CancellationToken cancellationToken)
+    {
+        using var scope = IppLogScope.Begin(_context.Logger, printerId, "CancelJob", jobId);
+        return await _resolver.RunAsync((uri, token) => IppRequests.CancelJobAsync(_context, uri, jobId, PrintOptions.EffectiveUserName(null), token), cancellationToken).ConfigureAwait(false);
+    }
 }
