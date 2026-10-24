@@ -1,6 +1,6 @@
 {
   "name": "Smoke: IPP",
-  "description": "The release check over IPP, to the same office printer as smoke-spooler. Five sheets: the first three are one-sided, so load the three one-sided sheets of smoke-spooler on top of the tray, blank side to print, then fresh paper for the two duplex sheets. After each submission the log names the engine that rendered the job and the format sent; write both down with every dropped option.",
+  "description": "The release check over IPP, to the same office printer as smoke-spooler. Five sheets: the first three are one-sided, so load three of the four one-sided sheets of smoke-spooler on top of the tray, blank side to print, then fresh paper for the two duplex sheets. After each submission the log names the engine that rendered the job and the format sent; write both down with every dropped option.",
   "mode": "queue",
   "jobs": [
     {

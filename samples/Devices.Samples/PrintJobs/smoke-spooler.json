@@ -1,6 +1,6 @@
 {
   "name": "Smoke: spooler",
-  "description": "The release check through the operating system queue: the Windows spooler, or a CUPS queue on Linux and macOS. Four sheets of office paper: three one-sided, which smoke-ipp prints on the back of, then one duplex sheet. One job must fail and print nothing. After each submission the log names the engine that rendered the job and the format sent; write both down with every dropped option.",
+  "description": "The release check through the operating system queue: the Windows spooler, or a CUPS queue on Linux and macOS. Five sheets of office paper: four one-sided, three of which smoke-ipp prints on the back of, then one duplex sheet. One job must fail and print nothing. After each submission the log names the engine that rendered the job and the format sent; write both down with every dropped option.",
   "mode": "queue",
   "jobs": [
     {
@@ -33,6 +33,18 @@
       }
     },
     {
+      "file": "pages.pdf",
+      "description": "sheet 4: page 1 as a freight document prints by default, shrunk only when larger than the sheet, measured against the whole sheet, with hard edges, from a named tray on named paper. Before the run, set mediaSource to a tray other than the default and mediaSize to A4, by the names the Printer tab lists: the driver's names on Windows, such as Tray 2 and A4, the IPP keywords below on CUPS. The sheet comes from that tray and the log drops neither; a name the queue does not list is reported as dropped. On macOS Quartz fits the page itself",
+      "options": {
+        "pageRanges": "1",
+        "scaling": "AutoFit",
+        "fitArea": "Physical",
+        "smoothing": false,
+        "mediaSource": "tray-2",
+        "mediaSize": "iso_a4_210x297mm"
+      }
+    },
+    {
       "file": "label.zpl",
       "description": "no sheet: a named converter on a printer language cannot run, so the job fails before anything is sent and no job appears in the queue",
       "options": {
@@ -41,7 +53,7 @@
     },
     {
       "file": "pages.pdf",
-      "description": "sheet 4, duplex, on fresh paper: pages 1 and 2 in colour on the long edge. Turn the sheet like a book: page 2 is on the back, the right way up. The control job: it names no converter. On Windows the default engine renders it and applies the anchor; on CUPS the log says the library rendered nothing, and Placement is dropped",
+      "description": "sheet 5, duplex, on fresh paper: pages 1 and 2 in colour on the long edge. Turn the sheet like a book: page 2 is on the back, the right way up. The control job: it names no converter. On Windows the default engine renders it and applies the anchor; on CUPS the log says the library rendered nothing, and Placement is dropped",
       "options": {
         "pageRanges": "1-2",
         "duplex": "LongEdge",

@@ -1,6 +1,6 @@
 {
   "name": "Smoke: ZPL label printer",
-  "description": "The release check for a ZPL label printer. Run it on every channel the printer offers: its spooler or CUPS queue, IPP, and the raw socket. Three labels a channel at most; one job must fail and print nothing.",
+  "description": "The release check for a ZPL label printer. Run it on every channel the printer offers: its spooler or CUPS queue, IPP, and the raw socket. Six labels a channel at most; one job must fail and print nothing.",
   "mode": "queue",
   "jobs": [
     {
@@ -25,6 +25,18 @@
         "mediaSizeSource": "Document",
         "smoothing": false
       }
+    },
+    {
+      "file": "document.pdf",
+      "description": "two labels in one job: the PDF on the media the driver is set to, with hard bars, and the queue shows one job; scan the barcode. A channel that reads neither PDF nor a raster fails before anything is sent and names what it reads",
+      "options": {
+        "copies": 2,
+        "smoothing": false
+      }
+    },
+    {
+      "file": "label.epl",
+      "description": "one label: the EPL label with its embedded bitmap. The printer must read EPL; one that reads ZPL only prints nothing or prints the commands as text, so write down which"
     }
   ]
 }
